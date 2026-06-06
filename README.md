@@ -40,15 +40,17 @@ Name any private workflow `*.local.json` and it's ignored automatically, anywher
 in the tree.
 
 ## Best free templates & models
-See **[`docs/CATALOG.md`](docs/CATALOG.md)** for the current best free,
-locally-runnable models per modality — with **commercial-license flags**, VRAM
-needs, and official download sources. Start with ComfyUI's built-in **Templates
-Library** (sidebar) for one-click reference workflows.
+See **[`docs/CATALOG.md`](docs/CATALOG.md)** for the current best
+locally-runnable models per modality — chosen on quality / fitness for the task,
+with VRAM needs and official download sources (license info is reference-only, not a
+selection constraint). Start with ComfyUI's built-in **Templates Library** (sidebar)
+for one-click reference workflows.
 
 ## Hardware
 Developed on an RTX 5090 (32 GB). Most modules run on far less via quantized
 (GGUF / NVFP8) weights — per-module VRAM notes are in each `models.md`.
 
 ## License
-Code/templates in this repo: see `LICENSE`. **Models are licensed separately** —
-check each model's terms in `docs/CATALOG.md` before commercial use.
+Code/templates in this repo: see `LICENSE`. Models are licensed separately — see
+`docs/CATALOG.md` for each model's terms (informational; this project is personal
+use, so licensing doesn't gate model choice).

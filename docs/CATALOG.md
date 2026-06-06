@@ -1,8 +1,9 @@
-# Chimera Catalog — Best Free Templates & Models (2026)
+# Chimera Catalog — Best Templates & Models (2026)
 
-Curated, locally-runnable, free models per modality. **Licenses matter** — some
-top models are non-commercial, and Critter's Crafty Creations uses outputs
-commercially. Flags: ✅ commercial OK · ⚠️ check / restricted · ❓ verify current terms.
+Curated, locally-runnable models per modality, chosen on **quality and fitness for
+the task** — licensing is not a selection factor here (use is personal). The License
+column stays as neutral reference for anyone who forks; flags (✅ commercial-OK ·
+⚠️ restricted · ❓ verify) describe terms, they don't gate choices.
 
 > **Start here:** ComfyUI ships a built-in **Templates Library** (sidebar →
 > categories) with one-click reference workflows for most of these. Use those as
@@ -22,8 +23,9 @@ commercially. Flags: ✅ commercial OK · ⚠️ check / restricted · ❓ verif
 | **Z-Image Turbo** | Very fast turbo gen | low | ❓ verify |
 | **Kolors (Kwai)** | Photoreal, bilingual | ~8 GB (INT8) | ✅ Apache-2.0 |
 
-**For commercial craft-business assets:** lean on **Qwen-Image**, **SDXL**, or
-**FLUX.1-schnell**. Avoid **FLUX.1-dev** for paid/branded output (non-commercial).
+**Best image quality:** **FLUX.2** and **FLUX.1 [dev]** lead on fidelity & text;
+**Qwen-Image** is strongest for multilingual text/editing and fast 8-step runs. Pick
+by the result you want — there's no licensing trade-off to weigh.
 
 ## ✂️ Image editing / control
 - **Qwen-Image-Edit** — object insert/remove, style transfer, inpainting. ✅
@@ -66,9 +68,8 @@ WAN 2.2 with Lightning LoRAs for speed.
 | **HeartMula** | Offline songs from lyrics + style tags, multilingual | open (Jan 2026) |
 | **Stable Audio 3.0** | SFX + music, native ComfyUI support | ⚠️ check Stability license |
 
-**For streaming:** great for royalty-free intro/outro stings and background beds
-— but **verify each model's license** before using audio commercially or on a
-monetized channel.
+**For streaming:** great for intro/outro stings and background beds — just pick the
+model that sounds best for the cue (licensing isn't a constraint for personal use).
 
 ## 🧠 LLM / agent layer
 - **Local (via Ollama):** Qwen 3.6, Gemma, Llama, GLM — for prompt expansion,
@@ -85,7 +86,7 @@ monetized channel.
 - **Hugging Face** — 90k+ models, filter by task/license/size.
 - **Civitai** — checkpoints, LoRAs, community workflows.
 
-## ⚠️ Licensing reminder
-Model licenses change. Before shipping anything commercial (craft-business
-listings, monetized streams), open the model's card and confirm current terms.
-This catalog's flags are a starting point, **not** legal advice.
+## License column — reference only
+The License column is informational, kept for anyone who forks this repo for their
+own (possibly commercial) use. For this project's personal use it imposes no
+constraints. Model terms change; the flags are a starting point, **not** legal advice.

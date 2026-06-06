@@ -12,9 +12,9 @@ brand-specific workflows stay **private (gitignored)**.
 - **Twitch content creation:** thumbnails, channel art, scene overlays, animated
   stingers/transitions, alert graphics, intro/outro music, short clips,
   talking-head / avatar segments.
-- **Critter's Crafty Creations (a craft business):** product mockups, branded
-  social posts, listing imagery, marketing video, 3D relief/sign assets, and
-  on-brand LoRA-driven generation.
+- **Critter's Crafty Creations (personal craft projects):** product mockups,
+  social posts, listing imagery, craft video, 3D relief/sign assets, and
+  LoRA-driven generation.
 
 Use these to motivate examples, but everything committed must be brand-neutral
 so anyone can fork and reuse it.
@@ -29,9 +29,11 @@ so anyone can fork and reuse it.
   Adding or changing one modality must not require touching another.
 - **No large binaries.** Model weights, outputs, and caches are gitignored.
   Reference models by name + source URL in the catalog; never commit weights.
-- **Commercial-safe by default.** Outputs may be used commercially (the craft
-  business). Prefer permissively licensed models. Flag any non-commercial model
-  (e.g. FLUX.1-dev) before using it for business assets. See `docs/CATALOG.md`.
+- **Best model for the job — licensing is not a selection constraint.** Use is
+  personal, so always pick the highest-quality, best-fit model or template for the
+  task regardless of license terms (FLUX.1-dev, Hunyuan3D, etc. are all fair game).
+  `docs/CATALOG.md` still records each model's license as neutral reference for
+  anyone who forks, but it never gates choices here.
 
 ## Structure
 ```
