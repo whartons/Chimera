@@ -1,0 +1,75 @@
+# ── Chimera .gitignore ───────────────────────────────────────────────
+# Public repo, private work. Tracked content stays generic & reusable.
+
+# Private / branded workflows  ── keep these OUT of the public repo
+workflows/personal/
+!workflows/personal/.gitkeep
+*.local.json          # name any private workflow *.local.json -> ignored anywhere
+
+# Generated media
+outputs/
+!outputs/.gitkeep
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp4
+*.mov
+*.webm
+*.gif
+*.wav
+*.mp3
+*.flac
+*.glb
+*.obj
+*.stl
+*.ply
+*.3mf
+# (allow committed example thumbnails if you ever need them)
+!docs/**/*.png
+!docs/**/*.jpg
+
+# Model weights & caches  ── never commit; reference by URL in models.md
+models/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.gguf
+*.onnx
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# ComfyUI runtime cruft (if ComfyUI lives inside the repo)
+ComfyUI/output/
+ComfyUI/temp/
+ComfyUI/input/
+ComfyUI/models/
+ComfyUI/user/
+custom_nodes/*/
+!custom_nodes/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Node (if the MCP server is JS/TS)
+node_modules/
+dist/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

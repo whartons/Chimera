@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "comfyui": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "comfyui-mcp@0.9.4"],
+      "env": {
+        "COMFYUI_URL": "${COMFYUI_URL:-http://127.0.0.1:8000}"
+      },
+      "timeout": 600000
+    }
+  }
+}
