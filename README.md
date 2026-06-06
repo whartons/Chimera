@@ -1,4 +1,4 @@
-# 🐉 Chimera
+# Chimera
 
 > A modular ComfyUI toolkit — with a battle-tested **RTX 50-series tuning guide**, a
 > **working FLUX.2 workflow**, and a hardened **MCP bridge** to drive ComfyUI from an
