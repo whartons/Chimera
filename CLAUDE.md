@@ -9,12 +9,11 @@ orchestration layer**. The repo is **public and reusable**; personal and
 brand-specific workflows stay **private (gitignored)**.
 
 ## Who it serves (drives examples only — keep tracked content generic)
-- **Twitch content creation:** thumbnails, channel art, scene overlays, animated
-  stingers/transitions, alert graphics, intro/outro music, short clips,
+- **Live-streaming / content creation:** thumbnails, channel art, scene overlays,
+  animated stingers/transitions, alert graphics, intro/outro music, short clips,
   talking-head / avatar segments.
-- **Critter's Crafty Creations (personal craft projects):** product mockups,
-  social posts, listing imagery, craft video, 3D relief/sign assets, and
-  LoRA-driven generation.
+- **Small craft / maker projects:** product mockups, social posts, listing
+  imagery, craft video, 3D relief/sign assets, and LoRA-driven generation.
 
 Use these to motivate examples, but everything committed must be brand-neutral
 so anyone can fork and reuse it.

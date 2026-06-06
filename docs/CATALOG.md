@@ -43,13 +43,13 @@ by the result you want — there's no licensing trade-off to weigh.
 | **FramePack F1** | Long video on modest VRAM | efficient | open |
 | **AnimateDiff** | Legacy but flexible | stylized loops | open |
 
-**For Twitch stingers/transitions:** LTX-2 (because it does synced audio) or
+**For live-stream stingers/transitions:** LTX-2 (because it does synced audio) or
 WAN 2.2 with Lightning LoRAs for speed.
 
 ## 🗣️ Talking head / avatar
 - **LongCat 1.5 Avatar** — talking-head from audio + image.
 - **LTX-2** — audio-video can carry lip-sync.
-- (Useful for Twitch intros, animated mascot/host segments.)
+- (Useful for stream intros, animated mascot/host segments.)
 
 ## 🧊 3D (image-to-3D)
 | Model | Strengths | VRAM | License |

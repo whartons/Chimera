@@ -62,6 +62,23 @@ entry to:
   anything you ask it to install as untrusted code, and the pin (`@0.9.4`) stops it
   changing under you.
 
+## Security audit (v0.9.4) & per-tool gates
+This repo pins `comfyui-mcp@0.9.4` because that version was **read through and
+adversarially audited** before adoption. Verdict: **not malicious** — with the default
+`npx` + stdio launch (no extra env), it opens **no socket, no tunnel, no LLM agent, and
+exfiltrates nothing** (no telemetry, no `eval`; tokens scoped to their matching service).
+The real risk is **capability by design**: a handful of tools (`install_custom_node`,
+`apply_manifest`, `install_comfyui`, …) download and **execute third-party Python** inside
+ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
+- **Hardened launch:** [`../../.mcp.json`](../../.mcp.json) sets `NPM_CONFIG_OMIT=optional`
+  so the optional `cloudflared` / S3 / Azure / LLM-SDK deps (used only by opt-in features)
+  are never installed — the tunnel path is fully inert.
+- **Per-call approval gates:** [`../../.claude/settings.json`](../../.claude/settings.json)
+  forces an `ask` prompt (uncoverable by a broad allow) on the ~17 code-execution /
+  process-control / destructive tools. Read-only + generation tools stay frictionless.
+- **Pin + re-audit on update:** never track `@latest`. Re-scan each new version before
+  bumping the pin (worth automating — e.g. a scheduled job that diffs + scans new releases).
+
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**
 format, *not* the canvas `workflow.json` (or the graph embedded in a PNG). To get
