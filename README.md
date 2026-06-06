@@ -4,6 +4,9 @@
 > **working FLUX.2 workflow**, and a hardened **MCP bridge** to drive ComfyUI from an
 > AI assistant. Building toward image · video · 3D · audio under one roof.
 
+![A chimera generated with this repo's FLUX.2 workflow on an RTX 5090](docs/images/chimera-flux2-sample.png)
+<sub>↑ Generated with the included [FLUX.2 workflow](workflows/templates/flux2-txt2img.json) — RTX 5090, fp8, 28 steps, straight out of ComfyUI.</sub>
+
 Chimera is a **public, reusable** set of ComfyUI workflows, docs, and orchestration
 glue. Fork it, take what's useful, ignore the rest. It's developed on an RTX 5090 but
 written to help anyone running ComfyUI — especially on **Blackwell (RTX 50-series)**.
