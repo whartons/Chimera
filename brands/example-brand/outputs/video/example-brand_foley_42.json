@@ -1,0 +1,19 @@
+{
+  "schema": 2,
+  "modality": "audio",
+  "mode": "foley",
+  "brand": "example-brand",
+  "seed": 42,
+  "model": "hunyuanvideo_foley_fp8_e4m3fn.safetensors",
+  "watermark": false,
+  "prompt": "a heavy six-wheeled armored vehicle slowly driving forward on a hard concrete floor, thick rubber tires rolling and gripping the ground, low electric-diesel drivetrain hum and whine, suspension creak, faint servo whir of the rotating sensor turret, subtle grit and gravel crunching under the tires",
+  "negative": "music, speech, voice, singing, noisy, harsh",
+  "inputs": {
+    "subject": "a heavy six-wheeled armored vehicle slowly driving forward on a hard concrete floor, thick rubber tires rolling and gripping the ground, low electric-diesel drivetrain hum and whine, suspension creak, faint servo whir of the rotating sensor turret, subtle grit and gravel crunching under the tires",
+    "from_video": "example-brand_i2v_42.mp4",
+    "duration": 3.88,
+    "fps": 25.0
+  },
+  "comfy_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-06-08T16:01:22"
+}

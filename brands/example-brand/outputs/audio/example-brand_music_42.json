@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "modality": "audio",
+  "mode": "music",
+  "brand": "example-brand",
+  "seed": 42,
+  "model": "acestep_v1.5_xl_turbo_bf16.safetensors",
+  "watermark": false,
+  "prompt": "epic medieval war film score, thundering taiko and timpani war drums, pounding low percussion, blaring brass war horns, soaring heroic string orchestra, epic male choir chant, battle-charge momentum, dark and powerful, cinematic orchestral trailer, instrumental, epic battle intro sting",
+  "negative": "",
+  "inputs": {
+    "subject": "epic battle intro sting"
+  },
+  "comfy_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-06-08T15:58:36"
+}

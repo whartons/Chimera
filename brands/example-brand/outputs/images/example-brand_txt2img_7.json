@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "modality": "image",
+  "mode": "txt2img",
+  "brand": "example-brand",
+  "seed": 7,
+  "model": "z_image_turbo_nvfp4.safetensors",
+  "watermark": true,
+  "prompt": "a six-wheeled armored reconnaissance rover, sensor mast on top, knobby off-road tires, rugged tactical-industrial design, brushed gunmetal and matte black, hard edges, precision-engineered hardware, dramatic studio lighting, photoreal, brand palette #1c1f22, #2e3338, #b6c0c8, #c8442e, high-detail hardware render, clean dark studio background",
+  "negative": "",
+  "inputs": {
+    "subject": "a six-wheeled armored reconnaissance rover, sensor mast on top, knobby off-road tires"
+  },
+  "comfy_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-06-08T15:57:59"
+}

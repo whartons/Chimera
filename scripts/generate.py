@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+"""Unified brand-aware generator. One entrypoint, per-modality subcommands sharing the
+brandkit core: manifest -> prompt -> filler (builds the graph, injects opt-in watermark)
+-> queue to ComfyUI -> route output into brands/<brand>/outputs/ (+ reproducibility sidecar).
+
+  python scripts/generate.py image --brand example-brand --subject "an armored rover" \
+      --mode txt2img [--watermark] [--seed 7] [--comfy-output-dir <dir>] [--asset primary.png]
+
+The `replay` subcommand re-runs a render from its schema-2 sidecar JSON, closing the
+reproducibility loop:
+
+  python scripts/generate.py replay brands/example-brand/outputs/video/<name>.json \
+      [--seed 999] [--comfy-url <url>] [--comfy-output-dir <dir>]
+
+Replay reconstructs the CLI inputs from the sidecar's `inputs` block and feeds them back
+through the SAME prepare -> filler -> queue -> route -> sidecar flow as a normal render. It
+re-derives the prompt from the recorded `subject` via build_prompt/build_audio_prompt (it does
+NOT replay the stored prompt string verbatim), so with an unchanged brand.yaml it reproduces the
+identical prompt/seed/model. The stored prompt/negative stay as the human-readable as-rendered
+record. Schema-1 (pre-enriched) sidecars lack `inputs` and cannot be replayed -- re-render once
+to upgrade them.
+"""
+import argparse, json, random, struct, sys, datetime
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.brandkit.manifest import load_manifest
+from scripts.brandkit.prompt import build_prompt, build_audio_prompt
+from scripts.brandkit import workflow as image_filler
+from scripts.brandkit import video as video_filler
+from scripts.brandkit import audio as audio_filler
+from scripts.brandkit import threed as threed_filler
+from scripts.brandkit.comfy import ComfyClient
+from scripts.brandkit.outputs import route_output, first_output, NoOutputError, write_sidecar
+from scripts.brandkit.sidecar import build_meta
+
+FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
+           "3d": threed_filler.build}
+TIMEOUTS = {"image": 900, "video": 3600, "audio": 1800, "3d": 3600}
+FREE_BEFORE_DEFAULT = {"image": False, "video": True, "audio": True, "3d": True}
+
+# CLI args harvested into the sidecar `inputs` dict (sidecar.relevant_inputs then keeps the
+# modality-relevant subset). Must remain a superset of every sidecar._INPUT_KEYS value, minus
+# "format" which is injected separately as the resolved fmt; tests/test_sidecar.py guards this.
+SIDECAR_INPUT_KEYS = ("subject", "asset", "variant", "model", "from_image", "from_video",
+                      "length", "fps", "width", "height", "audio", "duration", "bpm",
+                      "keyscale", "octree", "upscale", "upscale_model")
+
+
+def _png_size(path):
+    with open(path, "rb") as f:
+        head = f.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+
+def _add_common(sp):
+    sp.add_argument("--brand", required=True)
+    sp.add_argument("--seed", type=int, default=None)
+    sp.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    sp.add_argument("--comfy-output-dir", default=None)
+    sp.add_argument("--watermark", action="store_true", help="stamp the brand logo (opt-in)")
+    sp.add_argument("--out-name", default=None, help="(reserved; output is named <brand>_<mode>_<seed>)")
+    sp.add_argument("--timeout", type=int, default=None)
+    sp.add_argument("--free-before", dest="free_before", action="store_true", default=None)
+    sp.add_argument("--no-free-before", dest="free_before", action="store_false")
+
+
+def _prepare_image(args, m, brand_dir, client, ap):
+    fkw = {"mode": args.mode, "variant": args.variant, "model": args.model,
+           "upscale": args.upscale,
+           "upscale_model": args.upscale_model or m.defaults.upscale_model}  # None -> filler DEFAULT
+    if args.mode in ("logo", "product"):
+        subdir = "logos" if args.mode == "logo" else "products"
+        asset_name = args.asset or (m.logo.default or "").split("/")[-1]
+        if not asset_name:
+            ap.error(f"{args.mode} mode needs --asset (a file in brands/{args.brand}/{subdir}/)")
+        asset_path = brand_dir / subdir / asset_name
+        if not asset_path.exists():
+            ap.error(f"asset not found: {asset_path}")
+        fkw["asset"] = client.upload_image(asset_path)
+        if args.mode == "logo":
+            sz = _png_size(asset_path)
+            if sz:
+                fkw["logo_px"] = (int(sz[0] * m.logo.scale), int(sz[1] * m.logo.scale))
+    return fkw
+
+
+def _prepare_video(args, m, brand_dir, client, ap):
+    name = args.from_image
+    if not name:
+        ap.error("video needs --from-image (a file in brands/<brand>/products/ or references/)")
+    path = next((brand_dir / d / name for d in ("products", "references")
+                 if (brand_dir / d / name).exists()), None)
+    if path is None:
+        ap.error(f"--from-image not found in products/ or references/: {name}")
+    return {"from_image": client.upload_image(path),
+            "length": args.length, "fps": args.fps, "audio": args.audio,
+            "width": args.width, "height": args.height,
+            "upscale": args.upscale,
+            "upscale_model": args.upscale_model or m.video.upscale_model}  # None -> filler DEFAULT
+
+
+def _probe_video(path):
+    """Best-effort (fps, duration_s, width, height) via PyAV; (None,)*4 if PyAV is absent
+    or the file has no readable video stream."""
+    try:
+        import av
+    except ImportError:
+        return None, None, None, None
+    c = av.open(str(path))
+    try:
+        if not c.streams.video:                       # audio-only / no video track
+            return None, None, None, None
+        vs = c.streams.video[0]
+        fr = float(vs.average_rate) if vs.average_rate else None  # None or 0 -> unknown
+        frames = vs.frames or 0
+        w, h = vs.codec_context.width, vs.codec_context.height
+        dur = (frames / fr) if (frames and fr) else None
+        return fr, dur, w, h
+    finally:
+        c.close()
+
+
+def _prepare_audio(args, m, brand_dir, client, ap):
+    if args.mode == "music":
+        return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
+                "keyscale": args.keyscale}
+    # foley: locate + upload the source video, probe its fps/duration/size
+    name = args.from_video
+    if not name:
+        ap.error("foley needs --from-video (a file in brands/<brand>/outputs|references|products/)")
+    # outputs/video/ first (media-type-routed location), then legacy flat outputs/, then sources
+    path = next((brand_dir / d / name for d in ("outputs/video", "outputs", "references", "products")
+                 if (brand_dir / d / name).exists()), None)
+    if path is None:
+        ap.error(f"--from-video not found in outputs/video/, outputs/, references/ or products/: {name}")
+    fr, dur, w, h = _probe_video(path)
+    frame_rate = args.fps or fr or 25.0
+    duration = args.duration or dur or 5.0
+    if (fr is None or dur is None) and (args.fps is None or args.duration is None):
+        print(f"warning: could not probe {name}; using frame_rate={frame_rate} duration={duration}"
+              " (pass --fps/--duration to override)", file=sys.stderr)
+    return {"mode": "foley", "from_video": client.upload_video(path),
+            "frame_rate": frame_rate, "duration": duration, "fps": frame_rate,
+            "width": w or 768, "height": h or 512}
+
+
+def _prepare_3d(args, m, brand_dir, client, ap):
+    name = args.from_image
+    path = next((brand_dir / d / name for d in ("products", "references", "outputs/images")
+                 if (brand_dir / d / name).exists()), None)
+    if path is None:
+        ap.error(f"--from-image not found in products/, references/ or outputs/images/: {name}")
+    return {"mode": args.mode, "from_image": client.upload_image(path),
+            "octree": args.octree, "model": args.model}
+
+
+def _supports_watermark(modality, mode):
+    if modality == "image":
+        return mode != "logo"
+    if modality == "video":
+        return True
+    if modality == "audio":
+        return mode == "foley"   # music has no visual canvas
+    return False
+
+
+PREPARE = {"image": _prepare_image, "video": _prepare_video, "audio": _prepare_audio,
+           "3d": _prepare_3d}
+
+
+def _args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None):
+    """Reconstruct the full argparse.Namespace that run() expects from a schema-2 sidecar dict,
+    plus optional overrides. Pure (no I/O), stdlib-only.
+
+    Schema-1 sidecars predate the enriched `inputs` block and cannot be reconstructed, so we
+    refuse them rather than guess. An explicit seed override wins over the recorded seed; with
+    neither override the recorded seed is reused, giving an identical render."""
+    if data.get("schema", 1) < 2:
+        raise ValueError("sidecar is schema-1 (pre-enriched); replay needs schema>=2 — "
+                         "re-render once to upgrade it.")
+    if data.get("kind") == "agent-run":
+        raise ValueError("this is an agent-run sidecar (auto_generate.py), not a "
+                         "replayable render sidecar")
+    modality = data["modality"]
+    inp = data.get("inputs", {})
+    return argparse.Namespace(
+        modality=modality,
+        mode=data.get("mode"),
+        brand=data["brand"],
+        seed=seed if seed is not None else data.get("seed"),
+        comfy_url=comfy_url or data.get("comfy_url") or "http://127.0.0.1:8000",
+        comfy_output_dir=comfy_output_dir,  # host path, not stored; only relocates if passed
+        watermark=bool(data.get("watermark", False)),
+        out_name=None, timeout=None, free_before=None,
+        subject=inp.get("subject"),
+        asset=inp.get("asset"),
+        variant=inp.get("variant"),
+        # the user's --model OVERRIDE (absent when they used the brand default); run()
+        # re-resolves the actual model file, so we must NOT use the top-level resolved model.
+        model=inp.get("model"),
+        upscale=bool(inp.get("upscale")),       # image: re-apply the upscale pass on replay
+        upscale_model=inp.get("upscale_model"),
+        from_image=inp.get("from_image"),
+        from_video=inp.get("from_video"),
+        length=inp.get("length"),
+        fps=inp.get("fps"),
+        width=inp.get("width"),
+        height=inp.get("height"),
+        audio=inp.get("audio", True),  # only video records `audio`; True matches the vid --audio default
+        duration=inp.get("duration"),
+        bpm=inp.get("bpm"),
+        keyscale=inp.get("keyscale"),
+        octree=inp.get("octree"),
+        format=inp.get("format") or data.get("format"),
+    )
+
+
+def run(args, repo_root, ap):
+    brand_dir = repo_root / "brands" / args.brand
+    m = load_manifest(brand_dir / "brand.yaml")
+    seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
+    if args.modality == "3d":
+        pos, neg = "", ""
+    elif args.modality == "audio":
+        pos, neg = build_audio_prompt(m, args.subject, args.mode)
+    else:
+        pos, neg = build_prompt(m, args.subject)
+    do_watermark = (args.watermark or m.watermark.enabled_default) and \
+        _supports_watermark(args.modality, args.mode)
+    client = ComfyClient(args.comfy_url)
+
+    free_before = args.free_before if args.free_before is not None else FREE_BEFORE_DEFAULT[args.modality]
+    if free_before:
+        client.free()
+
+    fkw = PREPARE[args.modality](args, m, brand_dir, client, ap)
+    if do_watermark:
+        logo_rel = (m.logo.default or "").split("/")[-1]
+        logo_path = brand_dir / "logos" / logo_rel
+        if not logo_path.exists():
+            ap.error(f"--watermark needs a brand logo at brands/{args.brand}/logos/{logo_rel}")
+        fkw["watermark_logo"] = client.upload_image(logo_path)
+        sz = _png_size(logo_path)
+        if sz:
+            fkw["logo_px"] = (int(sz[0] * m.watermark.scale), int(sz[1] * m.watermark.scale))
+
+    wf = FILLERS[args.modality](repo_root, m, positive=pos, negative=neg, seed=seed,
+                               watermark=do_watermark, **fkw)
+    pid = client.queue_prompt(wf)
+    print(f"queued {pid} (modality={args.modality} brand={args.brand} mode={args.mode} seed={seed})")
+    timeout = args.timeout or TIMEOUTS[args.modality]
+    try:
+        client.wait(pid, max_wait=timeout)
+    except (RuntimeError, TimeoutError) as e:
+        print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
+    try:
+        fname, subfolder, _ = first_output(client.output_filenames(pid))
+    except NoOutputError as e:
+        print(str(e), file=sys.stderr); sys.exit(1)
+
+    if args.comfy_output_dir:
+        src = Path(args.comfy_output_dir) / subfolder / fname
+        dest = route_output(repo_root, args.brand, src, args.mode, seed)
+        fmt = None  # only set for 3d; passed to build_meta (None -> omitted from sidecar)
+        if args.modality == "3d":
+            # ComfyUI only saves GLB; convert to the requested export format host-side
+            # (geometry-only — fine for STL/OBJ printing/CAD). Drop the intermediate GLB.
+            fmt = (args.format or m.threed.format or "glb").lower()
+            if fmt != "glb":
+                from scripts.brandkit.mesh import convert
+                converted = convert(dest, fmt)
+                dest.unlink()
+                dest = converted
+        if args.modality == "video":
+            model_used = m.video.model or "ltx-2.3-22b-dev-nvfp4.safetensors"
+        elif args.modality == "audio":
+            model_used = (m.audio.foley_model or "hunyuanvideo_foley_fp8_e4m3fn.safetensors") \
+                if args.mode == "foley" else (m.audio.music_model or "acestep_v1.5_xl_turbo_bf16.safetensors")
+        elif args.modality == "3d":
+            model_used = args.model or m.threed.model or "hunyuan_3d_v2.1.safetensors"
+        else:
+            # Z-Image's variant determines the actual model file (product -> base, etc.),
+            # so resolve it rather than trusting defaults.model.
+            model_used = image_filler.resolve_image_model(
+                args.mode, args.variant, args.model or m.defaults.model)
+        inputs = {k: getattr(args, k, None) for k in SIDECAR_INPUT_KEYS}
+        if args.modality in ("image", "video"):
+            # Keep off-by-default renders' sidecars clean: only record upscale when used.
+            # When on, record the bool + the RESOLVED model the filler will use for THIS
+            # modality. The (brand override field, modality default) pair is per-modality:
+            # image uses defaults.upscale_model + ESRGAN default; video uses video.upscale_model
+            # + the LTX latent-upscaler default (they want different model families).
+            brand_upscale_model, modality_default = (
+                (m.defaults.upscale_model, image_filler.DEFAULT_UPSCALE_MODEL)
+                if args.modality == "image"
+                else (m.video.upscale_model, video_filler.DEFAULT_VIDEO_UPSCALE_MODEL))
+            inputs["upscale"] = True if args.upscale else None
+            inputs["upscale_model"] = (
+                args.upscale_model or brand_upscale_model
+                or modality_default) if args.upscale else None
+        if args.modality == "3d":
+            inputs["format"] = fmt  # record the RESOLVED export format (args.format may be None)
+        meta = build_meta(modality=args.modality, mode=args.mode, brand=args.brand, seed=seed,
+                          model=model_used, watermark=do_watermark, comfy_url=args.comfy_url,
+                          wf=wf, inputs=inputs,
+                          timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
+                          fmt=fmt)
+        write_sidecar(dest, meta)
+        print(f"output -> {dest}")
+    else:
+        print(f"output filename: {fname} (pass --comfy-output-dir to relocate into the brand folder)")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="generate.py")
+    sub = ap.add_subparsers(dest="modality", required=True)
+    img = sub.add_parser("image"); _add_common(img)
+    img.add_argument("--subject", required=True)
+    img.add_argument("--mode", choices=["txt2img", "logo", "product"], default="txt2img")
+    img.add_argument("--asset", default=None)
+    img.add_argument("--variant", choices=["base", "turbo"], default=None,
+                     help="Z-Image fidelity: turbo (8-step, default for txt2img/logo) or base "
+                          "(25-step, default for product img2img)")
+    img.add_argument("--model", default=None,
+                     help="override the image model/family (e.g. flux2_dev_fp8mixed.safetensors "
+                          "to use the FLUX.2 backend instead of Z-Image)")
+    img.add_argument("--upscale", action="store_true",
+                     help="4x ESRGAN upscale of the output (decode -> [watermark] -> upscale -> save)")
+    img.add_argument("--upscale-model", dest="upscale_model", default=None,
+                     help=f"override the upscale model (default {image_filler.DEFAULT_UPSCALE_MODEL}; "
+                          "must be in ComfyUI models/upscale_models/)")
+    vid = sub.add_parser("video"); _add_common(vid)
+    vid.add_argument("--subject", required=True)
+    vid.add_argument("--from-image", dest="from_image", required=True,
+                     help="start frame: a file in brands/<brand>/products/ or references/")
+    vid.add_argument("--mode", choices=["i2v"], default="i2v")
+    vid.add_argument("--length", type=int, default=97)
+    vid.add_argument("--fps", type=int, default=25)
+    vid.add_argument("--width", type=int, default=768)
+    vid.add_argument("--height", type=int, default=512)
+    vid.add_argument("--audio", dest="audio", action="store_true", default=True)
+    vid.add_argument("--no-audio", dest="audio", action="store_false")
+    vid.add_argument("--upscale", action="store_true",
+                     help="2x LTX spatial latent upscale (temporally coherent; precedes watermark)")
+    vid.add_argument("--upscale-model", dest="upscale_model", default=None,
+                     help=f"override the latent upscaler (default {video_filler.DEFAULT_VIDEO_UPSCALE_MODEL}; "
+                          "must be in ComfyUI models/latent_upscale_models/)")
+    aud = sub.add_parser("audio"); _add_common(aud)
+    aud.add_argument("--mode", choices=["music", "foley"], default="music")
+    aud.add_argument("--subject", required=True,
+                     help="music: the sonic brief (e.g. 'logo sting'); foley: the SFX to generate")
+    aud.add_argument("--from-video", dest="from_video", default=None,
+                     help="foley source: a file in brands/<brand>/outputs|references|products/")
+    aud.add_argument("--duration", type=float, default=None)
+    aud.add_argument("--bpm", type=int, default=None, help="(music)")
+    aud.add_argument("--keyscale", default=None, help="(music)")
+    aud.add_argument("--fps", type=float, default=None, help="(foley; default = source fps)")
+    td = sub.add_parser("3d"); _add_common(td)
+    td.add_argument("--mode", choices=["image"], default="image")
+    td.add_argument("--from-image", dest="from_image", required=True,
+                    help="source image: a file in brands/<brand>/products|references/ or outputs/images/")
+    td.add_argument("--octree", type=int, default=None, help="VAEDecodeHunyuan3D octree_resolution (detail vs size)")
+    td.add_argument("--model", default=None, help="3D checkpoint override")
+    td.add_argument("--format", choices=["glb", "stl", "obj"], default=None,
+                    help="3D export format (default glb; stl/obj converted host-side, geometry only)")
+    rp = sub.add_parser("replay", help="re-run a render from its sidecar JSON")
+    rp.add_argument("sidecar", help="path to a schema-2 sidecar .json")
+    rp.add_argument("--seed", type=int, default=None, help="override the recorded seed")
+    rp.add_argument("--comfy-output-dir", default=None,
+                    help="route the result into the brand folder + write a fresh sidecar "
+                         "(omit to just re-render and print the raw ComfyUI filename)")
+    rp.add_argument("--comfy-url", default=None, help="override (default: the sidecar's recorded comfy_url)")
+    nb = sub.add_parser("new-brand", help="scaffold a new brand folder from brands/_template/")
+    nb.add_argument("name", help="brand folder name (used as --brand later)")
+    lt = sub.add_parser("lint", help="validate a brand.yaml + check referenced assets")
+    lt.add_argument("--brand", required=True)
+    args = ap.parse_args()
+
+    repo_root = Path(__file__).resolve().parents[1]
+    if args.modality == "new-brand":
+        from scripts.brandkit.scaffold import new_brand
+        try:
+            dest = new_brand(repo_root, args.name)
+        except (ValueError, FileExistsError, FileNotFoundError) as e:
+            ap.error(str(e))
+        print(f"created {dest}")
+        print(f"  next: edit {dest / 'brand.yaml'}, add a logo to logos/, then "
+              f"`python scripts/generate.py lint --brand {args.name}`")
+        return
+    if args.modality == "lint":
+        from scripts.brandkit.scaffold import lint_brand, print_lint
+        fails = print_lint(args.brand, lint_brand(repo_root, args.brand))
+        sys.exit(1 if fails else 0)
+    if args.modality == "replay":
+        data = json.loads(Path(args.sidecar).read_text(encoding="utf-8"))
+        try:
+            rargs = _args_from_sidecar(data, seed=args.seed,
+                                       comfy_output_dir=args.comfy_output_dir,
+                                       comfy_url=args.comfy_url)
+        except (ValueError, KeyError) as e:
+            ap.error(f"cannot replay {args.sidecar}: {e}")
+        print(f"replaying {args.sidecar} (modality={rargs.modality} mode={rargs.mode} "
+              f"brand={rargs.brand} seed={rargs.seed})")
+        run(rargs, repo_root, ap)
+        return
+    run(args, repo_root, ap)
+
+
+if __name__ == "__main__":
+    main()

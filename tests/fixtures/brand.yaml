@@ -1,0 +1,10 @@
+name: "Test Brand"
+style: "clean studio look, soft light"
+palette: ["#101010", "#cccccc"]
+prompt_suffix: ", product render"
+negative: "blurry, watermark"
+defaults: { model: "flux2_dev_fp8mixed.safetensors", width: 768, height: 512, steps: 12, guidance: 3.0 }
+logo: { default: "logos/primary.png", position: "bottom-right", scale: 0.2, margin: 0.05 }
+lora: { file: "lora/test.safetensors", strength: 0.7 }
+ip_adapter: { enabled: false, weight: 0.5, references: "references/" }
+audio: { music_tags: "dark cinematic, industrial percussion", music_bpm: 90, foley_negative: "music, speech" }

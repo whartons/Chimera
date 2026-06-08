@@ -32,11 +32,12 @@ Check your current state in the ComfyUI **startup log**: the attention backend l
 `You need pytorch with cu130 or higher` warning is present (that warning means the
 optimized FP4/FP8 CUDA kernels are gated off). Levers, lowest-risk first:
 
-1. **`--fast fp16_accumulation`** — free, ~15–20% on linear ops. ComfyUI Desktop has
-   no GUI args field; add launch flags to `%APPDATA%\ComfyUI\config.json` as an
-   `extraArgs` array, each token a separate element:
-   `"extraArgs": ["--fast", "fp16_accumulation"]`. Avoid bare `--fast` — its
-   `autotune` causes multi-second first-run step hangs.
+1. **`--fast fp16_accumulation`** — free, ~15–20% on linear ops. ComfyUI Desktop has no
+   GUI args field; the supported way to pass launch flags is the frontend setting
+   **`Comfy.Server.LaunchArgs`** (Settings → search "LaunchArgs"). The `config.json`
+   `extraArgs` key is **ignored** — see the [Blackwell tuning guide](BLACKWELL-TUNING.md)
+   for the exact mechanism and value format. Avoid bare `--fast` — its `autotune` causes
+   multi-second first-run step hangs.
 2. **SageAttention 2 + Triton** — ~25–35% faster sampling; the biggest low-risk win.
    On Windows use the community prebuilt wheels: `triton-windows` (matched to your
    torch version) and a SageAttention wheel from the woct0rdho releases; enable with

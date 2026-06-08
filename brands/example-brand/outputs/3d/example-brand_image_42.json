@@ -1,0 +1,19 @@
+{
+  "schema": 2,
+  "modality": "3d",
+  "mode": "image",
+  "brand": "example-brand",
+  "seed": 42,
+  "model": "hunyuan_3d_v2.1.safetensors",
+  "watermark": false,
+  "prompt": "",
+  "negative": "",
+  "inputs": {
+    "from_image": "rover.png",
+    "octree": 128,
+    "format": "glb"
+  },
+  "comfy_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-06-08T18:39:16",
+  "format": "glb"
+}

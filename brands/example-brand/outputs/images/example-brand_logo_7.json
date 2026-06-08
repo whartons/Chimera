@@ -1,0 +1,17 @@
+{
+  "schema": 2,
+  "modality": "image",
+  "mode": "logo",
+  "brand": "example-brand",
+  "seed": 7,
+  "model": "z_image_turbo_nvfp4.safetensors",
+  "watermark": false,
+  "prompt": "rugged tactical poster background, brushed gunmetal panels, dramatic studio lighting, dark moody atmosphere, clean negative space, rugged tactical-industrial design, brushed gunmetal and matte black, hard edges, precision-engineered hardware, dramatic studio lighting, photoreal, brand palette #1c1f22, #2e3338, #b6c0c8, #c8442e, high-detail hardware render, clean dark studio background",
+  "negative": "",
+  "inputs": {
+    "subject": "rugged tactical poster background, brushed gunmetal panels, dramatic studio lighting, dark moody atmosphere, clean negative space",
+    "asset": "primary.png"
+  },
+  "comfy_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-06-08T15:58:23"
+}

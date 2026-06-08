@@ -4,7 +4,8 @@
 # Private / branded workflows  ── keep these OUT of the public repo
 workflows/personal/
 !workflows/personal/.gitkeep
-*.local.json          # name any private workflow *.local.json -> ignored anywhere
+# name any private workflow *.local.json -> ignored anywhere
+*.local.json
 
 # Generated media
 outputs/
@@ -44,6 +45,9 @@ models/
 .env.*
 !.env.example
 
+# Internal development planning docs (kept local; not part of the public surface)
+docs/superpowers/
+
 # ComfyUI runtime cruft (if ComfyUI lives inside the repo)
 ComfyUI/output/
 ComfyUI/temp/
@@ -73,3 +77,29 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# ── Brand Kits ── pattern public, brand data private
+# Everything directly under brands/ is private by default (real brands stay local)...
+brands/*
+# ...except the readme, the starter template, and the public showcase brand, which are
+# tracked IN FULL — including their outputs/ — so the example pipeline is complete and
+# reproducible for anyone who clones the repo.
+!brands/README.md
+!brands/_template/
+!brands/_template/**
+!brands/example-brand/
+!brands/example-brand/**
+# Never commit trained model weights or the regenerable trainer config, even for the
+# example brand: large binaries / generated artifacts — reproduce them from training/
+# + brand.yaml. (These override the broad re-include just above.)
+brands/example-brand/**/*.safetensors
+brands/example-brand/**/*.ckpt
+brands/example-brand/**/*.pt
+brands/example-brand/**/*.pth
+brands/example-brand/**/*.bin
+brands/example-brand/**/*.gguf
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/

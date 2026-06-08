@@ -1,0 +1,40 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "_meta": {"title": "brand:vlm_image"},
+    "inputs": {"image": "PLACEHOLDER_IMAGE"}
+  },
+  "2": {
+    "class_type": "AILab_QwenVL_Advanced",
+    "_meta": {"title": "brand:vlm"},
+    "inputs": {
+      "model_name": "Qwen2.5-VL-7B-Instruct",
+      "quantization": "None (FP16)",
+      "attention_mode": "auto",
+      "use_torch_compile": false,
+      "device": "auto",
+      "preset_prompt": "🖼️ Detailed Description",
+      "custom_prompt": "PLACEHOLDER_RUBRIC",
+      "max_tokens": 768,
+      "temperature": 0.1,
+      "top_p": 0.9,
+      "num_beams": 1,
+      "repetition_penalty": 1.2,
+      "frame_count": 16,
+      "keep_model_loaded": true,
+      "seed": 1,
+      "image": ["1", 0]
+    }
+  },
+  "3": {
+    "class_type": "SaveImageTextDataSetToFolder",
+    "_meta": {"title": "brand:vlm_out"},
+    "inputs": {
+      "images": ["1", 0],
+      "folder_name": "agent_verdicts",
+      "filename_prefix": "PLACEHOLDER_PREFIX",
+      "mode": "overwrite",
+      "texts": ["2", 0]
+    }
+  }
+}

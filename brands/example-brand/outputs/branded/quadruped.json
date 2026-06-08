@@ -1,0 +1,16 @@
+{
+  "schema": 2,
+  "modality": "image",
+  "mode": "txt2img",
+  "brand": "example-brand",
+  "seed": 12,
+  "model": "z_image_turbo_nvfp4.safetensors",
+  "watermark": false,
+  "prompt": "a rugged four-legged walking utility robot with articulated legs and a sensor head, standing on a dark studio floor, rugged tactical-industrial design, brushed gunmetal and matte black, hard edges, precision-engineered hardware, dramatic studio lighting, photoreal, brand palette #1c1f22, #2e3338, #b6c0c8, #c8442e, high-detail hardware render, clean dark studio background",
+  "negative": "",
+  "inputs": {
+    "subject": "a rugged four-legged walking utility robot with articulated legs and a sensor head, standing on a dark studio floor"
+  },
+  "comfy_url": "http://127.0.0.1:8000",
+  "timestamp": "2026-06-08T16:15:38"
+}

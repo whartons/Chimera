@@ -1,0 +1,9 @@
+{
+  "1": {"class_type": "LoadVideo", "_meta": {"title": "brand:load_video"}, "inputs": {"file": "PLACEHOLDER_VIDEO"}},
+  "2": {"class_type": "GetVideoComponents", "_meta": {"title": "brand:components"}, "inputs": {"video": ["1", 0]}},
+  "3": {"class_type": "HunyuanModelLoader", "_meta": {"title": "brand:foley_model"}, "inputs": {"model_name": "hunyuanvideo_foley_fp8_e4m3fn.safetensors", "precision": "bf16", "quantization": "auto"}},
+  "4": {"class_type": "HunyuanDependenciesLoader", "_meta": {"title": "brand:foley_deps"}, "inputs": {"vae_name": "vae_128d_48k_fp16.safetensors", "synchformer_name": "synchformer_state_dict_fp16.safetensors"}},
+  "5": {"class_type": "HunyuanFoleySampler", "_meta": {"title": "brand:foley"}, "inputs": {"hunyuan_model": ["3", 0], "hunyuan_deps": ["4", 0], "frame_rate": 25.0, "duration": 3.88, "prompt": "PLACEHOLDER_PROMPT", "negative_prompt": "music, speech, voice, singing, noisy, harsh", "cfg_scale": 4.5, "steps": 50, "sampler": "euler", "batch_size": 1, "seed": 42, "force_offload": true, "image": ["2", 0]}},
+  "6": {"class_type": "CreateVideo", "_meta": {"title": "brand:create_video"}, "inputs": {"images": ["2", 0], "fps": 25.0, "audio": ["5", 0]}},
+  "7": {"class_type": "SaveVideo", "_meta": {"title": "brand:save"}, "inputs": {"video": ["6", 0], "filename_prefix": "video/brand_foley", "format": "mp4", "codec": "h264"}}
+}

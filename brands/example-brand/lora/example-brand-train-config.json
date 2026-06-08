@@ -1,0 +1,14 @@
+{
+  "backend": "ai-toolkit",
+  "brand": "example-brand",
+  "base_model": "flux2_dev_fp8mixed.safetensors",
+  "dataset_dir": "brands/example-brand/training",
+  "output_dir": "brands/example-brand/lora",
+  "output_name": "example-brand-v1",
+  "steps": 1000,
+  "resolution": [
+    1216,
+    832
+  ],
+  "trigger_word": "example brand"
+}

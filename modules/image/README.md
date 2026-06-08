@@ -1,39 +1,198 @@
-# `image` — text-to-image (FLUX.2)
+# `image` — brand-aware image generation (Z-Image default / FLUX.2 secondary)
 
-A **tested, importable** FLUX.2 [dev] text-to-image workflow. This isn't a
-hand-waved graph — it was built from the live ComfyUI node schemas and run
-end-to-end on an RTX 5090 (1024×1024, 20 steps).
+A **tested, importable** set of image workflows for the Brand Kits pipeline.
+The default backend is **Tongyi Z-Image** (native ComfyUI support since 0.22.3 —
+no custom node pack required). FLUX.2 is retained as a secondary backend;
+switching between them is a single flag.
 
 ## Files
-- [`workflow.template.json`](workflow.template.json) — the ComfyUI **API-format**
-  workflow (drop-in for `POST /prompt` or any MCP `enqueue_workflow` tool). A copy
-  also lives in [`../../workflows/templates/flux2-txt2img.json`](../../workflows/templates/flux2-txt2img.json).
-- [`models.md`](models.md) — the three model files you need + where to get them.
 
-## Use it
-1. Download the models in [`models.md`](models.md) into your `ComfyUI/models/...` folders.
-2. **In the ComfyUI UI:** drag `workflow.template.json` onto the canvas, edit the
-   prompt, hit Run. *(If your filenames differ, re-pick them in the loader nodes.)*
-3. **Programmatically / via MCP:** send the JSON to `POST /prompt`, or hand it to an
-   MCP `enqueue_workflow` tool. It's already in API format — no conversion needed.
+**Z-Image templates (default)**
+- [`workflow.zimage-txt2img.template.json`](workflow.zimage-txt2img.template.json) — Z-Image
+  text-to-image (turbo, 8 steps). Copy also in
+  [`../../workflows/templates/brand-zimage-txt2img.json`](../../workflows/templates/brand-zimage-txt2img.json).
+- [`workflow.zimage-logo-overlay.template.json`](workflow.zimage-logo-overlay.template.json) — Z-Image
+  txt2img + in-graph brand logo composite. Copy also in
+  [`../../workflows/templates/brand-zimage-logo-overlay.json`](../../workflows/templates/brand-zimage-logo-overlay.json).
+- [`workflow.zimage-product.template.json`](workflow.zimage-product.template.json) — Z-Image
+  img2img product mockup (base, denoise 0.62). Copy also in
+  [`../../workflows/templates/brand-zimage-product.json`](../../workflows/templates/brand-zimage-product.json).
 
-## Why FLUX.2 needs this exact graph (the gotchas)
-FLUX.2 trips people up because it's **not** a normal checkpoint:
-- It's **split** into three loaders: `UNETLoader` (the diffusion model) +
-  `CLIPLoader` with **`type: "flux2"`** (the Mistral-3 text encoder) + `VAELoader`.
-  `CheckpointLoaderSimple` will *not* work.
+**FLUX.2 template (secondary)**
+- [`workflow.template.json`](workflow.template.json) — the original FLUX.2 [dev] text-to-image
+  workflow (kept for reference / FLUX.2 fallback). Copy also in
+  [`../../workflows/templates/flux2-txt2img.json`](../../workflows/templates/flux2-txt2img.json).
+
+**Supporting docs**
+- [`models.md`](models.md) — all model files, HF repos, destinations, and license notes.
+- [`brand-kits.md`](brand-kits.md) — internals: how Brand Kits wires the pipeline together.
+
+## Use it — unified CLI
+
+```
+python scripts/generate.py image \
+  --brand <brand> \
+  --mode txt2img \
+  --subject "product shot on a minimalist white background, dramatic light" \
+  [--watermark] \
+  [--variant base] \
+  [--seed 7] \
+  --comfy-output-dir "<ComfyUI output dir>"
+```
+
+### Modes
+
+| `--mode` | What it does | Default variant |
+|----------|--------------|-----------------|
+| `txt2img` | Text → on-brand image | `turbo` |
+| `logo` | `txt2img` + in-graph composite of the real brand logo PNG | `turbo` |
+| `product` | img2img — LoadImage(product) → VAEEncode → KSampler at denoise 0.62 (restyle in-brand) | `base` |
+
+- `--mode logo --asset logo.png` — provide the logo filename via `--asset`.
+- `--mode product --asset product.png` — provide the product image via `--asset`.
+
+### Fidelity variants (`--variant`)
+
+| `--variant` | Model file | Steps | CFG | When to use |
+|-------------|-----------|-------|-----|-------------|
+| `turbo` *(default for txt2img/logo)* | `z_image_turbo_nvfp4.safetensors` | 8 | 1.0 | Fast drafts and final renders; excellent quality |
+| `base` *(default for product)* | `z_image_bf16.safetensors` | 25 | 4.0 | Maximum fidelity; always used for img2img product |
+
+The variant fully determines the model file + steps + CFG — mixing them (e.g. the
+turbo model at 25 steps) degrades output. `--variant` always wins over any
+`defaults.model` setting in `brand.yaml`.
+
+### Watermark
+
+- `--watermark` composites the brand logo over the decoded image for `txt2img`
+  and `product` modes.
+- `logo` mode self-watermarks (the logo composite is the output itself) — passing
+  `--watermark` there is a no-op.
+
+### Upscale (`--upscale`)
+
+- `--upscale` runs a **4× ESRGAN** pass on the output via `ImageUpscaleWithModel`,
+  spliced in-graph just before `SaveImage` (no host image libs).
+- Model: **`4x-UltraSharp.pth`** in `ComfyUI/models/upscale_models/`. Override
+  with `--upscale-model <name>` (or set `defaults.upscale_model` in `brand.yaml`).
+- **Pipeline order:** `decode → [watermark] → upscale → save`. When `--watermark`
+  is also on, the upscale takes over the watermark composite's edge into save, so
+  **the logo upscales with the image** (it stays pixel-aligned, just larger).
+- Works for `txt2img`, `product`, and `logo` modes (all three templates route the
+  final image through `brand:save`, which the upscale splices before).
+- **VRAM:** 4× of 1024² is 4096²; ESRGAN auto-tiles, so this fits the 32 GB card
+  easily. The large upscaled PNGs are generated on demand and are **not committed**
+  (outputs are gitignored).
+
+### Switching to FLUX.2
+
+Pass a `flux2*` model name to use the FLUX.2 backend instead:
+
+```
+python scripts/generate.py image \
+  --brand <brand> \
+  --mode txt2img \
+  --subject "..." \
+  --model flux2_dev_fp8mixed.safetensors
+```
+
+Or set `defaults.model` to a `flux2*` name in `brand.yaml`. The dispatch logic
+in `scripts/brandkit/workflow.py` (`_family()`) routes any model whose name starts
+with `z_image` to the Z-Image templates and everything else to the FLUX.2 templates.
+
+## How it works
+
+### Z-Image — default backend
+
+Z-Image is a **core-native** ComfyUI model (support added in 0.22.3) — no custom
+node pack needed. It uses a **Qwen-3-4B text encoder** loaded via
+`CLIPLoader(qwen_3_4b.safetensors, type="lumina2")` (not a CLIP/T5 stack), and the
+**AuraFlow sampler schedule** wrapped by `ModelSamplingAuraFlow(shift=3)`.
+
+#### `txt2img` graph
+
+```
+UNETLoader(z_image) → ModelSamplingAuraFlow(shift 3)
+CLIPLoader(qwen_3_4b, type="lumina2")
+VAELoader(ae.safetensors)
+CLIPTextEncode(positive) → ConditioningZeroOut(negative)
+EmptySD3LatentImage → KSampler → VAEDecode → SaveImage
+```
+
+The negative is produced by `ConditioningZeroOut` applied to the *positive*
+conditioning — no separate negative text prompt is needed.
+
+#### `logo-overlay` graph
+
+The `txt2img` graph extended with an in-graph composite: after `VAEDecode`, the
+brand logo PNG is loaded, alpha-masked, scaled, and composited at the
+position/margin specified in `brand.yaml`. The logo is never re-drawn by the
+generative model — compositing keeps it pixel-exact.
+
+#### `product` (img2img) graph
+
+```
+UNETLoader(z_image_bf16) → ModelSamplingAuraFlow(shift 3)
+CLIPLoader(qwen_3_4b, type="lumina2")
+VAELoader(ae.safetensors)
+LoadImage(product) → VAEEncode → KSampler(denoise=0.62) → VAEDecode → SaveImage
+```
+
+Denoise 0.62 retains the product's structure while restyling its scene and
+lighting in-brand. `base` fidelity is always used here regardless of `--variant`.
+
+**Note on Z-Image Omni / `TextEncodeZImageOmni`:** the Z-Image Omni
+image-reference path was evaluated and is **not used**. It errors with the
+available txt2img weights (a dedicated edit checkpoint is required). The `img2img`
+VAEEncode path is the robust alternative for product mockups.
+
+### FLUX.2 — secondary backend
+
+Any model whose name starts with `flux2` routes to the original FLUX.2 templates.
+FLUX.2 uses a **split loader** (UNET + `CLIPLoader(type="flux2")` Mistral-3 encoder
++ VAE) and a `FluxGuidance` node. See [`workflow.template.json`](workflow.template.json)
+and the "gotchas" section below for details.
+
+## Why Z-Image needs this exact graph (the gotchas)
+
+- The text encoder is **`CLIPLoader` with `type: "lumina2"`** — not `type: "clip_l"`
+  or `type: "flux2"`. Using the wrong type will fail silently or produce garbage.
 - The latent is **`EmptySD3LatentImage`** (16-channel), not `EmptyLatentImage`.
-- Guidance is a dedicated **`FluxGuidance`** node (default `3.5`) on the positive
-  conditioning — and **`cfg` is `1`** (FLUX.2 is guidance-distilled; real CFG is off).
-- Sampler/scheduler that work well: **`euler` / `simple`**, ~20 steps.
+- The negative conditioning is **`ConditioningZeroOut`** applied to the positive
+  output — not an empty text prompt.
+- The sampler must be wrapped by **`ModelSamplingAuraFlow(shift=3)`** before being
+  passed to `KSampler`.
+- **Variant pairing is strict:** the turbo model expects 8 steps / CFG 1.0; the
+  base model expects 25 steps / CFG 4.0. Do not mix.
 
-## Performance
-- fp8 (`flux2_dev_fp8mixed`) @ 1024² / 20 steps: **~22.7 s** warm on an RTX 5090.
-- **NVFP4** variant on the cu130 stack: **~8.4 s** — *2.7× faster, same quality.*
-  See [`../../docs/BLACKWELL-TUNING.md`](../../docs/BLACKWELL-TUNING.md) to unlock it,
-  and [`models.md`](models.md) for the file.
-- First render of a session is slower (model load + one-time SageAttention/Triton
-  JIT); keep the model resident for fast iteration.
+## Why FLUX.2 needs its own graph (the gotchas)
+
+- **Split loaders required:** `UNETLoader` + `CLIPLoader(type="flux2")` +
+  `VAELoader`. `CheckpointLoaderSimple` will not work.
+- Latent is **`EmptySD3LatentImage`** (16-channel).
+- Guidance is a dedicated **`FluxGuidance`** node (default `3.5`); **`cfg` is `1`**
+  in `KSampler` (guidance-distilled — real CFG is off).
+- Sampler/scheduler: **`euler` / `simple`**, ~20 steps.
+
+## Performance (RTX 5090 / cu130 / SageAttention)
+
+| Variant | Resolution | Steps | Approx. time (warm) |
+|---------|-----------|-------|---------------------|
+| Z-Image turbo (nvfp4) | 1024² | 8 | fast — seconds |
+| Z-Image base (bf16) | 1024² | 25 | moderate |
+| FLUX.2 fp8 | 1024² | 20 | ~22.7 s |
+| FLUX.2 nvfp4 | 1024² | 20 | ~8.4 s |
+
+First render of a session is slower (model load + one-time SageAttention / Triton
+JIT). Keep the model resident for fast iteration.
 
 ## VRAM
-~16–24 GB for fp8. Less for NVFP4/GGUF. See [`models.md`](models.md).
+
+| Model | Approx. VRAM |
+|-------|-------------|
+| Z-Image turbo (nvfp4) | ~8–12 GB |
+| Z-Image base (bf16) | ~12–16 GB |
+| FLUX.2 fp8 | ~16–24 GB |
+| FLUX.2 nvfp4 | ~12–16 GB (cu130 only) |
+
+See [`models.md`](models.md) for download details and quantized alternatives.

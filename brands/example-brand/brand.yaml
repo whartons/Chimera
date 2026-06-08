@@ -1,0 +1,25 @@
+name: "Mercury Tactical Systems"
+# Engineering-framed: rugged tactical-industrial robotics hardware. Human-in-command.
+style: "rugged tactical-industrial design, brushed gunmetal and matte black, hard edges, precision-engineered hardware, dramatic studio lighting, photoreal"
+palette: ["#1c1f22", "#2e3338", "#b6c0c8", "#c8442e"]
+prompt_prefix: ""
+prompt_suffix: ", high-detail hardware render, clean dark studio background"
+negative: "low quality, blurry, watermark, text artifacts, cartoonish, toy-like"
+# Z-Image Turbo is the default image backend (8-step). --model flux2_dev_fp8mixed.safetensors
+# (or any flux2*) switches to the FLUX.2 backend; --variant base uses Z-Image's 25-step model.
+# steps/guidance below are used only by the FLUX.2 fallback (Z-Image sets its own per-variant).
+defaults: { model: "z_image_turbo_nvfp4.safetensors", width: 1216, height: 832, steps: 24, guidance: 3.5 }
+logo: { default: "logos/primary.png", position: "bottom-right", scale: 0.22, margin: 0.04 }
+lora: { file: null, strength: 0.8 }
+ip_adapter: { enabled: false, weight: 0.5, references: "references/" }
+# --- opt-in watermark (off by default; --watermark turns it on per render) ---
+watermark: { enabled_default: false, position: "bottom-right", scale: 0.16, margin: 0.04, opacity: 1.0 }
+# --- per-modality defaults (used by the video/audio/3D phases) ---
+video: { model: null, length: 97, fps: 25, audio: true }
+audio:
+  music_tags: "epic medieval war film score, thundering taiko and timpani war drums, pounding low percussion, blaring brass war horns, soaring heroic string orchestra, epic male choir chant, battle-charge momentum, dark and powerful, cinematic orchestral trailer, instrumental"
+  music_bpm: 90
+  music_keyscale: "D minor"
+  music_duration: 8.0
+  foley: "hunyuan"
+threed: { model: null, format: "glb" }

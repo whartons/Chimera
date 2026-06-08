@@ -1,0 +1,21 @@
+# Copy this whole folder to brands/<your-brand>/ and fill it in.
+name: "Your Brand"
+# --- (1) prompt injection: always applied ---
+style: "describe the look in a few words: palette, mood, lighting, rendering style"
+palette: []                 # optional hex strings, described to the model, e.g. ["#1c1f22"]
+prompt_prefix: ""
+prompt_suffix: ""
+negative: "low quality, blurry, watermark, text artifacts"
+defaults: { model: "flux2_dev_fp8mixed.safetensors", width: 1024, height: 1024, steps: 20, guidance: 3.5 }
+# --- exact logo overlay defaults ---
+logo: { default: null, position: "bottom-right", scale: 0.18, margin: 0.04 }
+# --- (3) optional brand LoRA ---
+lora: { file: null, strength: 0.8 }
+# --- (2) optional IP-Adapter (V2; needs models) ---
+ip_adapter: { enabled: false, weight: 0.5, references: "references/" }
+# --- opt-in watermark (off by default; --watermark turns it on per render) ---
+watermark: { enabled_default: false, position: "bottom-right", scale: 0.16, margin: 0.04, opacity: 1.0 }
+# --- per-modality defaults (used by the video/audio/3D phases) ---
+video: { model: null, length: 97, fps: 25, audio: true }
+audio: { music_model: null, foley: "ltx-native" }
+threed: { model: null, format: "glb" }

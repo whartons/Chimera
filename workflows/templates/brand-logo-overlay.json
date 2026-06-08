@@ -1,0 +1,19 @@
+{
+  "1": {"class_type": "UNETLoader", "_meta": {"title": "brand:unet"}, "inputs": {"unet_name": "flux2_dev_fp8mixed.safetensors", "weight_dtype": "default"}},
+  "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "mistral_3_small_flux2_bf16.safetensors", "type": "flux2"}},
+  "3": {"class_type": "VAELoader", "inputs": {"vae_name": "flux2-vae.safetensors"}},
+  "4": {"class_type": "CLIPTextEncode", "_meta": {"title": "brand:positive"}, "inputs": {"text": "PLACEHOLDER_POSITIVE", "clip": ["2", 0]}},
+  "5": {"class_type": "FluxGuidance", "_meta": {"title": "brand:guidance"}, "inputs": {"conditioning": ["4", 0], "guidance": 3.5}},
+  "6": {"class_type": "CLIPTextEncode", "_meta": {"title": "brand:negative"}, "inputs": {"text": "", "clip": ["2", 0]}},
+  "7": {"class_type": "EmptySD3LatentImage", "_meta": {"title": "brand:latent"}, "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+  "8": {"class_type": "KSampler", "_meta": {"title": "brand:sampler"}, "inputs": {"seed": 0, "steps": 20, "cfg": 1, "sampler_name": "euler", "scheduler": "simple", "denoise": 1, "model": ["1", 0], "positive": ["5", 0], "negative": ["6", 0], "latent_image": ["7", 0]}},
+  "9": {"class_type": "VAEDecode", "_meta": {"title": "brand:decode"}, "inputs": {"samples": ["8", 0], "vae": ["3", 0]}},
+  "11": {"class_type": "LoadImage", "_meta": {"title": "brand:logo_load"}, "inputs": {"image": "PLACEHOLDER_LOGO"}},
+  "12": {"class_type": "ImageScaleBy", "_meta": {"title": "brand:logo_scale"}, "inputs": {"image": ["11", 0], "upscale_method": "lanczos", "scale_by": 0.18}},
+  "16": {"class_type": "InvertMask", "inputs": {"mask": ["11", 1]}},
+  "17": {"class_type": "MaskToImage", "inputs": {"mask": ["16", 0]}},
+  "18": {"class_type": "ImageScaleBy", "_meta": {"title": "brand:logo_mask_scale"}, "inputs": {"image": ["17", 0], "upscale_method": "lanczos", "scale_by": 0.18}},
+  "19": {"class_type": "ImageToMask", "inputs": {"image": ["18", 0], "channel": "red"}},
+  "13": {"class_type": "ImageCompositeMasked", "_meta": {"title": "brand:logo_composite"}, "inputs": {"destination": ["9", 0], "source": ["12", 0], "x": 0, "y": 0, "resize_source": false, "mask": ["19", 0]}},
+  "10": {"class_type": "SaveImage", "_meta": {"title": "brand:save"}, "inputs": {"filename_prefix": "brand_logo", "images": ["13", 0]}}
+}

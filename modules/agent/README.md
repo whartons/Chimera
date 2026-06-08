@@ -5,6 +5,16 @@ nodes, build/queue workflows, poll progress, fetch outputs, and manage models &
 custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
 **build on an existing ComfyUI MCP server** rather than reinventing the transport.
 
+## Two layers here
+- **The MCP bridge** (below) — the assistant→ComfyUI **transport**: introspect,
+  build/queue, poll, fetch.
+- **The self-correction loop** — the **orchestration** layer on top: a
+  `generate → judge → refine` loop that iterates to a candidate passing a brand/brief
+  rubric, with an assistant multi-judge-consensus backend and a headless local-VLM
+  backend sharing one model-free core (`scripts/agent/`). See
+  [`self-correction.md`](self-correction.md) (and the assistant recipe in
+  [`../../workflows/agent/README.md`](../../workflows/agent/README.md)).
+
 ## The MCP bridge
 
 | | |
@@ -76,8 +86,9 @@ ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
 - **Per-call approval gates:** [`../../.claude/settings.json`](../../.claude/settings.json)
   forces an `ask` prompt (uncoverable by a broad allow) on the ~17 code-execution /
   process-control / destructive tools. Read-only + generation tools stay frictionless.
-- **Pin + re-audit on update:** never track `@latest`. Re-scan each new version before
-  bumping the pin (worth automating — e.g. a scheduled job that diffs + scans new releases).
+- **Pin + re-audit on update:** never track `@latest`. A **scheduled weekly job re-runs
+  this deep scan** against each new upstream release and only advances the pin after a
+  clean result — so a version bump is always reviewed and deliberate, never silent.
 
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**
