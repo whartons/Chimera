@@ -22,6 +22,19 @@ def _n(wf, title):
     return find_node_by_title(wf, title)[1]
 
 
+def resolved_model(manifest, model=None):
+    """The video checkpoint build() will actually load: explicit override, else the brand's
+    video.model, else DEFAULT_MODEL. The single source of truth shared by build() and the
+    reproducibility sidecar (generate.py reads this rather than re-deriving the chain)."""
+    return model or manifest.video.model or DEFAULT_MODEL
+
+
+def resolved_upscale_model(manifest, upscale_model=None):
+    """The spatial latent upscaler the --upscale pass will load: override, else the brand's
+    video.upscale_model, else DEFAULT_VIDEO_UPSCALE_MODEL. Shared by build() and the sidecar."""
+    return upscale_model or manifest.video.upscale_model or DEFAULT_VIDEO_UPSCALE_MODEL
+
+
 def _inject_video_upscale(wf, model_name):
     """Splice the LTX 2x spatial latent upscaler just before brand:decode: take over whatever
     feeds brand:decode's `samples` (the separated video latent) and the decode's VAE, run them
@@ -43,7 +56,7 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
           model=None, watermark_logo=None, logo_px=None, upscale=False, upscale_model=None,
           **opts) -> dict:
     v = manifest.video
-    model = model or v.model or DEFAULT_MODEL
+    model = resolved_model(manifest, model)
     width = width or v.width
     height = height or v.height
     length = length or v.length
@@ -74,7 +87,7 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
         _n(wf, "brand:create_video")["inputs"].pop("audio", None)
 
     if upscale:
-        _inject_video_upscale(wf, upscale_model or DEFAULT_VIDEO_UPSCALE_MODEL)
+        _inject_video_upscale(wf, resolved_upscale_model(manifest, upscale_model))
     if watermark:
         from .watermark import inject_video_watermark
         # The LTX spatial upscaler is fixed 2x, so the decoded frames are 2x the base canvas;

@@ -114,6 +114,43 @@ def test_video_upscale_and_watermark_coexist():
     assert (comp["inputs"]["x"], comp["inputs"]["y"]) != (base_x, base_y)
 
 
+def test_resolved_model_matches_graph_ckpt():
+    # B6: the filler's resolver is the single source of truth — it must equal what build() wrote
+    from scripts.brandkit.video import resolved_model
+    m = load_manifest(FIX)
+    wf = build(ROOT, m, positive="x", negative="", seed=1, watermark=False,
+               from_image="r.png", length=97, fps=25, audio=True, width=768, height=512)
+    assert resolved_model(m) == find_node_by_title(wf, "brand:ckpt")[1]["inputs"]["ckpt_name"]
+
+
+def test_resolved_upscale_model_matches_graph():
+    from scripts.brandkit.video import resolved_upscale_model
+    m = load_manifest(FIX)
+    wf = build(ROOT, m, positive="x", negative="", seed=1, watermark=False, from_image="r.png",
+               length=97, fps=25, audio=True, width=768, height=512, upscale=True)
+    assert resolved_upscale_model(m) == \
+        find_node_by_title(wf, "brand:video_upscale_model")[1]["inputs"]["model_name"]
+
+
+def test_resolved_upscale_model_brand_override_flows_to_graph_and_resolver(tmp_path):
+    # the brand-level video.upscale_model must reach BOTH the graph node and the sidecar resolver,
+    # and an explicit CLI override must win over it in both — pins the precedence single-source.
+    from scripts.brandkit.manifest import load_manifest as _load
+    from scripts.brandkit.video import resolved_upscale_model
+    p = tmp_path / "brand.yaml"
+    p.write_text('name: "VU"\nvideo: { upscale_model: "brand-up.safetensors" }\n', encoding="utf-8")
+    mv = _load(p)
+    wf = build(ROOT, mv, positive="x", negative="", seed=1, watermark=False, from_image="r.png",
+               length=97, fps=25, audio=True, width=768, height=512, upscale=True)
+    node = find_node_by_title(wf, "brand:video_upscale_model")[1]["inputs"]["model_name"]
+    assert resolved_upscale_model(mv) == "brand-up.safetensors" == node
+    wf2 = build(ROOT, mv, positive="x", negative="", seed=1, watermark=False, from_image="r.png",
+                length=97, fps=25, audio=True, width=768, height=512, upscale=True,
+                upscale_model="cli-up.safetensors")
+    node2 = find_node_by_title(wf2, "brand:video_upscale_model")[1]["inputs"]["model_name"]
+    assert resolved_upscale_model(mv, "cli-up.safetensors") == "cli-up.safetensors" == node2
+
+
 def test_video_upscale_model_default_none_and_loaded():
     # The Video dataclass exposes a per-modality upscale override that defaults to None, and
     # load_manifest reads brand.yaml video.upscale_model into it (parallel to defaults.upscale_model

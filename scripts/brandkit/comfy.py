@@ -81,16 +81,16 @@ class ComfyClient:
             time.sleep(poll)
         raise TimeoutError(f"prompt {prompt_id} did not finish in {max_wait}s")
 
-    def output_filenames(self, prompt_id: str):
-        """Every saved output file for a prompt, across any node output key
-        (images, gifs, videos, audio, …). ComfyUI lists each saved file as a dict with
-        a 'filename'; scanning all list-valued keys makes this format-agnostic, so mp4 /
-        webm / mov / gif / webp / wav outputs are all captured, not just images.
-        Returns (filename, subfolder, type) tuples."""
+    def output_files_by_node(self, prompt_id: str):
+        """Every saved output file for a prompt, tagged with the node id that produced it:
+        (node_id, filename, subfolder, type) tuples. Scans all list-valued output keys
+        (images, gifs, videos, audio, …) so any extension is captured, not just images.
+        Keeping the node id lets callers anchor on the canonical save node (by title) instead
+        of trusting output-dict order — see outputs.select_output."""
         hist = self._get(f"/history/{prompt_id}")
         rec = hist.get(prompt_id, {})
         out = []
-        for node in rec.get("outputs", {}).values():
+        for node_id, node in rec.get("outputs", {}).items():
             if not isinstance(node, dict):
                 continue
             for val in node.values():
@@ -98,5 +98,12 @@ class ComfyClient:
                     continue
                 for item in val:
                     if isinstance(item, dict) and "filename" in item:
-                        out.append((item["filename"], item.get("subfolder", ""), item.get("type", "output")))
+                        out.append((node_id, item["filename"],
+                                    item.get("subfolder", ""), item.get("type", "output")))
         return out
+
+    def output_filenames(self, prompt_id: str):
+        """Every saved output file for a prompt as (filename, subfolder, type) tuples (node id
+        dropped). Format-agnostic — mp4 / webm / mov / gif / webp / wav are all captured, not
+        just images. See output_files_by_node when the producing node matters."""
+        return [t[1:] for t in self.output_files_by_node(prompt_id)]

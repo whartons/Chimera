@@ -126,6 +126,18 @@ def test_upscale_model_override(tmp_path):
                upscale=True, upscale_model="4x_foo.pth")
     assert find_node_by_title(wf, "brand:upscale_model")[1]["inputs"]["model_name"] == "4x_foo.pth"
 
+def test_resolved_upscale_model_matches_graph(tmp_path):
+    # B6: image upscaler resolver is the single source of truth — equal to what build() wrote
+    from scripts.brandkit.workflow import resolved_upscale_model, DEFAULT_UPSCALE_MODEL
+    m = _m(tmp_path, "z_image_turbo_nvfp4.safetensors")
+    wf = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img", upscale=True)
+    assert resolved_upscale_model(m) == DEFAULT_UPSCALE_MODEL == \
+        find_node_by_title(wf, "brand:upscale_model")[1]["inputs"]["model_name"]
+    wf2 = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img",
+                upscale=True, upscale_model="cli.pth")
+    assert resolved_upscale_model(m, "cli.pth") == "cli.pth" == \
+        find_node_by_title(wf2, "brand:upscale_model")[1]["inputs"]["model_name"]
+
 def test_upscale_works_in_product_mode(tmp_path):
     # upscale must splice in for product img2img too, not just txt2img
     m = _m(tmp_path, "z_image_turbo_nvfp4.safetensors")

@@ -78,6 +78,22 @@ def test_output_filenames_across_node_keys(monkeypatch):
     assert ("b.mp4", "video", "output") in got
     assert len(got) == 2
 
+def test_output_files_by_node_keeps_node_id(monkeypatch):
+    # the node-id-tagged variant lets callers anchor on the canonical save node by title
+    hist = {"p": {"outputs": {
+        "9":  {"images": [{"filename": "preview.png", "subfolder": "", "type": "output"}]},
+        "10": {"images": [{"filename": "final.png", "subfolder": "b", "type": "output"}]},
+    }}}
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps(hist).encode()))
+    c = comfy.ComfyClient("http://127.0.0.1:8000")
+    got = set(c.output_files_by_node("p"))
+    assert ("9", "preview.png", "", "output") in got
+    assert ("10", "final.png", "b", "output") in got
+    # and output_filenames is the same data with the node id dropped (kept backward-compatible)
+    assert set(c.output_filenames("p")) == {(f, s, t) for _, f, s, t in got}
+
+
 def test_wait_returns_on_success(monkeypatch):
     hist = {"abc": {"status": {"status_str": "success"}, "outputs": {}}}
     monkeypatch.setattr(comfy.urllib.request, "urlopen",

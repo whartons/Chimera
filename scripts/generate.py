@@ -30,7 +30,7 @@ from scripts.brandkit import video as video_filler
 from scripts.brandkit import audio as audio_filler
 from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient
-from scripts.brandkit.outputs import route_output, first_output, NoOutputError, write_sidecar
+from scripts.brandkit.outputs import route_output, select_output, NoOutputError, write_sidecar
 from scripts.brandkit.sidecar import build_meta
 
 FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
@@ -46,11 +46,23 @@ SIDECAR_INPUT_KEYS = ("subject", "asset", "variant", "model", "from_image", "fro
                       "keyscale", "octree", "upscale", "upscale_model")
 
 
-def _png_size(path):
+def _image_size(path):
+    """(width, height) of a logo image, or None if it can't be determined. Uses Pillow when
+    available (png/jpg/webp/bmp/tiff/gif); otherwise falls back to a PNG-header read so PNG logos
+    still work with no third-party deps. None -> callers use a canvas-proportional geometry
+    estimate (correct SIZE on-graph, only the corner offset is approximate)."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return im.size
+    except ImportError:
+        pass                       # no Pillow -> PNG-header fallback below
+    except Exception:
+        return None                # Pillow present but the file isn't a readable image
     with open(path, "rb") as f:
         head = f.read(24)
-    if head[:8] != b"\x89PNG\r\n\x1a\n":
-        return None
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
+        return None                # not a PNG, or a truncated one -> approximate geometry
     return struct.unpack(">II", head[16:24])
 
 
@@ -69,7 +81,7 @@ def _add_common(sp):
 def _prepare_image(args, m, brand_dir, client, ap):
     fkw = {"mode": args.mode, "variant": args.variant, "model": args.model,
            "upscale": args.upscale,
-           "upscale_model": args.upscale_model or m.defaults.upscale_model}  # None -> filler DEFAULT
+           "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
     if args.mode in ("logo", "product"):
         subdir = "logos" if args.mode == "logo" else "products"
         asset_name = args.asset or (m.logo.default or "").split("/")[-1]
@@ -80,9 +92,13 @@ def _prepare_image(args, m, brand_dir, client, ap):
             ap.error(f"asset not found: {asset_path}")
         fkw["asset"] = client.upload_image(asset_path)
         if args.mode == "logo":
-            sz = _png_size(asset_path)
+            sz = _image_size(asset_path)
             if sz:
                 fkw["logo_px"] = (int(sz[0] * m.logo.scale), int(sz[1] * m.logo.scale))
+            else:
+                print(f"warning: could not read logo dimensions from {asset_name}; corner "
+                      "placement will be approximate (install Pillow or use a PNG logo)",
+                      file=sys.stderr)
     return fkw
 
 
@@ -98,7 +114,7 @@ def _prepare_video(args, m, brand_dir, client, ap):
             "length": args.length, "fps": args.fps, "audio": args.audio,
             "width": args.width, "height": args.height,
             "upscale": args.upscale,
-            "upscale_model": args.upscale_model or m.video.upscale_model}  # None -> filler DEFAULT
+            "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
 
 
 def _probe_video(path):
@@ -164,6 +180,35 @@ def _supports_watermark(modality, mode):
     if modality == "audio":
         return mode == "foley"   # music has no visual canvas
     return False
+
+
+def _resolve_model_used(args, m):
+    """The model filename the graph ACTUALLY loaded — asked of the filler that decided it, so the
+    sidecar can never drift from the built graph (single source of truth, B6). Pure."""
+    if args.modality == "video":
+        return video_filler.resolved_model(m)
+    if args.modality == "audio":
+        return audio_filler.resolved_model(m, args.mode)
+    if args.modality == "3d":
+        return threed_filler.resolved_model(m, args.model)
+    # Z-Image's variant determines the actual model file (product -> base, etc.).
+    return image_filler.resolve_image_model(args.mode, args.variant, args.model or m.defaults.model)
+
+
+def _resolve_sidecar_inputs(args, m, fmt=None):
+    """The modality-relevant `inputs` block for the reproducibility sidecar (pure). Harvests the
+    CLI inputs, then — only when --upscale is on — records the RESOLVED upscaler via the filler's
+    own resolver (single source of truth with the graph; off renders stay clean), and the resolved
+    3d export format."""
+    inputs = {k: getattr(args, k, None) for k in SIDECAR_INPUT_KEYS}
+    if args.modality in ("image", "video"):
+        resolver = (image_filler.resolved_upscale_model if args.modality == "image"
+                    else video_filler.resolved_upscale_model)
+        inputs["upscale"] = True if args.upscale else None
+        inputs["upscale_model"] = resolver(m, args.upscale_model) if args.upscale else None
+    if args.modality == "3d":
+        inputs["format"] = fmt
+    return inputs
 
 
 PREPARE = {"image": _prepare_image, "video": _prepare_video, "audio": _prepare_audio,
@@ -242,9 +287,13 @@ def run(args, repo_root, ap):
         if not logo_path.exists():
             ap.error(f"--watermark needs a brand logo at brands/{args.brand}/logos/{logo_rel}")
         fkw["watermark_logo"] = client.upload_image(logo_path)
-        sz = _png_size(logo_path)
+        sz = _image_size(logo_path)
         if sz:
             fkw["logo_px"] = (int(sz[0] * m.watermark.scale), int(sz[1] * m.watermark.scale))
+        else:
+            print(f"warning: could not read watermark logo dimensions from {logo_rel}; corner "
+                  "placement will be approximate (install Pillow or use a PNG logo)",
+                  file=sys.stderr)
 
     wf = FILLERS[args.modality](repo_root, m, positive=pos, negative=neg, seed=seed,
                                watermark=do_watermark, **fkw)
@@ -256,7 +305,8 @@ def run(args, repo_root, ap):
     except (RuntimeError, TimeoutError) as e:
         print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
     try:
-        fname, subfolder, _ = first_output(client.output_filenames(pid))
+        # anchor on the graph's titled brand:save node, not output-dict order
+        fname, subfolder, _ = select_output(client, pid, wf)
     except NoOutputError as e:
         print(str(e), file=sys.stderr); sys.exit(1)
 
@@ -273,35 +323,8 @@ def run(args, repo_root, ap):
                 converted = convert(dest, fmt)
                 dest.unlink()
                 dest = converted
-        if args.modality == "video":
-            model_used = m.video.model or "ltx-2.3-22b-dev-nvfp4.safetensors"
-        elif args.modality == "audio":
-            model_used = (m.audio.foley_model or "hunyuanvideo_foley_fp8_e4m3fn.safetensors") \
-                if args.mode == "foley" else (m.audio.music_model or "acestep_v1.5_xl_turbo_bf16.safetensors")
-        elif args.modality == "3d":
-            model_used = args.model or m.threed.model or "hunyuan_3d_v2.1.safetensors"
-        else:
-            # Z-Image's variant determines the actual model file (product -> base, etc.),
-            # so resolve it rather than trusting defaults.model.
-            model_used = image_filler.resolve_image_model(
-                args.mode, args.variant, args.model or m.defaults.model)
-        inputs = {k: getattr(args, k, None) for k in SIDECAR_INPUT_KEYS}
-        if args.modality in ("image", "video"):
-            # Keep off-by-default renders' sidecars clean: only record upscale when used.
-            # When on, record the bool + the RESOLVED model the filler will use for THIS
-            # modality. The (brand override field, modality default) pair is per-modality:
-            # image uses defaults.upscale_model + ESRGAN default; video uses video.upscale_model
-            # + the LTX latent-upscaler default (they want different model families).
-            brand_upscale_model, modality_default = (
-                (m.defaults.upscale_model, image_filler.DEFAULT_UPSCALE_MODEL)
-                if args.modality == "image"
-                else (m.video.upscale_model, video_filler.DEFAULT_VIDEO_UPSCALE_MODEL))
-            inputs["upscale"] = True if args.upscale else None
-            inputs["upscale_model"] = (
-                args.upscale_model or brand_upscale_model
-                or modality_default) if args.upscale else None
-        if args.modality == "3d":
-            inputs["format"] = fmt  # record the RESOLVED export format (args.format may be None)
+        model_used = _resolve_model_used(args, m)
+        inputs = _resolve_sidecar_inputs(args, m, fmt)
         meta = build_meta(modality=args.modality, mode=args.mode, brand=args.brand, seed=seed,
                           model=model_used, watermark=do_watermark, comfy_url=args.comfy_url,
                           wf=wf, inputs=inputs,

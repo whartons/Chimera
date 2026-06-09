@@ -31,6 +31,95 @@ def _minimal_glb(path):
     Path(path).write_bytes(out)
 
 
+def _assemble_glb(gltf, bin_data, path):
+    """Pack an arbitrary gltf dict + binary buffer into a GLB container (for malformed fixtures)."""
+    jb = json.dumps(gltf).encode()
+    jb += b" " * ((4 - len(jb) % 4) % 4)
+    bb = bin_data + b"\x00" * ((4 - len(bin_data) % 4) % 4)
+    total = 12 + 8 + len(jb) + 8 + len(bb)
+    out = struct.pack("<4sII", b"glTF", 2, total)
+    out += struct.pack("<I4s", len(jb), b"JSON") + jb
+    out += struct.pack("<I4s", len(bb), b"BIN\x00") + bb
+    Path(path).write_bytes(out)
+
+
+def test_read_glb_non_indexed_raises(tmp_path):
+    # a legal-glTF non-indexed mesh (no "indices") must fail with a clear message, not a bare KeyError
+    bin_data = b"".join(struct.pack("<3f", *v) for v in [(0, 0, 0), (1, 0, 0), (0, 1, 0)])
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(bin_data)}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36}],
+            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}]}  # no "indices"
+    p = tmp_path / "m.glb"; _assemble_glb(gltf, bin_data, p)
+    with pytest.raises(ValueError, match="indexed"):
+        read_glb_mesh(p)
+
+
+def test_read_glb_missing_position_raises(tmp_path):
+    bin_data = struct.pack("<3I", 0, 1, 2)
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(bin_data)}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 12}],
+            "accessors": [{"bufferView": 0, "componentType": 5125, "count": 3, "type": "SCALAR"}],
+            "meshes": [{"primitives": [{"attributes": {}, "indices": 0}]}]}  # no POSITION
+    p = tmp_path / "m.glb"; _assemble_glb(gltf, bin_data, p)
+    with pytest.raises(ValueError, match="POSITION"):
+        read_glb_mesh(p)
+
+
+def test_read_glb_bad_componenttype_raises(tmp_path):
+    bin_data = b"".join(struct.pack("<3f", *v) for v in [(0, 0, 0), (1, 0, 0), (0, 1, 0)]) \
+        + struct.pack("<3I", 0, 1, 2)
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(bin_data)}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36},
+                            {"buffer": 0, "byteOffset": 36, "byteLength": 12}],
+            "accessors": [{"bufferView": 0, "componentType": 9999, "count": 3, "type": "VEC3"},
+                          {"bufferView": 1, "componentType": 5125, "count": 3, "type": "SCALAR"}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}]}
+    p = tmp_path / "m.glb"; _assemble_glb(gltf, bin_data, p)
+    with pytest.raises(ValueError, match="componentType"):
+        read_glb_mesh(p)
+
+
+def test_read_glb_no_meshes_raises(tmp_path):
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": 4}],
+            "bufferViews": [], "accessors": [], "meshes": []}
+    p = tmp_path / "m.glb"; _assemble_glb(gltf, b"\x00\x00\x00\x00", p)
+    with pytest.raises(ValueError, match="no meshes"):
+        read_glb_mesh(p)
+
+
+def test_read_glb_truncated_accessor_raises(tmp_path):
+    # an accessor claiming more vertices than the BIN chunk holds must fail loudly (the array.array
+    # path would otherwise silently clamp and fabricate a malformed vertex) — clear error, not garbage
+    bin_data = b"".join(struct.pack("<3f", *v) for v in [(0, 0, 0), (1, 0, 0), (0, 1, 0)]) \
+        + struct.pack("<3I", 0, 1, 2)
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(bin_data)}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36},
+                            {"buffer": 0, "byteOffset": 36, "byteLength": 12}],
+            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 99, "type": "VEC3"},  # claims 99
+                          {"bufferView": 1, "componentType": 5125, "count": 3, "type": "SCALAR"}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}]}
+    p = tmp_path / "m.glb"; _assemble_glb(gltf, bin_data, p)
+    with pytest.raises(ValueError, match="past the"):
+        read_glb_mesh(p)
+
+
+def test_read_glb_uint16_indices(tmp_path):
+    # exercise the array.array path for a non-4-byte component (UNSIGNED_SHORT indices)
+    verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
+    bin_data = b"".join(struct.pack("<3f", *v) for v in verts) + struct.pack("<3H", 0, 1, 2)
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(bin_data)}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36},
+                            {"buffer": 0, "byteOffset": 36, "byteLength": 6}],
+            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                          {"bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR"}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}]}
+    p = tmp_path / "m.glb"; _assemble_glb(gltf, bin_data, p)
+    v, faces = read_glb_mesh(p)
+    assert len(v) == 3 and tuple(v[1]) == (1.0, 0.0, 0.0)
+    assert faces == [(0, 1, 2)]
+
+
 def test_read_glb_mesh(tmp_path):
     p = tmp_path / "m.glb"; _minimal_glb(p)
     verts, faces = read_glb_mesh(p)

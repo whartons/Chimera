@@ -23,7 +23,7 @@ from scripts.agent.loop import run_loop
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.manifest import load_manifest
-from scripts.brandkit.outputs import first_output, route_output, write_sidecar
+from scripts.brandkit.outputs import select_output, route_output, write_sidecar
 
 
 def _parse_seeds(raw):
@@ -44,7 +44,7 @@ def _make_generate(args, repo_root, manifest, client):
                                 mode="txt2img", variant=args.variant, model=args.model)
         pid = client.queue_prompt(wf)
         client.wait(pid, max_wait=args.timeout)
-        fname, subfolder, _ = first_output(client.output_filenames(pid))
+        fname, subfolder, _ = select_output(client, pid, wf)
         dest = route_output(repo_root, args.brand, out_dir / subfolder / fname, "agent", seed)
         return str(dest)
 

@@ -38,9 +38,12 @@ def _n(wf, title):
     return find_node_by_title(wf, title)[1]
 
 
-def _apply_common(wf: dict, m: BrandManifest, positive: str, negative: str, seed: int):
+def _apply_common(wf: dict, m: BrandManifest, positive: str, negative: str, seed: int, model: str):
+    # `model` is the already-resolved checkpoint (honors a --model override; equals what the sidecar
+    # records via resolve_image_model). Writing m.defaults.model here would ignore the override and
+    # drift from the sidecar — so write the resolved value.
     d = m.defaults
-    _n(wf, "brand:unet")["inputs"]["unet_name"] = d.model
+    _n(wf, "brand:unet")["inputs"]["unet_name"] = model
     _n(wf, "brand:positive")["inputs"]["text"] = positive
     _n(wf, "brand:negative")["inputs"]["text"] = negative
     _n(wf, "brand:guidance")["inputs"]["guidance"] = d.guidance
@@ -77,6 +80,14 @@ def resolve_image_model(mode, variant, model):
     if _family(model) == "zimage":
         return _ZIMAGE_VARIANTS[_zimage_variant(mode, variant, model)]["model"]
     return model
+
+
+def resolved_upscale_model(manifest, upscale_model=None):
+    """The ESRGAN upscaler the image --upscale pass will load: explicit override, else the brand's
+    defaults.upscale_model, else DEFAULT_UPSCALE_MODEL. Single source of truth shared by build()
+    and the sidecar (model selection itself is resolve_image_model). Parallels
+    video.resolved_upscale_model."""
+    return upscale_model or manifest.defaults.upscale_model or DEFAULT_UPSCALE_MODEL
 
 
 def _apply_zimage(wf, m, positive, seed, mode, variant, model):
@@ -165,7 +176,10 @@ def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negati
     if family == "zimage":
         _apply_zimage(wf, m, positive, seed, mode, variant, model)
     else:
-        _apply_common(wf, m, positive, negative, seed)
+        # FLUX/other: write the resolved model (resolve_image_model is a passthrough here), the
+        # same value _resolve_model_used records — so a --model override reaches the graph AND the
+        # sidecar identically.
+        _apply_common(wf, m, positive, negative, seed, resolve_image_model(mode, variant, model))
     _inject_lora(wf, m)
     if mode == "logo":
         name = logo_image or (m.logo.default or "").split("/")[-1]
@@ -201,5 +215,5 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
                                canvas=canvas or (manifest.defaults.width, manifest.defaults.height),
                                logo_px=logo_px)
     if upscale:  # after watermark: upscale takes over the composite's edge into save
-        _inject_upscale(wf, upscale_model or DEFAULT_UPSCALE_MODEL)
+        _inject_upscale(wf, resolved_upscale_model(manifest, upscale_model))
     return wf

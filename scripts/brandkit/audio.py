@@ -15,6 +15,16 @@ def _n(wf, title):
     return find_node_by_title(wf, title)[1]
 
 
+def resolved_model(manifest, mode="music", model=None):
+    """The audio model build() will load for this mode: explicit override, else the brand's
+    foley_model/music_model, else the mode's DEFAULT_*. Single source of truth shared by build()
+    and the reproducibility sidecar (generate.py reads this rather than re-deriving the chain)."""
+    a = manifest.audio
+    if mode == "foley":
+        return model or a.foley_model or DEFAULT_FOLEY_MODEL
+    return model or a.music_model or DEFAULT_MUSIC_MODEL
+
+
 def _load(repo_root, name):
     p = Path(repo_root) / "workflows" / "templates" / name
     return deepcopy(json.loads(p.read_text(encoding="utf-8")))
@@ -23,7 +33,7 @@ def _load(repo_root, name):
 def _build_music(repo_root, manifest, *, positive, seed, duration=None, bpm=None,
                  keyscale=None, model=None, **opts) -> dict:
     a = manifest.audio
-    model = model or a.music_model or DEFAULT_MUSIC_MODEL
+    model = resolved_model(manifest, "music", model)
     duration = duration if duration is not None else a.music_duration
     bpm = bpm if bpm is not None else a.music_bpm
     keyscale = keyscale or a.music_keyscale
@@ -46,7 +56,7 @@ def _build_foley(repo_root, manifest, *, positive, negative, seed, watermark=Fal
     a = manifest.audio
     if not from_video:
         raise ValueError("foley requires from_video")
-    model = model or a.foley_model or DEFAULT_FOLEY_MODEL
+    model = resolved_model(manifest, "foley", model)
     frame_rate = frame_rate if frame_rate is not None else 25.0
     duration = duration if duration is not None else 5.0
     fps = fps if fps is not None else frame_rate
