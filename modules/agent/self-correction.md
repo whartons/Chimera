@@ -97,6 +97,14 @@ brand folder **and** where the judge graph drops (and the judge reads back) its 
 
 ### The judge & correction in action (real local-backend output)
 
+The strict judge **enforces the brand** — it passes an on-brand render and rejects an off-brand one
+(both judged live by Qwen2.5-VL-7B against the `example-brand` rubric):
+
+| Judge **PASSED** — 0.95 | Judge **REJECTED** — 0.70 |
+|:---:|:---:|
+| ![on-brand tactical MERCURY-7 rover the judge passed](../../docs/images/agent-judge-pass.png) | ![off-brand orange toy rover the judge rejected](../../docs/images/agent-judge-reject.png) |
+| dark tactical hull, legible "MERCURY-7", brand palette | *"playful, childlike… toy-like rather than rugged tactical-industrial"* |
+
 The rubric is **strict** (overall PASS only if *every* criterion is MET) and asks the judge to attach
 a structured fix to each miss — `FIX: add <…>; avoid <…>`. The expander consumes that directly:
 `add` terms are emphasized in the next positive prompt; `avoid` terms are **stripped from the subject**
