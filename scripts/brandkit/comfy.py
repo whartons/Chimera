@@ -67,12 +67,21 @@ class ComfyClient:
         with urllib.request.urlopen(req, timeout=self.timeout):
             pass
 
+    def system_stats(self) -> dict:
+        """GET /system_stats — ComfyUI engine + device info. Raises on an unreachable server."""
+        return self._get("/system_stats")
+
+    def object_info(self) -> dict:
+        """GET /object_info — every installed node class_type and its schema (including available
+        model filenames as dropdown enums). Used by the `doctor` preflight. Raises if unreachable."""
+        return self._get("/object_info")
+
     def comfyui_version(self):
         """Best-effort ComfyUI version string from /system_stats, for the reproducibility sidecar.
         None if the server doesn't report it or is unreachable — never raises (provenance is
         optional and must not fail a completed render)."""
         try:
-            data = self._get("/system_stats")
+            data = self.system_stats()
             info = data.get("system", {}) if isinstance(data, dict) else {}
             return info.get("comfyui_version") or None
         except Exception:

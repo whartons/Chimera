@@ -109,6 +109,18 @@ def test_wait_raises_on_error(monkeypatch):
     with pytest.raises(RuntimeError):
         c.wait("abc")
 
+def test_system_stats_returns_parsed_dict(monkeypatch):
+    payload = {"system": {"comfyui_version": "v9"}, "devices": []}
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps(payload).encode()))
+    assert comfy.ComfyClient().system_stats() == payload
+
+def test_object_info_returns_parsed_dict(monkeypatch):
+    payload = {"KSampler": {"input": {"required": {}}}, "UNETLoader": {"input": {"required": {}}}}
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps(payload).encode()))
+    assert comfy.ComfyClient().object_info() == payload
+
 def test_comfyui_version_from_system_stats(monkeypatch):
     payload = {"system": {"comfyui_version": "v0.24.1", "python_version": "3.12.11"}}
     monkeypatch.setattr(comfy.urllib.request, "urlopen",

@@ -419,6 +419,9 @@ def main():
     nb.add_argument("name", help="brand folder name (used as --brand later)")
     lt = sub.add_parser("lint", help="validate a brand.yaml + check referenced assets")
     lt.add_argument("--brand", required=True)
+    dr = sub.add_parser("doctor", help="preflight: check ComfyUI, node packs, models, and a brand")
+    dr.add_argument("--brand", default=None, help="also check this brand's manifest/assets/model")
+    dr.add_argument("--comfy-url", default="http://127.0.0.1:8000")
     args = ap.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -435,6 +438,11 @@ def main():
     if args.modality == "lint":
         from scripts.brandkit.scaffold import lint_brand, print_lint
         fails = print_lint(args.brand, lint_brand(repo_root, args.brand))
+        sys.exit(1 if fails else 0)
+    if args.modality == "doctor":
+        from scripts.brandkit.doctor import run_checks, print_doctor
+        client = ComfyClient(args.comfy_url)
+        fails = print_doctor(args.brand, run_checks(client, repo_root, args.brand))
         sys.exit(1 if fails else 0)
     if args.modality == "replay":
         data = json.loads(Path(args.sidecar).read_text(encoding="utf-8"))
