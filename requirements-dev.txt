@@ -1,2 +1,4 @@
 pytest>=8
 pyyaml>=6
+ruff>=0.10
+# Or install the package with its dev extra instead:  pip install -e ".[dev]"

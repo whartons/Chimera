@@ -1,7 +1,7 @@
 # Chimera
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-183%20passing-brightgreen)
+[![tests](https://github.com/whartons/ComfyUI-Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/ComfyUI-Chimera/actions/workflows/ci.yml)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-%E2%89%A50.24-orange)
 ![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Built on RTX 5090 · cu130](https://img.shields.io/badge/built%20on-RTX%205090%20%C2%B7%20cu130-76B900?logo=nvidia&logoColor=white)

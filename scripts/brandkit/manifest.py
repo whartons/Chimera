@@ -120,7 +120,12 @@ def load_manifest(path) -> BrandManifest:
     path = Path(path)
     if not path.exists():
         raise ManifestError(f"brand.yaml not found: {path}")
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as e:
+        # surface as ManifestError (a ValueError) so callers like lint/doctor degrade to a clean
+        # message instead of crashing on a malformed brand.yaml
+        raise ManifestError(f"brand.yaml is not valid YAML: {e}")
     if not isinstance(data, dict):
         raise ManifestError("brand.yaml must be a mapping at the top level")
     name = data.get("name")

@@ -78,6 +78,22 @@ def test_output_filenames_across_node_keys(monkeypatch):
     assert ("b.mp4", "video", "output") in got
     assert len(got) == 2
 
+def test_output_files_by_node_keeps_node_id(monkeypatch):
+    # the node-id-tagged variant lets callers anchor on the canonical save node by title
+    hist = {"p": {"outputs": {
+        "9":  {"images": [{"filename": "preview.png", "subfolder": "", "type": "output"}]},
+        "10": {"images": [{"filename": "final.png", "subfolder": "b", "type": "output"}]},
+    }}}
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps(hist).encode()))
+    c = comfy.ComfyClient("http://127.0.0.1:8000")
+    got = set(c.output_files_by_node("p"))
+    assert ("9", "preview.png", "", "output") in got
+    assert ("10", "final.png", "b", "output") in got
+    # and output_filenames is the same data with the node id dropped (kept backward-compatible)
+    assert set(c.output_filenames("p")) == {(f, s, t) for _, f, s, t in got}
+
+
 def test_wait_returns_on_success(monkeypatch):
     hist = {"abc": {"status": {"status_str": "success"}, "outputs": {}}}
     monkeypatch.setattr(comfy.urllib.request, "urlopen",
@@ -92,6 +108,35 @@ def test_wait_raises_on_error(monkeypatch):
     c = comfy.ComfyClient("http://127.0.0.1:8000")
     with pytest.raises(RuntimeError):
         c.wait("abc")
+
+def test_system_stats_returns_parsed_dict(monkeypatch):
+    payload = {"system": {"comfyui_version": "v9"}, "devices": []}
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps(payload).encode()))
+    assert comfy.ComfyClient().system_stats() == payload
+
+def test_object_info_returns_parsed_dict(monkeypatch):
+    payload = {"KSampler": {"input": {"required": {}}}, "UNETLoader": {"input": {"required": {}}}}
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps(payload).encode()))
+    assert comfy.ComfyClient().object_info() == payload
+
+def test_comfyui_version_from_system_stats(monkeypatch):
+    payload = {"system": {"comfyui_version": "v0.24.1", "python_version": "3.12.11"}}
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps(payload).encode()))
+    assert comfy.ComfyClient().comfyui_version() == "v0.24.1"
+
+def test_comfyui_version_missing_field_returns_none(monkeypatch):
+    monkeypatch.setattr(comfy.urllib.request, "urlopen",
+                        lambda req, timeout=0: FakeResp(json.dumps({"system": {}}).encode()))
+    assert comfy.ComfyClient().comfyui_version() is None
+
+def test_comfyui_version_unreachable_returns_none(monkeypatch):
+    def boom(req, timeout=0):
+        raise OSError("connection refused")
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", boom)
+    assert comfy.ComfyClient().comfyui_version() is None  # provenance is optional, must not raise
 
 def test_free_posts_unload_and_free_flags(monkeypatch):
     captured = {}

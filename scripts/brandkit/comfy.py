@@ -67,6 +67,26 @@ class ComfyClient:
         with urllib.request.urlopen(req, timeout=self.timeout):
             pass
 
+    def system_stats(self) -> dict:
+        """GET /system_stats — ComfyUI engine + device info. Raises on an unreachable server."""
+        return self._get("/system_stats")
+
+    def object_info(self) -> dict:
+        """GET /object_info — every installed node class_type and its schema (including available
+        model filenames as dropdown enums). Used by the `doctor` preflight. Raises if unreachable."""
+        return self._get("/object_info")
+
+    def comfyui_version(self):
+        """Best-effort ComfyUI version string from /system_stats, for the reproducibility sidecar.
+        None if the server doesn't report it or is unreachable — never raises (provenance is
+        optional and must not fail a completed render)."""
+        try:
+            data = self.system_stats()
+            info = data.get("system", {}) if isinstance(data, dict) else {}
+            return info.get("comfyui_version") or None
+        except Exception:
+            return None
+
     def wait(self, prompt_id: str, poll=3, max_wait=900) -> dict:
         end = time.time() + max_wait
         while time.time() < end:
@@ -81,16 +101,16 @@ class ComfyClient:
             time.sleep(poll)
         raise TimeoutError(f"prompt {prompt_id} did not finish in {max_wait}s")
 
-    def output_filenames(self, prompt_id: str):
-        """Every saved output file for a prompt, across any node output key
-        (images, gifs, videos, audio, …). ComfyUI lists each saved file as a dict with
-        a 'filename'; scanning all list-valued keys makes this format-agnostic, so mp4 /
-        webm / mov / gif / webp / wav outputs are all captured, not just images.
-        Returns (filename, subfolder, type) tuples."""
+    def output_files_by_node(self, prompt_id: str):
+        """Every saved output file for a prompt, tagged with the node id that produced it:
+        (node_id, filename, subfolder, type) tuples. Scans all list-valued output keys
+        (images, gifs, videos, audio, …) so any extension is captured, not just images.
+        Keeping the node id lets callers anchor on the canonical save node (by title) instead
+        of trusting output-dict order — see outputs.select_output."""
         hist = self._get(f"/history/{prompt_id}")
         rec = hist.get(prompt_id, {})
         out = []
-        for node in rec.get("outputs", {}).values():
+        for node_id, node in rec.get("outputs", {}).items():
             if not isinstance(node, dict):
                 continue
             for val in node.values():
@@ -98,5 +118,12 @@ class ComfyClient:
                     continue
                 for item in val:
                     if isinstance(item, dict) and "filename" in item:
-                        out.append((item["filename"], item.get("subfolder", ""), item.get("type", "output")))
+                        out.append((node_id, item["filename"],
+                                    item.get("subfolder", ""), item.get("type", "output")))
         return out
+
+    def output_filenames(self, prompt_id: str):
+        """Every saved output file for a prompt as (filename, subfolder, type) tuples (node id
+        dropped). Format-agnostic — mp4 / webm / mov / gif / webp / wav are all captured, not
+        just images. See output_files_by_node when the producing node matters."""
+        return [t[1:] for t in self.output_files_by_node(prompt_id)]

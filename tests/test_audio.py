@@ -61,6 +61,24 @@ def test_foley_requires_from_video():
     with pytest.raises(ValueError):
         build(ROOT, m, positive="x", negative="", seed=1, mode="foley")
 
+def test_resolved_model_matches_graph_music_and_foley():
+    # B6: the resolver is the single source of truth — equal to what build() wrote, per mode
+    from scripts.brandkit.audio import resolved_model
+    m = load_manifest(FIX)
+    wfm = build(ROOT, m, positive="x", negative="", seed=1, mode="music")
+    assert resolved_model(m, "music") == \
+        find_node_by_title(wfm, "brand:unet")[1]["inputs"]["unet_name"]
+    wff = build(ROOT, m, positive="x", negative="", seed=1, mode="foley", from_video="s.mp4",
+                frame_rate=24.0, duration=2.0, fps=24.0)
+    assert resolved_model(m, "foley") == \
+        find_node_by_title(wff, "brand:foley_model")[1]["inputs"]["model_name"]
+    # explicit override flows through both paths identically
+    wfo = build(ROOT, m, positive="x", negative="", seed=1, mode="foley", from_video="s.mp4",
+                frame_rate=24.0, duration=2.0, fps=24.0, model="ov.safetensors")
+    assert resolved_model(m, "foley", "ov.safetensors") == "ov.safetensors" == \
+        find_node_by_title(wfo, "brand:foley_model")[1]["inputs"]["model_name"]
+
+
 def test_foley_watermark_injected_over_components_keeps_audio():
     m = load_manifest(FIX)
     wf = build(ROOT, m, positive="x", negative="music", seed=1, mode="foley", watermark=True,

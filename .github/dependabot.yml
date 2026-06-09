@@ -1,0 +1,21 @@
+# Dependabot keeps dependencies current and flags vulnerable versions.
+# - pip: watches the project's Python requirements (currently requirements-dev.txt).
+# - github-actions: keeps any CI workflow actions pinned to current, patched versions
+#   (active once a workflow lands under .github/workflows/).
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"

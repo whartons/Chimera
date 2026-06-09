@@ -1,7 +1,6 @@
 from __future__ import annotations
-import pytest
 from scripts.brandkit.sidecar import (
-    SCHEMA_VERSION, graph_prompts, relevant_inputs, build_meta,
+    SCHEMA_VERSION, graph_prompts, relevant_inputs, build_meta, graph_signature,
 )
 
 
@@ -130,6 +129,48 @@ def test_generate_collects_superset_of_all_input_keys():
     from scripts.brandkit.sidecar import _INPUT_KEYS
     needed = {k for keys in _INPUT_KEYS.values() for k in keys} - {"format"}
     assert needed <= set(SIDECAR_INPUT_KEYS), needed - set(SIDECAR_INPUT_KEYS)
+
+
+def test_graph_signature_stable_across_scalar_changes():
+    # the signature fingerprints STRUCTURE — same nodes/edges with different seed/prompt -> same hash
+    a = {"1": {"class_type": "X", "_meta": {"title": "brand:positive"},
+               "inputs": {"text": "P", "model": ["2", 0]}},
+         "2": {"class_type": "Y", "inputs": {"seed": 1}}}
+    b = {"1": {"class_type": "X", "_meta": {"title": "brand:positive"},
+               "inputs": {"text": "TOTALLY DIFFERENT", "model": ["2", 0]}},
+         "2": {"class_type": "Y", "inputs": {"seed": 9999}}}
+    assert graph_signature(a) == graph_signature(b)
+
+
+def test_graph_signature_changes_on_structure():
+    a = {"1": {"class_type": "X", "inputs": {"model": ["2", 0]}}, "2": {"class_type": "Y", "inputs": {}}}
+    retargeted = {"1": {"class_type": "X", "inputs": {"model": ["3", 0]}},
+                  "2": {"class_type": "Y", "inputs": {}}}   # edge points elsewhere
+    reclassed = {"1": {"class_type": "Z", "inputs": {"model": ["2", 0]}},
+                 "2": {"class_type": "Y", "inputs": {}}}    # node class changed
+    assert graph_signature(a) != graph_signature(retargeted)
+    assert graph_signature(a) != graph_signature(reclassed)
+
+
+def test_graph_signature_empty_graph():
+    assert graph_signature({}) == ""
+
+
+def test_build_meta_provenance_graph_signature_always_present():
+    meta = build_meta(modality="image", mode="txt2img", brand="b", seed=1, model="m", watermark=False,
+                      comfy_url="http://x", wf=_img_wf(), inputs={"subject": "s"}, timestamp="t")
+    assert meta["provenance"]["graph_signature"]            # always recorded
+    assert "comfyui_version" not in meta["provenance"]      # not supplied -> omitted
+    assert "pipeline_git_sha" not in meta["provenance"]
+
+
+def test_build_meta_provenance_includes_version_and_sha_when_given():
+    meta = build_meta(modality="image", mode="txt2img", brand="b", seed=1, model="m", watermark=False,
+                      comfy_url="http://x", wf=_img_wf(), inputs={"subject": "s"}, timestamp="t",
+                      comfyui_version="v0.24.1", pipeline_git_sha="abc1234-dirty")
+    p = meta["provenance"]
+    assert p["comfyui_version"] == "v0.24.1" and p["pipeline_git_sha"] == "abc1234-dirty"
+    assert p["graph_signature"]  # still present alongside
 
 
 def test_graph_prompts_zimage_empty_negative_contract():

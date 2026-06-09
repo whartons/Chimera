@@ -31,3 +31,13 @@ def test_3d_model_override():
     m = load_manifest(FIX)
     wf = build(ROOT, m, positive="", negative="", seed=1, from_image="r.png", model="other3d.safetensors")
     assert find_node_by_title(wf, "brand:ckpt")[1]["inputs"]["ckpt_name"] == "other3d.safetensors"
+
+def test_resolved_model_matches_graph_ckpt():
+    # B6: the resolver is the single source of truth — equal to what build() wrote
+    from scripts.brandkit.threed import resolved_model
+    m = load_manifest(FIX)
+    wf = build(ROOT, m, positive="", negative="", seed=1, from_image="r.png")
+    assert resolved_model(m) == find_node_by_title(wf, "brand:ckpt")[1]["inputs"]["ckpt_name"]
+    wf2 = build(ROOT, m, positive="", negative="", seed=1, from_image="r.png", model="x3d.safetensors")
+    assert resolved_model(m, "x3d.safetensors") == "x3d.safetensors" == \
+        find_node_by_title(wf2, "brand:ckpt")[1]["inputs"]["ckpt_name"]

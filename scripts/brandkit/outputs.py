@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json, shutil, time
 from pathlib import Path
+from .nodes import find_node_by_title, NodeNotFound
 
 # Outputs are grouped by what the file IS (extension-driven), so a foley clip (a video) lands
 # with the videos and a music stinger with the audio — see media_subdir().
@@ -58,14 +59,35 @@ class NoOutputError(RuntimeError):
     pass
 
 
-def first_output(files):
-    """Return the first (filename, subfolder, type) tuple, or raise NoOutputError.
-    ComfyUI returns no new output for an identical (cached) graph, so callers must not
-    blindly index files[0]."""
+def first_output(files, prefer_node_id=None):
+    """Return the chosen (filename, subfolder, type) tuple, or raise NoOutputError.
+
+    ComfyUI returns no new output for an identical (cached) graph, so callers must not blindly
+    index files[0]. With `prefer_node_id` set, `files` are (node_id, filename, subfolder, type)
+    4-tuples (from ComfyClient.output_files_by_node) and the file produced by that node — e.g. the
+    graph's titled `brand:save` node — is returned (node id stripped), so a graph with more than
+    one save node still routes the intended render; it falls back to the first file if the
+    preferred node produced none. With no `prefer_node_id`, `files` are plain (filename, subfolder,
+    type) tuples and the first is returned (legacy behavior)."""
     if not files:
         raise NoOutputError("no outputs produced (an identical render may be cached — "
                             "try a different --seed)")
+    if prefer_node_id is not None:
+        match = next((f for f in files if f[0] == prefer_node_id), files[0])
+        return tuple(match[1:])
     return files[0]
+
+
+def select_output(client, prompt_id, wf, save_title="brand:save"):
+    """Pick the canonical output file for a finished prompt, anchored on the node titled
+    `save_title` so a multi-save graph still routes the intended render rather than whatever
+    ComfyUI listed first. Degrades to the legacy first-file behavior when the graph has no such
+    titled node. Returns (filename, subfolder, type) or raises NoOutputError."""
+    try:
+        save_id, _ = find_node_by_title(wf, save_title)
+    except NodeNotFound:
+        return first_output(client.output_filenames(prompt_id))
+    return first_output(client.output_files_by_node(prompt_id), prefer_node_id=save_id)
 
 
 def write_sidecar(output_path, meta: dict):

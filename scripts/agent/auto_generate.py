@@ -23,7 +23,8 @@ from scripts.agent.loop import run_loop
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.manifest import load_manifest
-from scripts.brandkit.outputs import first_output, route_output, write_sidecar
+from scripts.brandkit.outputs import select_output, route_output, write_sidecar
+from scripts.generate import git_provenance
 
 
 def _parse_seeds(raw):
@@ -44,7 +45,7 @@ def _make_generate(args, repo_root, manifest, client):
                                 mode="txt2img", variant=args.variant, model=args.model)
         pid = client.queue_prompt(wf)
         client.wait(pid, max_wait=args.timeout)
-        fname, subfolder, _ = first_output(client.output_filenames(pid))
+        fname, subfolder, _ = select_output(client, pid, wf)
         dest = route_output(repo_root, args.brand, out_dir / subfolder / fname, "agent", seed)
         return str(dest)
 
@@ -66,6 +67,7 @@ def _write_run_sidecar(result, args, repo_root):
         "final_score": result.best_verdict.score if result.best_verdict else 0.0,
         "winning_seed": last.seed, "winning_prompt": last.prompt,
         "comfy_url": args.comfy_url,
+        "provenance": {"pipeline_git_sha": git_provenance(repo_root)},
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
     }
     write_sidecar(result.best_image, meta)

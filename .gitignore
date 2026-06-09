@@ -64,6 +64,7 @@ __pycache__/
 venv/
 env/
 *.egg-info/
+build/
 .ipynb_checkpoints/
 
 # Node (if the MCP server is JS/TS)

@@ -13,12 +13,18 @@ def _n(wf, title):
     return find_node_by_title(wf, title)[1]
 
 
+def resolved_model(manifest, model=None):
+    """The 3D checkpoint build() will load: explicit override, else the brand's threed.model,
+    else DEFAULT_3D_MODEL. Single source of truth shared by build() and the sidecar."""
+    return model or manifest.threed.model or DEFAULT_3D_MODEL
+
+
 def build(repo_root, manifest, *, positive="", negative="", seed, watermark=False,
           from_image=None, octree=None, model=None, **opts) -> dict:
     t = manifest.threed
     if not from_image:
         raise ValueError("3d requires from_image")
-    model = model or t.model or DEFAULT_3D_MODEL
+    model = resolved_model(manifest, model)
     octree = octree if octree is not None else t.octree
     p = Path(repo_root) / "workflows" / "templates" / "brand-3d-image.json"
     wf = deepcopy(json.loads(p.read_text(encoding="utf-8")))

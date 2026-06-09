@@ -6,6 +6,7 @@ the negative), so we read the final text back off the graph by stable node title
 record the modality-relevant CLI inputs so a future `replay` can reproduce the render.
 SCHEMA_VERSION lets replay detect (and refuse/upgrade) older sidecars."""
 from __future__ import annotations
+import hashlib, json
 from .nodes import find_node_by_title, NodeNotFound
 
 SCHEMA_VERSION = 2
@@ -49,6 +50,26 @@ def _read(wf, spec):
         return ""
 
 
+def graph_signature(wf):
+    """A short, stable hash of the built graph's STRUCTURE — each node's id, class_type, title, and
+    its connection edges (list-valued [node_id, output_index] inputs) — EXCLUDING scalar input values
+    (seed, prompt, steps, sizes). Two renders from the same template version share a signature; a
+    structural template edit changes it. Provenance only — not read by replay. '' for an empty graph."""
+    parts = []
+    for nid, node in sorted(wf.items()):
+        if not isinstance(node, dict):
+            continue
+        title = node.get("_meta", {}).get("title", "")
+        edges = sorted([k, v[0], v[1]] for k, v in node.get("inputs", {}).items()
+                       if isinstance(v, list) and len(v) == 2
+                       and isinstance(v[0], str) and isinstance(v[1], int))
+        parts.append([nid, node.get("class_type", ""), title, edges])
+    if not parts:
+        return ""
+    blob = json.dumps(parts, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
 def graph_prompts(wf, modality, mode):
     """(positive, negative) read back from the built graph, so the sidecar records the text
     the filler actually rendered (including any appended negatives). Missing nodes/inputs -> ''."""
@@ -64,10 +85,15 @@ def relevant_inputs(modality, mode, inputs):
 
 
 def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, inputs,
-               timestamp, fmt=None):
+               timestamp, fmt=None, comfyui_version=None, pipeline_git_sha=None):
     """Assemble the schema-2 sidecar dict. `model` is the already-resolved model filename
     (the caller resolves Z-Image variants etc.); we do not re-resolve. Top-level prompt/negative
-    are kept for backward-compat with schema-1 sidecars; `format` is set only when fmt is given."""
+    are kept for backward-compat with schema-1 sidecars; `format` is set only when fmt is given.
+
+    A `provenance` block records what produced the render so it traces back exactly: a structural
+    `graph_signature` (always), plus the ComfyUI engine version and the pipeline's git commit
+    (`-dirty` if the tree had uncommitted changes) when the caller can supply them (both best-effort,
+    omitted when None). Replay ignores `provenance`."""
     pos, neg = graph_prompts(wf, modality, mode)
     meta = {
         "schema": SCHEMA_VERSION,
@@ -79,4 +105,10 @@ def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, 
     }
     if fmt is not None:
         meta["format"] = fmt
+    prov = {"graph_signature": graph_signature(wf)}
+    if comfyui_version:
+        prov["comfyui_version"] = comfyui_version
+    if pipeline_git_sha:
+        prov["pipeline_git_sha"] = pipeline_git_sha
+    meta["provenance"] = prov
     return meta

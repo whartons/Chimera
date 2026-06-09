@@ -12,6 +12,15 @@ def test_loads_core_fields():
     assert m.lora.file == "lora/test.safetensors" and m.lora.strength == 0.7
     assert m.logo.position == "bottom-right"
 
+def test_malformed_yaml_raises_manifest_error(tmp_path):
+    # a syntactically-broken brand.yaml must surface as ManifestError (a ValueError), so callers
+    # like lint/doctor degrade to a clean message instead of crashing on a raw yaml.YAMLError
+    p = tmp_path / "b.yaml"
+    p.write_text(":::: not : valid : yaml ::::\n", encoding="utf-8")
+    with pytest.raises(ManifestError):
+        load_manifest(p)
+
+
 def test_defaults_when_blocks_missing(tmp_path):
     p = tmp_path / "b.yaml"
     p.write_text("name: Minimal\nstyle: x\n")

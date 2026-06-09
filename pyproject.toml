@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=77"]   # >=77 supports the PEP 639 SPDX `license` string below
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chimera"
+version = "0.1.0"
+description = "Brand-aware, multimodal ComfyUI pipeline (image / video / audio / 3D) with an agent self-correction loop and reproducible replay."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Chimera contributors" }]
+keywords = ["comfyui", "generative-ai", "image-generation", "video", "audio", "3d", "brand-kit"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+# Runtime deps are deliberately minimal — the heavy lifting (models, CUDA) lives in ComfyUI.
+dependencies = ["pyyaml>=6"]
+
+[project.optional-dependencies]
+# `pip install -e .[dev]` for the test + lint tooling.
+dev = ["pytest>=8", "ruff>=0.10"]
+# Optional host-side helpers, loaded only if present (graceful fallbacks otherwise):
+images = ["pillow>=10"]   # non-PNG logo sizing (see generate._image_size)
+video = ["av>=12"]        # foley fps/duration auto-probe (see generate._probe_video)
+
+[project.urls]
+Homepage = "https://github.com/whartons/ComfyUI-Chimera"
+Issues = "https://github.com/whartons/ComfyUI-Chimera/issues"
+
+[project.scripts]
+# Install editable (`pip install -e .`) then call the CLI by name: `chimera image --brand ...`.
+# (Editable keeps the repo's workflows/ and brands/ in place, which the CLI resolves at runtime.)
+chimera = "scripts.generate:main"
+
+[tool.setuptools.packages.find]
+include = ["scripts*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# Intentionally scoped to correctness (pyflakes): unused/undefined names, redefinitions, f-string
+# bugs. Stylistic rules (E/I) are NOT enforced — the codebase deliberately uses compact one-line
+# statements (`a; b`), grouped imports, and a `sys.path` shim before imports. Expand if desired.
+select = ["F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

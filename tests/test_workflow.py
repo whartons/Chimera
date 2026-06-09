@@ -85,6 +85,21 @@ def test_logo_top_left_and_center_placement(tmp_path):
     assert wf["13"]["inputs"]["x"] == (1000 - 100) // 2
     assert wf["13"]["inputs"]["y"] == (800 - 100) // 2
 
+def test_flux_model_override_reaches_unet_and_matches_sidecar(tmp_path):
+    # a Z-Image-default brand overridden to a FLUX model: the FLUX checkpoint must land in
+    # brand:unet (not the brand default), and equal what the sidecar records via resolve_image_model
+    # — i.e. graph and sidecar share one resolved value (no FLUX-override drift).
+    from scripts.brandkit.workflow import build, resolve_image_model
+    from scripts.brandkit.nodes import find_node_by_title
+    p = tmp_path / "b.yaml"; p.write_text("name: B\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\n")
+    m = load_manifest(p)
+    wf = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img",
+               model="flux2_dev_fp8mixed.safetensors")
+    unet = find_node_by_title(wf, "brand:unet")[1]["inputs"]["unet_name"]
+    assert unet == "flux2_dev_fp8mixed.safetensors"
+    assert unet == resolve_image_model("txt2img", None, "flux2_dev_fp8mixed.safetensors")
+
+
 def test_build_contract_txt2img():
     from scripts.brandkit.workflow import build
     from scripts.brandkit.nodes import find_node_by_title
