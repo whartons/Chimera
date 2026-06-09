@@ -20,8 +20,8 @@ classifiers = [
 dependencies = ["pyyaml>=6"]
 
 [project.optional-dependencies]
-# `pip install -e .[dev]` for the test + lint tooling.
-dev = ["pytest>=8", "ruff>=0.10"]
+# `pip install -e .[dev]` for the test + lint + coverage tooling.
+dev = ["pytest>=8", "ruff>=0.10", "pytest-cov>=5"]
 # Optional host-side helpers, loaded only if present (graceful fallbacks otherwise):
 images = ["pillow>=10"]   # non-PNG logo sizing (see generate._image_size)
 video = ["av>=12"]        # foley fps/duration auto-probe (see generate._probe_video)
@@ -51,3 +51,11 @@ select = ["F"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+# Coverage is opt-in via `pytest --cov` (CI enables it); not in addopts so a plain `pytest` still
+# runs without pytest-cov installed.
+[tool.coverage.run]
+source = ["scripts"]
+
+[tool.coverage.report]
+show_missing = true
