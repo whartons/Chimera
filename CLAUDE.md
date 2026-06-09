@@ -105,7 +105,9 @@ stale doc is a bug.
   `CHANGELOG.md` `[Unreleased]` entry. If it touches the agent loop or judge, also
   `modules/agent/self-correction.md`.
 - **Dependency, model, or node-pack pin** → `docs/STACK.md` **and** `docs/CATALOG.md` (plus the pin +
-  `git checkout <sha>` in that module's `models.md`). Pin third-party packs by commit, never `@latest`.
+  `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`NPM_PACKS` table in
+  `scripts/update_report.py`). Pin third-party packs by commit, never `@latest`; updating is gated by
+  the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (the CI count uses
   `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 2).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump

@@ -1,0 +1,43 @@
+name: update-check
+
+# Weekly "is anything outdated?" nudge. Opens (or refreshes) a single GitHub issue summarizing
+# whether the security-pinned ComfyUI node packs / MCP server are behind upstream, plus the standing
+# manual reviews (models, ComfyUI). REPORT-ONLY — it never bumps a pin (re-audit first; see
+# docs/UPDATING.md). Run it on demand from the Actions tab any time.
+on:
+  schedule:
+    - cron: "0 14 * * 1"   # Mondays 14:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: update-check
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build the update report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # raises the API rate limit; public-read only
+        run: python scripts/update_report.py > report.md
+      - name: Open or refresh the weekly update issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create update-report --color FFA500 --description "Weekly stack update report" --force
+          num=$(gh issue list --label update-report --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue edit "$num" --body-file report.md
+            echo "Refreshed issue #$num"
+          else
+            gh issue create --title "🔄 Weekly update report" --label update-report --body-file report.md
+          fi

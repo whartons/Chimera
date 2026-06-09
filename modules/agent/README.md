@@ -86,9 +86,11 @@ ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
 - **Per-call approval gates:** [`../../.claude/settings.json`](../../.claude/settings.json)
   forces an `ask` prompt (uncoverable by a broad allow) on the ~17 code-execution /
   process-control / destructive tools. Read-only + generation tools stay frictionless.
-- **Pin + re-audit on update:** never track `@latest`. A **scheduled weekly job re-runs
-  this deep scan** against each new upstream release and only advances the pin after a
-  clean result — so a version bump is always reviewed and deliberate, never silent.
+- **Pin + re-audit on update:** never track `@latest`. A **scheduled weekly job**
+  ([`../../.github/workflows/update-check.yml`](../../.github/workflows/update-check.yml)) flags in an
+  issue when the pin falls behind upstream; the pin is advanced only after a fresh **manual re-audit**
+  of the diff (runbook: [`../../docs/UPDATING.md`](../../docs/UPDATING.md)) — so a version bump is
+  always reviewed and deliberate, never silent.
 
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**

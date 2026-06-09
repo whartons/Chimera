@@ -6,6 +6,15 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-09
+
+### Added
+- **Reliable update process** — a weekly scheduled job (`.github/workflows/update-check.yml` +
+  `scripts/update_report.py`) opens a "🔄 Weekly update report" issue flagging when a pinned node
+  pack / the MCP server falls behind upstream (**report-only** — never auto-bumps a pin), plus
+  `docs/UPDATING.md`, the safe per-layer update runbook (with a quarterly model-review cadence).
+  Makes the previously-aspirational "scheduled re-scan" doc claim real.
+
 ## [0.1.2] - 2026-06-09
 
 ### Added
@@ -62,7 +71,8 @@ All notable changes to Chimera are documented here. The format follows
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/whartons/ComfyUI-Chimera/releases/tag/v0.1.0
