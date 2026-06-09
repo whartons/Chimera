@@ -13,13 +13,17 @@ class Rubric:
         """Render a numbered checklist instructing the judge how to respond."""
         lines = [
             f"Evaluate the image against this rubric for: {self.subject}.",
-            "For each numbered criterion, state MET or NOT-MET with a one-line reason:",
+            "For each numbered criterion, state MET or NOT-MET with a one-line reason. For any "
+            "NOT-MET criterion, append on the SAME line a concrete fix in this exact format: "
+            "'FIX: add <comma-separated visual elements to include>; avoid <comma-separated traits "
+            "to remove>'.",
         ]
         for i, c in enumerate(self.criteria, 1):
             lines.append(f"{i}. {c}")
         lines.append(
-            "Then give an overall verdict on its own line as PASS or FAIL, "
-            "and a score from 0 to 1 (e.g. 'score: 0.82')."
+            "Be strict: mark a criterion NOT-MET unless it is clearly and fully satisfied. "
+            "Then, on its own line, give the overall verdict: PASS only if EVERY criterion above is "
+            "MET, otherwise FAIL. On a separate line give a score from 0 to 1 (e.g. 'score: 0.82')."
         )
         return "\n".join(lines)
 

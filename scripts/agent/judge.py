@@ -34,6 +34,9 @@ _SCORE = re.compile(
 # Issues are the rubric's genuine NOT-MET lines only. A plain 'MET - ...' line never
 # contains 'not met', so MET criteria (even ones mentioning 'avoids'/'missing') are excluded.
 _NOTMET = re.compile(r"\bnot[\s\-]?met\b|\bunmet\b", re.IGNORECASE)
+# Also carry any line bearing a 'FIX:' directive (the judge's structured add/avoid correction) so
+# the expander receives it even if the model puts it on its own line rather than the NOT-MET line.
+_FIXLINE = re.compile(r"\bfix\b\s*[:\-]", re.IGNORECASE)
 
 
 def parse_verdict(text: str) -> Verdict:
@@ -76,9 +79,9 @@ def parse_verdict(text: str) -> Verdict:
         issues = []
         for line in lines:
             seg = line.strip()
-            # Collect only genuine NOT-MET lines; skip the overall verdict line so a
-            # real 'Overall: FAIL' isn't threaded back to the expander as noise.
-            if seg and "overall" not in seg.lower() and _NOTMET.search(seg):
+            # Collect genuine NOT-MET lines (and any standalone FIX: directive line); skip the
+            # overall verdict line so a real 'Overall: FAIL' isn't threaded back as noise.
+            if seg and "overall" not in seg.lower() and (_NOTMET.search(seg) or _FIXLINE.search(seg)):
                 issues.append(seg)
 
         return Verdict(passed=passed, score=score, issues=issues)

@@ -31,6 +31,12 @@ def test_as_prompt_is_numbered_checklist_with_pass_fail_and_score():
     assert "rover" in p
     assert "PASS" in p and "FAIL" in p
     assert "score" in p.lower()
+    # strict pass: the judge must require EVERY criterion met (overall PASS only if all MET),
+    # so the loop actually enforces the rubric instead of a lenient holistic pass
+    assert "every criterion" in p.lower() and "pass only" in p.lower()
+    # the judge is asked for a structured, actionable fix on NOT-MET criteria (add/avoid), which the
+    # expander applies to the next render
+    assert "fix:" in p.lower() and "add" in p.lower() and "avoid" in p.lower()
 
 
 def test_rubric_defaults_do_not_share_list():

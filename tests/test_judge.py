@@ -38,6 +38,14 @@ def test_parse_fail():
     assert v.issues  # the NOT-MET criterion line is collected
 
 
+def test_parse_collects_fix_directive_for_the_expander():
+    # the judge's structured 'FIX: add ...; avoid ...' correction must reach the expander via issues
+    text = ("Overall: FAIL\nscore: 0.5\n"
+            "1. NOT-MET - looks like a toy. FIX: add rugged tactical armor; avoid toy, glossy plastic\n")
+    v = parse_verdict(text)
+    assert any("fix:" in i.lower() and "rugged tactical armor" in i.lower() for i in v.issues)
+
+
 def test_parse_garbage_does_not_raise_and_fails():
     for junk in ("", "   ", "no verdict here at all", None):
         v = parse_verdict(junk)
