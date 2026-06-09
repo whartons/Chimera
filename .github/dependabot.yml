@@ -6,6 +6,9 @@ version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
+    # Only raise a pip floor when actually required (security / compatibility) — Chimera keeps loose
+    # version floors for broad install compatibility, so we don't want cosmetic minimum-version bumps.
+    versioning-strategy: "increase-if-necessary"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
