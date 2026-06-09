@@ -29,15 +29,16 @@ def media_subdir(suffix: str) -> str:
 
 
 def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4) -> Path:
+    """Relocate a finished render into its outputs folder, grouped by media type. With a brand it
+    goes to brands/<brand>/outputs/<media>/<brand>_<mode>_<seed>; brandless (brand falsy) it goes to
+    the global outputs/<media>/<mode>_<seed> — both gitignored. Idempotent + lock-retry."""
     src = Path(src)
-    if not brand:
-        return src
-    out_dir = brand_output_dir(repo_root, brand)
+    base = brand_output_dir(repo_root, brand) if brand else Path(repo_root) / "outputs"
     sub = media_subdir(src.suffix)
-    if sub:
-        out_dir = out_dir / sub
+    out_dir = base / sub if sub else base
     out_dir.mkdir(parents=True, exist_ok=True)
-    dest = out_dir / f"{brand}_{mode}_{seed}{src.suffix}"
+    stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"
+    dest = out_dir / f"{stem}{src.suffix}"
     last = None
     for _ in range(max(1, _retries)):
         try:

@@ -34,10 +34,11 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   exposes pipeline actions so an assistant (e.g. Claude) can run ComfyUI for you, with **per-tool
   approval gates** on the dangerous tools. The self-correction loop + the bridge are the two halves of
   the "agentic" story.
-- **🎛️ …or run it standalone — one CLI, four modalities** — no assistant needed: `pip install -e .`
-  and the **`chimera`** command drives **image, video, audio, and 3D** through a shared brand-aware core
-  (manifest → prompt → validated graph → ComfyUI → per-brand output). Every graph was built from live
-  node schemas and run end-to-end on a 5090.
+- **🎛️ …or run it standalone — one CLI, four modalities** — no assistant *and no brand* needed:
+  `chimera image --subject "..."` just works (→ `outputs/`). The **`chimera`** command drives **image,
+  video, audio, and 3D** through a shared core (prompt → validated graph → ComfyUI → routed output);
+  **`--brand` is an opt-in layer** (see below). Every graph was built from live node schemas and run
+  end-to-end on a 5090.
 - **🩺 Preflight + onboarding** — **`chimera doctor`** checks ComfyUI reachability, installed node
   packs, and your models *before* a multi-minute render; **`new-brand`** scaffolds a brand and **`lint`**
   validates `brand.yaml` + its assets so config mistakes surface early.
@@ -49,12 +50,13 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   wrong. cu130 to unlock comfy-kitchen's FP4 kernels, SageAttention, `--fast`, NVFP4 — with **measured
   numbers** (FLUX.2: **8.4 s vs 22.7 s, a 2.7× speedup at equal quality** on a 5090) and the
   non-obvious **`Comfy.Server.LaunchArgs`** trick for passing flags to ComfyUI **Desktop**.
-- **[🎨 Brand Kits](brands/)** — keep each brand's reference art + a YAML "brand brain" in one folder and
-  generate **on-brand** assets (prompt injection + alpha-exact logo overlay + product re-render +
-  optional LoRA), routed to per-brand output folders. The *pattern* is public; your brand data stays
-  gitignored. See [`modules/image/brand-kits.md`](modules/image/brand-kits.md).
+- **[🎨 Brand Kits — an optional layer](brands/)** — when you *want* consistency, point `--brand` at a
+  folder of reference art + a YAML "brand brain" and every render comes out **on-brand** (prompt
+  injection + alpha-exact logo overlay + product re-render + optional LoRA), routed to a per-brand
+  folder. Entirely opt-in — the tool generates fine without it. The *pattern* is public; your brand
+  data stays gitignored. See [`modules/image/brand-kits.md`](modules/image/brand-kits.md).
 
-**270 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**279 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🧩 Modules
@@ -87,34 +89,40 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 270 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 279 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, and agent-loop logic), linted with **ruff** and packaged
   as an installable CLI — all verified by **CI on Linux + Windows**.
 
 ## ⚡ Use it — install once, then `chimera`
 
 ```bash
-pip install -e .            # editable install; gives you the `chimera` command (+ python scripts/generate.py still works)
-chimera doctor --brand <brand>   # preflight: ComfyUI reachable? node packs + models installed?
+pip install -e .     # editable install; gives you the `chimera` command (+ python scripts/generate.py still works)
+chimera doctor       # preflight: ComfyUI reachable? node packs + models installed?
 ```
+
+**Brandless — no setup, just generate** (output → `outputs/<media>/`). `--brand` is **optional**:
 
 ```bash
-# image  (Z-Image default; --variant base|turbo; --model flux2… switches to FLUX.2; opt-in --watermark)
-chimera image --brand <brand> --mode txt2img --subject "an armored rover" --watermark
-chimera image --brand <brand> --mode product --asset rover.png        # img2img restyle
-chimera image --brand <brand> --mode txt2img --subject "…" --upscale  # 4× ESRGAN
-# video  (image-to-video with synced audio; --upscale = 2× LTX spatial latent upscaler)
-chimera video --brand <brand> --from-image rover.png --subject "rolls forward, dust"
-# audio  (music = text→stinger; foley = video→SFX muxed back onto the clip)
-chimera audio --brand <brand> --mode music --subject "logo sting"
-chimera audio --brand <brand> --mode foley --from-video clip.mp4 --subject "tires on gravel"
-# 3D  (image→mesh; export glb | stl | obj)
-chimera 3d --brand <brand> --from-image rover.png --format stl
+chimera image --subject "an armored rover"                  # Z-Image txt2img (--variant base|turbo; --model flux2… for FLUX.2)
+chimera image --subject "a chrome emblem" --upscale         # 4× ESRGAN
+chimera video --from-image start.png --subject "rolls forward, dust"   # image→video + synced audio
+chimera audio --mode music --subject "logo sting"           # text→stinger
+chimera 3d    --from-image rover.png --format stl           # image→mesh (glb|stl|obj)
+# asset args (--from-image / --asset / --from-video) take a direct file path when brandless
 ```
 
-Outputs route to `brands/<brand>/outputs/{images,video,audio,3d}/` (organized by media type), each with
-a reproducibility sidecar — **moved** into the brand folder, never duplicated to the global `outputs/`.
-The opt-in `--watermark` composites the brand logo in-graph (off by default).
+**Add `--brand` for on-brand output** — style/palette injection, logo overlay, product re-render,
+optional LoRA, and per-brand output routing:
+
+```bash
+chimera image --brand <brand> --mode txt2img --subject "an armored rover" --watermark
+chimera image --brand <brand> --mode product --asset rover.png          # img2img restyle into a scene
+chimera audio --brand <brand> --mode foley --from-video clip.mp4 --subject "tires on gravel"
+```
+
+Brandless outputs land in `outputs/<media>/`; with `--brand` they route to
+`brands/<brand>/outputs/<media>/` — each with a reproducibility sidecar, **moved** (never duplicated).
+The opt-in `--watermark` composites the brand logo in-graph (needs a brand; off by default).
 
 ### 🤖 Or let it correct itself
 ```bash

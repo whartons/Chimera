@@ -116,6 +116,16 @@ def _sub(cls, data, key):
     return cls(**{k: v for k, v in raw.items() if k in allowed})
 
 
+DEFAULT_BRANDLESS_MODEL = "z_image_turbo_nvfp4.safetensors"  # Z-Image is the documented default backend
+
+
+def default_manifest() -> BrandManifest:
+    """A neutral manifest for brandless generation: no style/palette/logo/negative, just the
+    documented Z-Image default model. Lets `chimera image --subject "..."` run with no --brand
+    (the output routes to the global outputs/ folder). `--model` still overrides it."""
+    return BrandManifest(name="default", defaults=Defaults(model=DEFAULT_BRANDLESS_MODEL))
+
+
 def load_manifest(path) -> BrandManifest:
     path = Path(path)
     if not path.exists():
