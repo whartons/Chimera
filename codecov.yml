@@ -1,0 +1,23 @@
+# Codecov configuration.
+#
+# The REAL coverage gate is `pytest --cov=scripts --cov-fail-under=85` in
+# .github/workflows/ci.yml (a required check). This file only tunes the codecov.io
+# PR annotations — it does not gate merges.
+#
+# `patch` is informational: the CLI entrypoints (scripts/generate.py and
+# scripts/agent/auto_generate.py `main()`) and the live ComfyUI render path are
+# intentionally not unit-covered — they need a GPU/running server — so a PR that
+# only touches that glue should report patch coverage without showing a failing X.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, files"
+  require_changes: true
