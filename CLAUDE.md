@@ -79,11 +79,12 @@ Every `modules/<name>/` folder contains at least:
 
 ## Agent / MCP layer (`modules/agent/` + `scripts/agent/`)
 Two things live here (both built — see `modules/agent/self-correction.md`):
-- **A self-correction loop** (`scripts/agent/`): build a brand rubric → generate → a VLM
-  judges the output against the rubric → unmet criteria are fed back into the prompt →
-  regenerate until it passes or hits an iteration cap. The core (`rubric`/`expander`/
-  `judge`/`loop`) is judge-agnostic and model-free (unit-tested, no GPU); two backends slot
-  in — a headless local **Qwen2.5-VL** judge and an assistant multi-judge-consensus pass.
+- **A self-correction loop** (`scripts/agent/`): build a rubric (brand-specific, or a general
+  subject + quality bar when brandless) → generate → a VLM judges the output against the rubric →
+  unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
+  The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
+  GPU); two backends slot in — a headless local **Qwen2.5-VL** judge and an assistant
+  multi-judge-consensus pass. `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
 - **An MCP bridge**: a pinned, security-audited ComfyUI MCP server exposes pipeline actions
   so an assistant can drive ComfyUI. Build on an **existing** server (e.g. `comfyui-mcp`)
   rather than reinventing the transport; the repo's original surface is the modules +

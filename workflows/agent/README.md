@@ -31,7 +31,9 @@ The loop reuses the shared core so it stays brand-neutral and consistent with th
 headless backend:
 
 - **Rubric** — `scripts/agent/rubric.py` `build_rubric(manifest, subject)` composes
-  the scorable checklist from the brand (subject, style, palette, negative).
+  the scorable checklist from the brand (subject, style, palette, negative); with a
+  brandless `default_manifest()` it collapses to just subject + quality, so the same
+  consensus loop works for general briefs too (the live anatomy example below was one).
   `rubric.as_prompt()` renders the numbered MET / NOT-MET + PASS/FAIL + `score: 0-1`
   instructions each judge is handed.
 - **Expander** — `scripts/agent/expander.py` `TemplatedExpander.expand(subject,
@@ -58,6 +60,10 @@ headless backend:
 4. **Take the consensus.** A candidate **passes** when a majority of its M judges
    voted PASS. Among passing candidates, keep the highest mean score. If none pass,
    carry forward the **consensus issues** — the unmet criteria most judges flagged.
+   `scripts/agent/judge.py` `consensus_verdict(texts)` does this in one call (parse each
+   pass → strict-majority PASS → mean score → de-duplicated union of issues); `CallableJudge`
+   wraps a single vision pass as a `Judge`, so a panel of them drops straight into
+   `ConsensusJudge` / `run_loop`.
 5. **Refine** the prompt from those consensus issues via
    `TemplatedExpander().expand(subject, manifest, prior_issues=consensus_issues)`.
 6. **Regenerate the failures** with the refined prompt + fresh seeds and repeat from
@@ -103,6 +109,13 @@ that single call for a `LocalVLMJudge` over a Qwen2.5-VL graph is exactly the lo
 standalone backend — and that backend is **built and live-validated**
 (`python scripts/agent/auto_generate.py --backend local …`), with the same rubric,
 expander, and loop shape.
+
+`auto_generate.py` also exposes `--backend assistant`, but as an **explicitly gated** opt-in:
+a headless subprocess has no assistant vision to call, so the CLI refuses it and points back
+here — the assistant consensus backend runs only with the agent in the loop. A real
+fail→pass driven exactly this way (an off-brand toy corrected into an on-brand tactical rover,
+3/3 consensus) is captured in
+[`../../modules/agent/self-correction.md`](../../modules/agent/self-correction.md).
 
 ## When to use this
 

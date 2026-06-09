@@ -4,14 +4,18 @@
 Wires the model-free agent core (expander + run_loop) to the real ComfyUI image filler and a
 local Qwen2.5-VL judge (LocalVLMJudge over the agent-vlm-judge.json graph). Each iteration the
 expander folds the previous verdict's unmet-criterion issues back into the prompt, so renders
-converge on the brand rubric. The winning image is routed into brands/<brand>/outputs/ with a
-sidecar recording the run.
+converge on the rubric.
 
-  python scripts/agent/auto_generate.py --brand example-brand --subject "an armored rover" \
+--brand is OPTIONAL. With a brand, the rubric enforces that brand's style/palette/negative and the
+winner routes into brands/<brand>/outputs/. Brandless (omit --brand), the rubric collapses to
+subject + quality (a general "is this actually X, and is it sharp/clean?" QA gate) and the winner
+routes into the global outputs/.
+
+  python scripts/agent/auto_generate.py [--brand example-brand] --subject "an armored rover" \
       --comfy-output-dir <comfy_output_dir> [--max-iters 4] [--seeds 7,8,9] [--variant turbo]
 
---comfy-output-dir is required: it both routes renders into the brand folder AND is where the
-judge graph drops its verdict .txt. Only the local backend exists (no Claude-API / batch path).
+--comfy-output-dir is required: it both routes renders into the output folder (brand or global) AND
+is where the judge graph drops its verdict .txt. Only the local backend exists (no Claude-API path).
 """
 import argparse, datetime, sys
 from pathlib import Path
@@ -22,7 +26,7 @@ from scripts.agent.judge import LocalVLMJudge
 from scripts.agent.loop import run_loop
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
-from scripts.brandkit.manifest import load_manifest
+from scripts.brandkit.manifest import load_manifest, default_manifest
 from scripts.brandkit.outputs import select_output, route_output, write_sidecar
 from scripts.generate import git_provenance
 
@@ -34,10 +38,32 @@ def _parse_seeds(raw):
     return [int(s) for s in raw.split(",") if s.strip()]
 
 
+def _backend_error(backend):
+    """Return an error message if `backend` can't run from this headless entrypoint, else None.
+    'local' (Qwen2.5-VL judge) is the autonomous path. 'assistant' (multi-judge vision consensus)
+    needs the agent's own eyes in the loop, which a bare subprocess doesn't have — so it's offered
+    but gated: choose it and the CLI refuses, pointing at the local backend / the assistant recipe."""
+    if backend == "assistant":
+        return ("the 'assistant' consensus backend judges with the agent's own vision and only runs "
+                "with the agent in the loop (see workflows/agent/README.md). For an unattended run "
+                "use --backend local (the Qwen2.5-VL judge).")
+    return None
+
+
+def _resolve_manifest(repo_root, brand):
+    """With --brand, load brands/<brand>/brand.yaml (branded self-correction). Brandless (brand
+    None/'') -> the neutral default_manifest(): build_rubric collapses to subject + quality, so the
+    loop runs as a general QA gate and winners route to the global outputs/ (route_output's brandless
+    path). Mirrors generate.py's brand-optional resolution."""
+    if brand:
+        return load_manifest(Path(repo_root) / "brands" / brand / "brand.yaml")
+    return default_manifest()
+
+
 def _make_generate(args, repo_root, manifest, client):
     """Build the loop's generate(pos, neg, seed) -> routed-image-path closure. Each call builds
-    the txt2img graph, queues it, waits, and routes the result into the brand folder (mode label
-    'agent' so per-iteration renders are distinguishable)."""
+    the txt2img graph, queues it, waits, and routes the result into the output folder (brand or
+    global, per --brand) with mode label 'agent' so per-iteration renders are distinguishable."""
     out_dir = Path(args.comfy_output_dir)
 
     def generate(pos, neg, seed):
@@ -85,11 +111,15 @@ def _print_summary(result):
 def main():
     ap = argparse.ArgumentParser(prog="auto_generate.py",
                                  description="Headless brand self-correction loop (local VLM judge).")
-    ap.add_argument("--brand", required=True)
+    ap.add_argument("--brand", default=None,
+                    help="brand folder under brands/; omit for general (non-branded) "
+                         "self-correction (subject+quality rubric, output -> outputs/)")
     ap.add_argument("--subject", required=True)
     ap.add_argument("--max-iters", dest="max_iters", type=int, default=4)
     ap.add_argument("--seeds", default=None, help="comma-separated seeds, one per iteration")
-    ap.add_argument("--backend", choices=["local"], default="local")
+    ap.add_argument("--backend", choices=["local", "assistant"], default="local",
+                    help="local = autonomous Qwen2.5-VL judge (default); assistant = agent-driven "
+                         "vision consensus (optional, requires the agent in the loop)")
     ap.add_argument("--comfy-url", dest="comfy_url", default="http://127.0.0.1:8000")
     ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", required=True,
                     help="ComfyUI output dir: routes renders AND is where the judge drops verdicts")
@@ -98,9 +128,12 @@ def main():
     ap.add_argument("--model", default=None, help="image model/family override")
     ap.add_argument("--timeout", type=int, default=900, help="per-render wait (s)")
     args = ap.parse_args()
+    backend_err = _backend_error(args.backend)
+    if backend_err:
+        ap.error(backend_err)
 
     repo_root = Path(__file__).resolve().parents[2]
-    m = load_manifest(repo_root / "brands" / args.brand / "brand.yaml")
+    m = _resolve_manifest(repo_root, args.brand)
     client = ComfyClient(args.comfy_url)
 
     expander = TemplatedExpander()

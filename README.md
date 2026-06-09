@@ -26,8 +26,9 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
 ## ✅ What's here today (tested, not vapor)
 
 - **🤖 An agent self-correction loop** *(the headline)* — Chimera doesn't just generate once, it
-  *iterates to a passing result*: build a brand rubric → generate → a **VLM judges the output against
-  the rubric** → unmet criteria are fed back into the prompt → regenerate until it passes or hits an
+  *iterates to a passing result*: build a rubric (brand-specific, or a general subject + quality bar)
+  → generate → a **VLM judges the output against the rubric** → unmet criteria are fed back into the
+  prompt → regenerate until it passes or hits an
   iteration cap. A **judge-agnostic, model-free core** (unit-tested, no GPU) with two interchangeable
   backends: a **headless local Qwen2.5-VL-7B** judge, and an **assistant multi-judge-consensus** pass.
   Live-validated end-to-end. See [`modules/agent/self-correction.md`](modules/agent/self-correction.md).
@@ -127,9 +128,13 @@ Brandless outputs land in `outputs/<media>/`; with `--brand` they route to
 The opt-in `--watermark` composites the brand logo in-graph (needs a brand; off by default).
 
 ### 🤖 Or let it correct itself
+`--brand` is **optional** here too — brandless judges subject + quality (a general QA gate); add a
+brand to enforce its style/palette/negative.
 ```bash
-python scripts/agent/auto_generate.py --brand <brand> --subject "an armored rover" \
+# brandless: general "is this actually X, and is it sharp/clean?" gate (output → outputs/)
+python scripts/agent/auto_generate.py --subject "an armored rover" \
     --comfy-output-dir <comfy_output_dir>   # generate → local VLM judge → refine, until it passes
+# add --brand <brand> to enforce a brand's style/palette/negative instead (output → brands/<brand>/outputs/)
 ```
 
 ## 🔁 Reproducibility & replay

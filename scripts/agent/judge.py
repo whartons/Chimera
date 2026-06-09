@@ -160,16 +160,59 @@ class LocalVLMJudge(Judge):
         return parse_verdict(text)
 
 
+def combine_verdicts(verdicts, *, pass_threshold=None) -> Verdict:
+    """Aggregate N independent verdicts into one by majority vote:
+      passed = at least `pass_threshold` passed (strict majority by default),
+      score  = mean of the sub-scores,
+      issues = order-preserving, de-duplicated union of every verdict's issues (so the expander
+               addresses every raised concern on the next iteration).
+    The shared core of both the Judge panel (ConsensusJudge) and the free-text panel
+    (consensus_verdict). Raises ValueError on an empty list."""
+    verdicts = list(verdicts)
+    if not verdicts:
+        raise ValueError("need at least one verdict to combine")
+    # strict majority: more than half must pass (N=2 -> unanimous; N=3 -> 2; N=5 -> 3)
+    threshold = pass_threshold if pass_threshold is not None else (len(verdicts) // 2) + 1
+    passes = sum(1 for v in verdicts if v.passed)
+    score = sum(v.score for v in verdicts) / len(verdicts)
+    seen, issues = set(), []
+    for v in verdicts:
+        for it in v.issues:
+            if it not in seen:
+                seen.add(it); issues.append(it)
+    return Verdict(passed=passes >= threshold, score=round(score, 4), issues=issues)
+
+
+def consensus_verdict(texts, *, pass_threshold=None) -> Verdict:
+    """Combine the assistant's M independent free-text vision passes into one consensus Verdict:
+    parse each with parse_verdict, then majority-vote via combine_verdicts. This is the assistant
+    consensus judge's core primitive — used when the agent is in the loop and IS the judge (it has
+    no headless VLM; the local backend's LocalVLMJudge is the autonomous path)."""
+    return combine_verdicts([parse_verdict(t) for t in texts], pass_threshold=pass_threshold)
+
+
+class CallableJudge(Judge):
+    """Adapt a plain callable into a Judge: `fn(image_path, rubric)` returns either a free-text
+    verdict (parsed via parse_verdict) or a ready Verdict. This is the seam the assistant uses to
+    plug its own vision passes into ConsensusJudge / run_loop when the agent is driving the loop.
+    There is deliberately no headless implementation — a bare subprocess has no assistant vision to
+    call, which is exactly why the assistant backend is gated to agent-in-the-loop use."""
+
+    def __init__(self, fn):
+        self.fn = fn
+
+    def judge(self, image_path, rubric) -> Verdict:
+        out = self.fn(image_path, rubric)
+        return out if isinstance(out, Verdict) else parse_verdict(out)
+
+
 class ConsensusJudge(Judge):
     """A judge panel: aggregate N sub-judges into one Verdict by majority vote. Each sub-judge
-    scores the image independently; the panel combines them as
-      passed  = at least `pass_threshold` sub-judges passed (strict majority by default),
-      score   = mean of the sub-scores,
-      issues  = de-duplicated union of every sub-judge's issues (so the expander addresses every
-                raised concern on the next iteration).
-    Judge-agnostic — the diversity comes from the judges you pass in (different VLMs, prompts, or an
-    assistant panel), all behind the same `Judge` seam. A sub-judge that raises counts as a fail and
-    never crashes the panel, so one flaky judge can't take the loop down."""
+    scores the image independently; the panel combines them via combine_verdicts (strict-majority
+    PASS, mean score, de-duplicated union of issues). Judge-agnostic — the diversity comes from the
+    judges you pass in (different VLMs, prompts, or an assistant panel of CallableJudges), all behind
+    the same `Judge` seam. A sub-judge that raises counts as a fail and never crashes the panel, so
+    one flaky judge can't take the loop down."""
 
     def __init__(self, judges, *, pass_threshold=None):
         self.judges = list(judges)
@@ -186,11 +229,4 @@ class ConsensusJudge(Judge):
                 verdicts.append(j.judge(image_path, rubric))
             except Exception as e:                     # one flaky judge != a dead panel
                 verdicts.append(Verdict(passed=False, score=0.0, issues=[f"judge error: {e}"]))
-        passes = sum(1 for v in verdicts if v.passed)
-        score = sum(v.score for v in verdicts) / len(verdicts)
-        seen, issues = set(), []
-        for v in verdicts:
-            for it in v.issues:
-                if it not in seen:
-                    seen.add(it); issues.append(it)
-        return Verdict(passed=passes >= self.pass_threshold, score=round(score, 4), issues=issues)
+        return combine_verdicts(verdicts, pass_threshold=self.pass_threshold)

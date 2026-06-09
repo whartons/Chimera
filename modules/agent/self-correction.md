@@ -47,7 +47,7 @@ Both drive the *same* core; they differ only in **who plays the `Judge`**.
 | Driver | Claude Code's Workflow/subagent tooling (assistant in the loop) | Headless CLI: `scripts/agent/auto_generate.py --backend local` |
 | Quality | **Highest** — multi-judge consensus catches subtle failure modes | Good — one strong VLM pass per candidate |
 | Cost / deps | No API key, no extra model | ~15 GB VRAM VLM, fully **offline/unattended** |
-| Status | **Built** (proven live; see recipe) | **Built + validated** (full loop ran live) |
+| Status | **Built + proven** (live fail→pass captured below) | **Built + validated** (full loop ran live) |
 | Recipe | [`../../workflows/agent/README.md`](../../workflows/agent/README.md) | `scripts/agent/auto_generate.py` |
 
 **When to use which:**
@@ -87,13 +87,23 @@ assistant or API key.
 **Invocation:**
 
 ```
-python scripts/agent/auto_generate.py --brand <brand> --subject "<subject>" \
+python scripts/agent/auto_generate.py [--brand <brand>] --subject "<subject>" \
     --comfy-output-dir <ComfyUI output dir> [--max-iters N] [--seeds a,b,c]
 ```
 
-`--comfy-output-dir` does double duty: it's both where finished renders route into the
-brand folder **and** where the judge graph drops (and the judge reads back) its verdict
-`.txt`.
+`--brand` is **optional** — the same machinery does branded *and* general self-correction:
+
+- **With `--brand`** — `build_rubric` adds the brand's style/palette/negative criteria, so the
+  loop enforces brand conformance and the winner routes into `brands/<brand>/outputs/`.
+- **Brandless** (omit `--brand`) — the manifest is the neutral `default_manifest()`, so the rubric
+  collapses to just *"clearly depicts {subject}"* + *"high quality (sharp, well-composed, no
+  artifacts)."* That's a general QA gate — reject blurry / wrong-subject / artifact-ridden renders —
+  and the winner routes into the global `outputs/`. The judge, expander and loop are brand-agnostic;
+  only the rubric's optional criteria differ.
+
+`--comfy-output-dir` does double duty: it's both where finished renders route (into the brand
+folder, or the global `outputs/` when brandless) **and** where the judge graph drops (and the judge
+reads back) its verdict `.txt`.
 
 ### The judge & correction in action (real local-backend output)
 
@@ -137,14 +147,58 @@ Overall: FAIL   score: 0.7
 
 …versus an on-brand render the same judge passes at **0.95–0.97**.
 
-**Honest note on convergence.** Z-Image's base quality plus the brand prompt injection are strong
-enough that a *satisfiable* subject usually passes on the **first** iteration — so a dramatic
-multi-iteration fail→pass is the exception, not the rule. The correction machinery is what engages
-when a render genuinely misses, and its reliability scales with the judge: the local 7B follows the
-structured-fix format *intermittently*, so a more capable judge (a larger local VLM, or the attended
-[assistant panel](#the-two-backends)) sharpens both the strict verdict and the fix directives. The
-value the strict-rubric + structured-FIX design adds is that the loop now *enforces* the brand instead
-of accepting a render that misses it.
+### A real fail→pass — the assistant consensus backend *correcting* an off-brand render
+
+Enforcement is half the loop; the other half is **correction**. Below the loop is driven by the
+**assistant consensus backend** — the agent's own vision, **M = 3 independent passes** combined by
+[`consensus_verdict`](../../scripts/agent/judge.py) — against the `example-brand` rubric for subject
+*"a rover"*. **Same seed (7), same real pipeline; only the brand correction changed between frames:**
+
+| iter 0 — consensus **FAIL · 0.40** (3/3 FAIL) | iter 1 — consensus **PASS · 0.92** (3/3 PASS) |
+|:---:|:---:|
+| ![off-brand glossy toy mascot the consensus judge failed](../../docs/images/agent-correct-before.png) | ![on-brand gunmetal tactical rover the consensus judge passed](../../docs/images/agent-correct-after.png) |
+| glossy cartoon toy mascot — fails *depicts a rover*, *style*, *avoids toy-like* | rugged gunmetal tactical rover, photoreal, rust-red accent — **every criterion MET** |
+
+The first prompt was deliberately off-brand (*"a friendly cartoon mascot rover toy with big round cute
+googly eyes and a glossy candy-colored plastic shell"*). Each of the three vision passes marked it
+FAIL with a structured fix; `consensus_verdict` unioned their issues, and the **real
+`TemplatedExpander`** turned them into the iter-1 prompt — stripping `cartoon, mascot, toy, googly
+eyes, glossy, candy-colored` from the subject and leading with *"Correct the previous attempt — render
+strictly in the rugged tactical-industrial style…"* plus the emphasized `add` terms. Re-rendered at
+the **same seed**, the consensus judge passed it 3/3. That is the loop doing what it is for:
+**turning a genuine miss into an on-brand pass**, not merely rejecting.
+
+One of the three passes for each frame, **verbatim** (the texts `consensus_verdict` parsed and
+combined — same format the local 7B section above quotes, except here the judge is the agent's own
+vision, so read the score as the agent's self-assessment, not a third-party metric):
+
+```
+# iter 0 — one of three FAIL passes
+1. avoids toy-like/cartoonish: NOT-MET - it is unmistakably a glossy toy figurine with
+   big round cute eyes. FIX: add matte tactical surfaces, rugged hardware;
+   avoid toy-like, glossy, big round cute googly eyes, cute
+2. high quality (sharp, well-composed): MET - sharp and clean.
+Overall: FAIL   score: 0.4
+
+# iter 1 — one of three PASS passes
+1. clearly depicts a rover: MET - a rugged armored tactical rover vehicle on chunky off-road wheels.
+2. style matches rugged tactical-industrial, gunmetal, matte black, hard edges, photoreal: MET -
+   angular faceted armored hull, photoreal hardware render.
+Overall: PASS   score: 0.93
+```
+
+The headline **0.40 / 0.92** are the **mean of each frame's three self-assessed passes**
+(`consensus_verdict` averages them); the per-pass scores above are the individual votes.
+
+**Honest note on convergence — and which backend earns it.** Z-Image's base quality plus brand prompt
+injection are strong enough that a *satisfiable* subject often passes on the **first** iteration, so a
+dramatic fail→pass appears only when a render genuinely misses the brand (as above, where the first
+prompt was deliberately off-brand). Reliability scales with the judge. The **assistant consensus
+backend** earns that fail→pass cleanly — three independent vision passes yield a strict verdict and
+precise, format-following fixes. The **autonomous local 7B** follows the structured-fix format only
+*intermittently*, so it enforces the brand reliably but converges less consistently — the trade for
+running unattended. Choose the tier per job: `--backend local` for hands-off batches, the opt-in
+`--backend assistant` (agent in the loop) when you want the strongest correction.
 
 **How the verdict is captured:** the judge graph
 (`workflows/templates/agent-vlm-judge.json`) runs Qwen2.5-VL via the
