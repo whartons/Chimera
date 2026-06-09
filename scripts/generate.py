@@ -23,7 +23,7 @@ to upgrade them.
 import argparse, json, random, struct, sys, datetime
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.brandkit.manifest import load_manifest
+from scripts.brandkit.manifest import load_manifest, default_manifest
 from scripts.brandkit.prompt import build_prompt, build_audio_prompt
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit import video as video_filler
@@ -67,7 +67,8 @@ def _image_size(path):
 
 
 def _add_common(sp):
-    sp.add_argument("--brand", required=True)
+    sp.add_argument("--brand", default=None,
+                    help="optional brand (brands/<brand>/); omit to generate brandlessly -> outputs/")
     sp.add_argument("--seed", type=int, default=None)
     sp.add_argument("--comfy-url", default="http://127.0.0.1:8000")
     sp.add_argument("--comfy-output-dir", default=None)
@@ -78,38 +79,45 @@ def _add_common(sp):
     sp.add_argument("--no-free-before", dest="free_before", action="store_false")
 
 
+def _resolve_asset(brand_dir, name, subdirs, ap, what):
+    """Locate an input asset. With a brand, search its <subdirs>/ (current behavior). Brandless
+    (brand_dir is None), treat `name` as a direct file path (absolute or relative to cwd). ap.error()s
+    if `name` is empty or the file can't be found — returns a Path otherwise."""
+    if not name:
+        ap.error(f"{what} is required")
+    if brand_dir is not None:
+        p = next((brand_dir / d / name for d in subdirs if (brand_dir / d / name).exists()), None)
+        if p is None:
+            ap.error(f"{what} {name!r} not found under the brand in {'/, '.join(subdirs)}/")
+        return p
+    p = Path(name)
+    if not p.exists():
+        ap.error(f"{what} not found: {name} (give a file path; no --brand set)")
+    return p
+
+
 def _prepare_image(args, m, brand_dir, client, ap):
     fkw = {"mode": args.mode, "variant": args.variant, "model": args.model,
            "upscale": args.upscale,
            "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
     if args.mode in ("logo", "product"):
         subdir = "logos" if args.mode == "logo" else "products"
-        asset_name = args.asset or (m.logo.default or "").split("/")[-1]
-        if not asset_name:
-            ap.error(f"{args.mode} mode needs --asset (a file in brands/{args.brand}/{subdir}/)")
-        asset_path = brand_dir / subdir / asset_name
-        if not asset_path.exists():
-            ap.error(f"asset not found: {asset_path}")
+        asset_name = args.asset or (m.logo.default or "").split("/")[-1] or None
+        asset_path = _resolve_asset(brand_dir, asset_name, (subdir,), ap, f"{args.mode} --asset")
         fkw["asset"] = client.upload_image(asset_path)
         if args.mode == "logo":
             sz = _image_size(asset_path)
             if sz:
                 fkw["logo_px"] = (int(sz[0] * m.logo.scale), int(sz[1] * m.logo.scale))
             else:
-                print(f"warning: could not read logo dimensions from {asset_name}; corner "
+                print(f"warning: could not read logo dimensions from {asset_path.name}; corner "
                       "placement will be approximate (install Pillow or use a PNG logo)",
                       file=sys.stderr)
     return fkw
 
 
 def _prepare_video(args, m, brand_dir, client, ap):
-    name = args.from_image
-    if not name:
-        ap.error("video needs --from-image (a file in brands/<brand>/products/ or references/)")
-    path = next((brand_dir / d / name for d in ("products", "references")
-                 if (brand_dir / d / name).exists()), None)
-    if path is None:
-        ap.error(f"--from-image not found in products/ or references/: {name}")
+    path = _resolve_asset(brand_dir, args.from_image, ("products", "references"), ap, "video --from-image")
     return {"from_image": client.upload_image(path),
             "length": args.length, "fps": args.fps, "audio": args.audio,
             "width": args.width, "height": args.height,
@@ -143,19 +151,14 @@ def _prepare_audio(args, m, brand_dir, client, ap):
         return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
                 "keyscale": args.keyscale}
     # foley: locate + upload the source video, probe its fps/duration/size
-    name = args.from_video
-    if not name:
-        ap.error("foley needs --from-video (a file in brands/<brand>/outputs|references|products/)")
     # outputs/video/ first (media-type-routed location), then legacy flat outputs/, then sources
-    path = next((brand_dir / d / name for d in ("outputs/video", "outputs", "references", "products")
-                 if (brand_dir / d / name).exists()), None)
-    if path is None:
-        ap.error(f"--from-video not found in outputs/video/, outputs/, references/ or products/: {name}")
+    path = _resolve_asset(brand_dir, args.from_video,
+                          ("outputs/video", "outputs", "references", "products"), ap, "foley --from-video")
     fr, dur, w, h = _probe_video(path)
     frame_rate = args.fps or fr or 25.0
     duration = args.duration or dur or 5.0
     if (fr is None or dur is None) and (args.fps is None or args.duration is None):
-        print(f"warning: could not probe {name}; using frame_rate={frame_rate} duration={duration}"
+        print(f"warning: could not probe {path.name}; using frame_rate={frame_rate} duration={duration}"
               " (pass --fps/--duration to override)", file=sys.stderr)
     return {"mode": "foley", "from_video": client.upload_video(path),
             "frame_rate": frame_rate, "duration": duration, "fps": frame_rate,
@@ -163,11 +166,8 @@ def _prepare_audio(args, m, brand_dir, client, ap):
 
 
 def _prepare_3d(args, m, brand_dir, client, ap):
-    name = args.from_image
-    path = next((brand_dir / d / name for d in ("products", "references", "outputs/images")
-                 if (brand_dir / d / name).exists()), None)
-    if path is None:
-        ap.error(f"--from-image not found in products/, references/ or outputs/images/: {name}")
+    path = _resolve_asset(brand_dir, args.from_image,
+                          ("products", "references", "outputs/images"), ap, "3d --from-image")
     return {"mode": args.mode, "from_image": client.upload_image(path),
             "octree": args.octree, "model": args.model}
 
@@ -282,8 +282,11 @@ def _args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None
 
 
 def run(args, repo_root, ap):
-    brand_dir = repo_root / "brands" / args.brand
-    m = load_manifest(brand_dir / "brand.yaml")
+    if args.brand:
+        brand_dir = repo_root / "brands" / args.brand
+        m = load_manifest(brand_dir / "brand.yaml")
+    else:
+        brand_dir, m = None, default_manifest()   # brandless: neutral manifest, output -> outputs/
     seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
     if args.modality == "3d":
         pos, neg = "", ""
@@ -293,6 +296,8 @@ def run(args, repo_root, ap):
         pos, neg = build_prompt(m, args.subject)
     do_watermark = (args.watermark or m.watermark.enabled_default) and \
         _supports_watermark(args.modality, args.mode)
+    if do_watermark and not args.brand:
+        ap.error("--watermark needs a --brand (the logo comes from brands/<brand>/logos/)")
     client = ComfyClient(args.comfy_url)
 
     free_before = args.free_before if args.free_before is not None else FREE_BEFORE_DEFAULT[args.modality]
@@ -317,7 +322,7 @@ def run(args, repo_root, ap):
     wf = FILLERS[args.modality](repo_root, m, positive=pos, negative=neg, seed=seed,
                                watermark=do_watermark, **fkw)
     pid = client.queue_prompt(wf)
-    print(f"queued {pid} (modality={args.modality} brand={args.brand} mode={args.mode} seed={seed})")
+    print(f"queued {pid} (modality={args.modality} brand={args.brand or '-'} mode={args.mode} seed={seed})")
     timeout = args.timeout or TIMEOUTS[args.modality]
     try:
         client.wait(pid, max_wait=timeout)

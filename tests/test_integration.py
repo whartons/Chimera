@@ -104,6 +104,43 @@ def test_run_without_output_dir_prints_filename_only(monkeypatch, tmp_path, caps
     assert not (repo / "brands" / "b" / "outputs").exists()    # nothing routed
 
 
+def test_run_brandless_routes_to_global_outputs(monkeypatch, tmp_path):
+    # no --brand: neutral manifest, output -> repo_root/outputs/<media>/<mode>_<seed>, sidecar brand=None
+    (tmp_path / "workflows" / "templates").mkdir(parents=True)
+    shutil.copy(ROOT / "workflows" / "templates" / "brand-zimage-txt2img.json",
+                tmp_path / "workflows" / "templates" / "brand-zimage-txt2img.json")
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (comfyout / "out.png").write_bytes(b"PNGDATA")
+    generate.run(_img_args(brand=None, seed=7, comfy_output_dir=str(comfyout)), tmp_path, _StubAp())
+    dest = tmp_path / "outputs" / "images" / "txt2img_7.png"
+    assert dest.exists() and dest.read_bytes() == b"PNGDATA"   # global outputs/, not a brand folder
+    meta = json.loads(dest.with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["brand"] is None
+    assert meta["model"] == "z_image_turbo_nvfp4.safetensors"  # brandless default model
+
+
+def test_run_brandless_watermark_errors(tmp_path):
+    # --watermark needs a brand (the logo lives in the brand folder) -> clean ap.error, no crash
+    class _Err(Exception):
+        pass
+    class _Ap:
+        def error(self, msg):
+            raise _Err(msg)
+    with pytest.raises(_Err):
+        generate.run(_img_args(brand=None, watermark=True), tmp_path, _Ap())
+
+
+def test_main_image_brandless_dispatches(monkeypatch):
+    # --brand is now optional: `chimera image --subject ...` parses (brand=None) and dispatches
+    captured = {}
+    monkeypatch.setattr(generate, "run",
+                        lambda args, repo_root, ap: captured.update(brand=args.brand, subj=args.subject))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "image", "--subject", "a rover"])
+    generate.main()
+    assert captured == {"brand": None, "subj": "a rover"}
+
+
 def test_main_dispatches_image_to_run(monkeypatch):
     captured = {}
     monkeypatch.setattr(generate, "run",

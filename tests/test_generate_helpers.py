@@ -282,6 +282,41 @@ def test_git_provenance_git_absent(monkeypatch):
     assert generate.git_provenance("anyroot") is None
 
 
+# ----------------------------------------------------------------- brand-optional (_resolve_asset)
+def test_resolve_asset_brand_folder_lookup(tmp_path):
+    bdir = tmp_path / "brands" / "b"; (bdir / "logos").mkdir(parents=True)
+    (bdir / "logos" / "p.png").write_bytes(b"x")
+    assert generate._resolve_asset(bdir, "p.png", ("logos",), _StubAp(), "logo --asset") \
+        == bdir / "logos" / "p.png"
+
+
+def test_resolve_asset_brandless_direct_path(tmp_path):
+    f = tmp_path / "anywhere" / "img.png"; f.parent.mkdir(parents=True); f.write_bytes(b"x")
+    assert generate._resolve_asset(None, str(f), ("products",), _StubAp(), "video --from-image") == f
+
+
+def test_resolve_asset_missing_and_empty_error():
+    with pytest.raises(_ApError):
+        generate._resolve_asset(None, "/no/such/file.png", ("x",), _StubAp(), "thing")   # missing path
+    with pytest.raises(_ApError):
+        generate._resolve_asset(None, None, ("x",), _StubAp(), "thing")                  # empty name
+
+
+def test_prepare_video_brandless_uses_direct_path(tmp_path):
+    f = tmp_path / "start.png"; f.write_bytes(b"x")
+    args = _args_ns(modality="video", from_image=str(f), length=49, fps=24, audio=True,
+                    width=768, height=512, upscale=False, brand=None)
+    fkw = generate._prepare_video(args, M, None, _FakeUploadClient(), _StubAp())
+    assert fkw["from_image"] == f"up:{f.name}"
+
+
+def test_prepare_3d_brandless_uses_direct_path(tmp_path):
+    f = tmp_path / "src.png"; f.write_bytes(b"x")
+    args = _args_ns(modality="3d", mode="image", from_image=str(f), model=None, octree=128, brand=None)
+    fkw = generate._prepare_3d(args, M, None, _FakeUploadClient(), _StubAp())
+    assert fkw["from_image"] == f"up:{f.name}"
+
+
 # ------------------------------------------------------------------ auto_generate.py helpers (B5)
 def test_write_run_sidecar_none_image_short_circuits(monkeypatch):
     from scripts.agent import auto_generate as ag

@@ -12,6 +12,15 @@ def test_loads_core_fields():
     assert m.lora.file == "lora/test.safetensors" and m.lora.strength == 0.7
     assert m.logo.position == "bottom-right"
 
+def test_default_manifest_is_brandless_and_neutral():
+    from scripts.brandkit.manifest import default_manifest, DEFAULT_BRANDLESS_MODEL
+    m = default_manifest()
+    assert m.name == "default"
+    assert m.defaults.model == DEFAULT_BRANDLESS_MODEL          # documented Z-Image default
+    assert m.style == "" and m.palette == [] and m.negative == ""   # no brand styling injected
+    assert m.logo.default is None                                # no logo -> no watermark/logo overlay
+
+
 def test_malformed_yaml_raises_manifest_error(tmp_path):
     # a syntactically-broken brand.yaml must surface as ManifestError (a ValueError), so callers
     # like lint/doctor degrade to a clean message instead of crashing on a raw yaml.YAMLError

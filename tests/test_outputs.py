@@ -25,11 +25,13 @@ def test_route_by_media_type(tmp_path):
         assert dest.parent == tmp_path / "brands" / "example-brand" / "outputs" / sub
         assert dest.name == f"example-brand_foley_42{ext}"
 
-def test_route_none_brand_keeps_in_place(tmp_path):
+def test_route_brandless_goes_to_global_outputs(tmp_path):
+    # brandless (brand=None): route to the global outputs/<media>/<mode>_<seed>, moved (not in place)
     src = tmp_path / "global" / "img.png"
     src.parent.mkdir(parents=True); src.write_bytes(b"P")
     dest = route_output(repo_root=tmp_path, brand=None, src=src, mode="txt2img", seed=1)
-    assert dest == src and src.exists()
+    assert dest.exists() and not src.exists()
+    assert dest == tmp_path / "outputs" / "images" / "txt2img_1.png"
 
 def test_route_overwrites_existing_dest(tmp_path):
     # a prior render already sits at the destination name (in the media-type subfolder)
