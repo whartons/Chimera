@@ -7,10 +7,13 @@ Project brief for Claude Code. Read this first, then follow it for every change.
 > and the per-module docs under [`modules/`](modules/).
 
 ## What this is
-Chimera is a modular, multimodal generative-media pipeline built on **ComfyUI**.
-One repo, many beasts: **image, video, 3D, audio**, plus an **LLM/agent
-orchestration layer**. The repo is **public and reusable**; personal and
-brand-specific workflows stay **private (gitignored)**.
+Chimera is a modular, multimodal generative-media pipeline and DCC/CAD orchestration hub. One
+repo, many beasts: **ComfyUI** is the substrate for the generative modalities (**image, video,
+3D, audio**); **Blender** and **FreeCAD** are peer DCC/CAD tools driven through pinned, audited
+MCP bridges under the same agent layer. All of it is wired through an **LLM/agent orchestration
+layer** that closes the quality loop and drives the tools interactively from an AI assistant.
+The repo is **public and reusable**; personal and brand-specific workflows stay **private
+(gitignored)**.
 
 ## Who it serves (drives examples only — keep tracked content generic)
 - **Live-streaming / content creation:** thumbnails, channel art, scene overlays,
@@ -50,7 +53,7 @@ chimera/
 │   ├── STACK.md         # dependency/stack inventory (Python · ComfyUI · node-pack pins · MCP · CI · host)
 │   ├── SETUP.md         # install notes
 │   └── BLACKWELL-TUNING.md  # RTX 50-series / cu130 tuning guide (measured numbers)
-├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent
+├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent, blender, cad
 ├── scripts/
 │   ├── generate.py      # unified brand-aware CLI: image/video/audio/3d + replay/new-brand/lint
 │   ├── brandkit/        # shared core: manifest, prompt, fillers, watermark, outputs, sidecar, mesh, comfy
@@ -90,7 +93,13 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
 - **An MCP bridge**: a pinned, security-audited ComfyUI MCP server exposes pipeline actions
   so an assistant can drive ComfyUI. Build on an **existing** server (e.g. `comfyui-mcp`)
   rather than reinventing the transport; the repo's original surface is the modules +
-  orchestration logic, not the MCP bridge.
+  orchestration logic, not the MCP bridge. The same pin + audit + per-tool-gate model now
+  also covers **Blender** ([`modules/blender/`](modules/blender/)) and **FreeCAD**
+  ([`modules/cad/`](modules/cad/)) — both **interactive/GUI only in Phase 1**, driven via
+  [`lab/blender_mcp`](https://projects.blender.org/labs/blender_mcp) and
+  [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), with gates in
+  `.claude/settings.json`; headless automation and 3D/CAD self-correction are **roadmap
+  (Phase 2–3)**.
 
 ## Hardware
 Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (32 GB VRAM).

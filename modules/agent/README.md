@@ -92,6 +92,21 @@ ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
   of the diff (runbook: [`../../docs/UPDATING.md`](../../docs/UPDATING.md)) — so a version bump is
   always reviewed and deliberate, never silent.
 
+## Sibling DCC/CAD bridges
+
+The agent layer doesn't stop at ComfyUI. The same pin + audit + per-tool-gate model also covers
+two DCC/CAD applications:
+
+| Bridge | Module | Phase 1 scope |
+|--------|--------|---------------|
+| **Blender** (`lab/blender_mcp`, Blender Foundation) | [`../blender/`](../blender/README.md) | Interactive/GUI only — assistant drives a live Blender session |
+| **FreeCAD** (`neka-nat/freecad-mcp`) | [`../cad/`](../cad/README.md) | Interactive/GUI only — assistant drives a live FreeCAD session |
+
+Both are **pinned to exact commits, audited, and per-tool-gated** via
+[`../../.claude/settings.json`](../../.claude/settings.json) — the same security model as the
+ComfyUI bridge. **Phase 1 is GUI-only and interactive**; headless Blender/FreeCAD backends and
+3D/CAD self-correction are **roadmap (Phase 2–3)**.
+
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**
 format, *not* the canvas `workflow.json` (or the graph embedded in a PNG). To get
