@@ -98,10 +98,21 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
 
 ## Tool surface (highlights)
 
-- **Introspect:** `get_scene_info`, `get_object_info`, `get_vertex_data`,
-  `get_material_info`, `get_scene_screenshot`
-- **Operate:** `create_object`, `modify_object`, `delete_object`, `apply_material`,
-  `set_scene_properties`
-- **Render:** `render_viewport_to_path`, `render_thumbnail_to_path`
-- **Code-exec (Tier 1):** `execute_blender_code`, `execute_blender_code_for_cli`
-- **Docs / search:** `search_api_docs`, `search_manual_docs`, `get_python_api_docs`
+The official server exposes **no high-level object-CRUD tools** — scene mutation is done by
+running Python through `execute_blender_code`. The 26 tools group as:
+
+- **Introspect (read-only):** `get_objects_summary`, `get_object_detail_summary`,
+  `get_blendfile_summary_datablocks`, `get_blendfile_summary_missing_files`,
+  `get_blendfile_summary_of_linked_libraries`, `get_blendfile_summary_path_info`,
+  `get_blendfile_summary_usage_guess`
+- **Screenshots (read-only):** `get_screenshot_of_area_as_image`,
+  `get_screenshot_of_window_as_image`, `get_screenshot_of_window_as_json`
+- **Navigate (read-only):** `jump_to_tab_by_name`, `jump_to_tab_by_space_type`,
+  `jump_to_view3d_object_by_name`, `jump_to_view3d_object_data_by_name`
+- **Docs / search (read-only):** `search_api_docs`, `search_manual_docs`, `get_python_api_docs`
+- **Render (Tier 2 — writes to a caller path):** `render_viewport_to_path`, `render_thumbnail_to_path`
+- **Headless `*_for_cli` (Tier 2 — spawn `blender --background` on a caller `.blend`):**
+  `get_blendfile_summary_datablocks_for_cli`, `get_blendfile_summary_missing_files_for_cli`,
+  `get_blendfile_summary_of_linked_libraries_for_cli`, `get_blendfile_summary_path_info_for_cli`,
+  `get_blendfile_summary_usage_guess_for_cli`
+- **Code-exec (Tier 1 — RCE):** `execute_blender_code`, `execute_blender_code_for_cli`
