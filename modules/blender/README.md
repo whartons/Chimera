@@ -20,7 +20,7 @@ is a **Phase 2** item (forward-referenced here; it does not exist yet).
 
 > **Why `lab/blender_mcp` and not `ahujasid/blender-mcp`?** The Blender Foundation
 > server is first-party, carries zero telemetry (deps are exactly `docutils`,
-> `mcp[cli]`, and `pyyaml`), and is headless-capable. The 22.6k-star community fork
+> `mcp[cli]`, and `pyyaml`), and is headless-capable. The high-profile community fork
 > is GUI-only, ships opt-out Supabase telemetry with a bloated dependency chain, and
 > had a live arbitrary-file-read bug in the wild — none of that is acceptable for a
 > public, security-audited pipeline.
@@ -32,7 +32,7 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 System → Network → Allow Online Access`).
 
 1. **Install the Blender addon.** Clone (or download) `lab/blender_mcp` at the pinned
-   commit `03004fd…`. Install `addon/blender_mcp_addon/` via
+   commit `03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4`. Install `addon/blender_mcp_addon/` via
    `Edit → Preferences → Add-ons → Install from Disk`. Enable it. The addon
    auto-starts the loopback socket (`127.0.0.1:9876`) on enable — no extra step needed.
 
@@ -47,8 +47,8 @@ System → Network → Allow Online Access`).
 3. **Approve and confirm.** In Claude Code run **`/mcp`**, approve the `blender` server
    (project-scoped servers require a one-time approval). Confirm: `/mcp` should show
    `blender` **Connected** with 26 tools. Ask the assistant to call
-   `get_scene_info` — it should return the active Blender scene, proving the bridge
-   reached the addon.
+   `get_objects_summary` — it should return the active Blender scene's objects, proving
+   the bridge reached the addon.
 
 ## GUI-only caveat — two execution paths
 
