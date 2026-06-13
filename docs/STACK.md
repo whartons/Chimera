@@ -25,6 +25,10 @@ flowchart TD
     agent --> cli
     mcp -->|drives| comfy
     assistant["AI assistant (Claude Code)"] -->|MCP| mcp
+    blender["blender_mcp (stdio, loopback)"]
+    freecad["freecad-mcp (stdio, loopback)"]
+    assistant -->|MCP| blender
+    assistant -->|MCP| freecad
     assistant -->|"optional: --backend assistant"| agent
 ```
 
@@ -63,10 +67,17 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > Core-native (no pack needed): **Z-Image**, **ACE-Step 1.5**, **Hunyuan3D 2.1**, and the agent
 > verdict-capture node all ship in ComfyUI core — only the three packs above are third-party.
 
-## 4 · MCP bridge (assistant → ComfyUI)
+## 4 · MCP bridges (assistant → ComfyUI · Blender · FreeCAD)
 | Server | Package | Version | Transport | Security posture |
 |--------|---------|---------|-----------|------------------|
 | **comfyui-mcp** | npm `comfyui-mcp` (`artokun`) | **0.9.4** | stdio, **loopback only** (127.0.0.1) | MIT; audited not-malicious. Per-tool **approval gates** on code-exec tools (`.claude/settings.json`); `NPM_CONFIG_OMIT=optional` disables the tunnel/cloud deps. Pinned + re-audited on bump. |
+| **blender_mcp** | Gitea `lab/blender_mcp` (Blender Foundation) | **v1.0.0** (`03004fd`) | stdio → TCP, **loopback** (127.0.0.1:9876) | GPL-3.0; first-party, **zero telemetry** (deps `docutils`/`mcp[cli]`/`pyyaml`), from-source audited. Tier-1/2 code-exec & path tools gated; launched from the pinned Gitea commit (**never** `uvx blender-mcp`); never `-t http`. **Gitea, not GitHub.** |
+| **freecad-mcp** | GitHub `neka-nat/freecad-mcp` (server + addon) | **`63acb30`** (= v0.1.18) | stdio → XML-RPC, **loopback** (127.0.0.1:9875) | MIT; no telemetry (deps `mcp[cli]`/`validators`), from-source audited. Tier-1/2 tools gated; keep "Remote Connections" OFF. Pinned by commit; re-audited on bump. |
+
+> **Gitea exception:** `blender_mcp` lives on Blender's Gitea (`projects.blender.org`), not GitHub —
+> Dependabot and the GitHub-compare path in `scripts/update_report.py` can't reach it, so its weekly
+> check uses the Gitea compare API and bumps follow a git-SHA clone/checkout (see `UPDATING.md`).
+> `freecad-mcp` **is** on GitHub, so it rides the existing `check_git_pack`.
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
