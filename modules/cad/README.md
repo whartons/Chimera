@@ -34,8 +34,10 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 `PATH`; **FreeCAD 1.0 or 1.1** (Python 3.12).
 
 1. **Install the FreeCAD addon.** Copy the `addon/FreeCADMCP/` directory from the
-   pinned commit `63acb30` into FreeCAD's user `Mod/` directory. On Windows this is
-   `%APPDATA%\FreeCAD\Mod\FreeCADMCP\`. Restart FreeCAD.
+   pinned commit `63acb30` into FreeCAD's user `Mod/` directory. **FreeCAD 1.1 uses a
+   versioned data dir** — on Windows that is `%APPDATA%\FreeCAD\v1-1\Mod\FreeCADMCP\`
+   (1.0 omits the `v1-1`). If unsure, use **Tools → Open user data directory** in FreeCAD
+   and copy into the `Mod/` there. Fully restart FreeCAD.
 
 2. **Start the RPC server.** In FreeCAD, select the **"MCP Addon" workbench** from
    the workbench drop-down. Click the **"Start RPC Server"** toolbar button — this

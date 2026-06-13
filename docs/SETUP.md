@@ -85,8 +85,10 @@ The Python MCP servers launch via Astral's `uv`. Install once:
 
 ### FreeCAD
 1. Install **FreeCAD 1.0 or 1.1** (winget `FreeCAD.FreeCAD` or freecad.org).
-2. Copy the **`FreeCADMCP` addon** (`addon/FreeCADMCP/` at commit `63acb30`) into FreeCAD's `Mod/`
-   dir (Windows: `%APPDATA%\FreeCAD\Mod\`), restart FreeCAD, and select the **"MCP Addon" workbench**.
+2. Copy the **`FreeCADMCP` addon** (`addon/FreeCADMCP/` at commit `63acb30`) into FreeCAD's user
+   `Mod/` dir. **FreeCAD 1.1 uses a versioned data dir** — Windows: `%APPDATA%\FreeCAD\v1-1\Mod\`
+   (1.0 omits the `v1-1`). Unsure? In FreeCAD use **Tools → Open user data directory** and copy into
+   the `Mod/` there. Then **fully restart FreeCAD** and select the **"MCP Addon" workbench**.
 3. Click the **"Start RPC Server"** toolbar button (auto-start is opt-in, default OFF) → binds
    `127.0.0.1:9875`. **Leave "Remote Connections" OFF.**
 4. In Claude Code: `/mcp` → approve **freecad**.

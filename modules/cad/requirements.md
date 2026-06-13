@@ -41,15 +41,17 @@ The repo ships a companion addon at `addon/FreeCADMCP/` (same commit `63acb30`).
 | | |
 |---|---|
 | **Addon directory** | `addon/FreeCADMCP/` (in the server repo at the pinned commit) |
-| **Destination (Windows)** | `%APPDATA%\FreeCAD\Mod\FreeCADMCP\` |
-| **Destination (macOS)** | `~/Library/Preferences/FreeCAD/Mod/FreeCADMCP/` |
-| **Destination (Linux)** | `~/.local/share/FreeCAD/Mod/FreeCADMCP/` |
+| **Destination (Windows)** | `%APPDATA%\FreeCAD\v1-1\Mod\FreeCADMCP\` (FreeCAD **1.1**; 1.0 omits the `v1-1`) |
+| **Destination (macOS)** | `~/Library/Preferences/FreeCAD/v1-1/Mod/FreeCADMCP/` |
+| **Destination (Linux)** | `~/.local/share/FreeCAD/v1-1/Mod/FreeCADMCP/` |
 | **Transport** | loopback XML-RPC on `127.0.0.1:9875` |
 | **Start** | Select **"MCP Addon" workbench** → click **"Start RPC Server"** toolbar button |
 | **Auto-start** | opt-in, **default OFF** — server is only exposed on explicit user action |
 
-After copying the addon directory into `Mod/`, restart FreeCAD before enabling the
-workbench.
+FreeCAD **1.1 uses a versioned user data dir** (`v1-1`). If unsure where it is, open
+FreeCAD → **Tools → Open user data directory** (or run `App.getUserAppDataDir()` in the
+Python console) and copy into the `Mod/` under it. After copying, **fully restart FreeCAD**
+before selecting the workbench.
 
 ---
 
