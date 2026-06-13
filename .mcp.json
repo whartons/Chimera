@@ -8,6 +8,20 @@
         "NPM_CONFIG_OMIT": "optional"
       },
       "timeout": 600000
+    },
+    "blender": {
+      "command": "cmd",
+      "args": ["/c", "uv", "run", "--from", "git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4", "blender-mcp"],
+      "env": {
+        "BLENDER_MCP_HOST": "127.0.0.1",
+        "BLENDER_MCP_PORT": "9876"
+      },
+      "timeout": 600000
+    },
+    "freecad": {
+      "command": "cmd",
+      "args": ["/c", "uvx", "--from", "git+https://github.com/neka-nat/freecad-mcp@63acb30", "freecad-mcp", "--host", "127.0.0.1"],
+      "timeout": 600000
     }
   }
 }
