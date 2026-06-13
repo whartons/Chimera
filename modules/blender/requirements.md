@@ -29,15 +29,16 @@ Python packages need to be installed separately; the addon ships its own depende
 | **Pinned ref** | commit `03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4` (`v1.0.0`) |
 | **License** | GPL-3.0-or-later |
 | **Python deps** | `docutils`, `mcp[cli]`, `pyyaml` — fetched automatically by `uv` |
-| **Launcher** | `uv run --from git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4 blender-mcp` |
+| **Launcher** | `uvx --from "git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4#subdirectory=mcp" blender-mcp` (server package is in the repo's `mcp/` subdir) |
 | **Console script** | `blender-mcp` (module: `blmcp`) |
 | **Addon path** | `addon/blender_mcp_addon/` inside the pinned repo |
 | **Addon destination** | Blender's add-ons/extensions directory (installed via `Edit → Preferences → Add-ons → Install from Disk`) |
 | **Socket** | Loopback TCP `127.0.0.1:9876` — auto-starts when the addon is enabled |
 
 The MCP server entry is registered in [`../../.mcp.json`](../../.mcp.json) at
-project scope. Do not install from PyPI (`uvx blender-mcp`) — the PyPI package under
-that name is a different, rejected server; always launch from the pinned Gitea ref.
+project scope. Do not install from PyPI with the bare `uvx blender-mcp` — that PyPI name
+is a different, rejected server; always launch from the pinned Gitea ref with
+`#subdirectory=mcp` (the server package is in the repo's `mcp/` subdir).
 
 ---
 

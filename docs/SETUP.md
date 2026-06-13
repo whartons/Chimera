@@ -79,8 +79,10 @@ The Python MCP servers launch via Astral's `uv`. Install once:
 2. Install the **`lab/blender_mcp` addon** (`addon/blender_mcp_addon/` from the pinned commit
    `03004fd`) as a Blender extension and enable it. The socket **auto-starts on enable**
    (`127.0.0.1:9876`).
-3. The server is launched by Claude via `.mcp.json` (`uv run --from git+…@<sha> blender-mcp`) —
-   **never** `uvx blender-mcp` (a different PyPI package) and **never** pass `-t http`.
+3. The server is launched by Claude via `.mcp.json`
+   (`uvx --from "git+…@<sha>#subdirectory=mcp" blender-mcp` — the server package is in the repo's
+   `mcp/` subdir) — **never** the bare `uvx blender-mcp` (a different PyPI package) and **never**
+   pass `-t http`.
 4. In Claude Code: `/mcp` → approve **blender** (project-scoped servers need one-time approval).
 
 ### FreeCAD

@@ -39,10 +39,11 @@ System → Network → Allow Online Access`).
 2. **Register the MCP server.** The server entry lives in
    [`../../.mcp.json`](../../.mcp.json) and is launched by Claude Code as:
    ```
-   uv run --from git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4 blender-mcp
+   uvx --from "git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4#subdirectory=mcp" blender-mcp
    ```
-   Never use `uvx blender-mcp` — the PyPI package under that name is a **different,
-   rejected server** (see security notes below).
+   The `#subdirectory=mcp` is required — the server package lives in the repo's `mcp/`
+   subdir (the root has no installable package). Never use the **bare** `uvx blender-mcp`:
+   that PyPI name resolves to a **different, rejected server** (see security notes below).
 
 3. **Approve and confirm.** In Claude Code run **`/mcp`**, approve the `blender` server
    (project-scoped servers require a one-time approval). Confirm: `/mcp` should show
@@ -90,9 +91,9 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
 - **Never open untrusted `.blend` files in an MCP session.** Blender's
   auto-run-script feature means a malicious `.blend` file is a code-execution
   payload — the same class of risk as a malicious Python script.
-- **Pin from commit, never `uvx blender-mcp`.** The PyPI package `blender-mcp` is a
+- **Pin from commit, never the bare `uvx blender-mcp`.** The PyPI package `blender-mcp` is a
   different server that was rejected during audit. Always launch from the pinned
-  `projects.blender.org` git ref.
+  `projects.blender.org` git ref with `#subdirectory=mcp`.
 - **Re-audit on every pin bump.** When the pin is advanced, re-run the full audit
   against the diff before committing. Runbook: [`../../docs/UPDATING.md`](../../docs/UPDATING.md).
 
