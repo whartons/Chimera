@@ -8,9 +8,10 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Built on RTX 5090 · cu130](https://img.shields.io/badge/built%20on-RTX%205090%20%C2%B7%20cu130-76B900?logo=nvidia&logoColor=white)
 
-> An **agentic toolkit for ComfyUI, Blender, and FreeCAD**: a **self-correction loop** that judges
-> its own renders with a VLM and **iterates until they pass**, plus hardened **MCP bridges** to drive
-> ComfyUI, Blender, and FreeCAD from an AI assistant — over a **brand-aware, multimodal** core
+> An **agentic toolkit for ComfyUI** — now reaching **Blender and FreeCAD** too: a **self-correction
+> loop** that judges its own **ComfyUI renders** with a VLM and **iterates until they pass**, plus
+> hardened, pinned **MCP bridges** to drive **ComfyUI, Blender, and FreeCAD** from an AI assistant —
+> over a **brand-aware, multimodal** core
 > (image · video · audio · 3D) that also runs **fully standalone** from one CLI. Built and run
 > end-to-end on an RTX 5090.
 
@@ -105,6 +106,8 @@ is in **[`docs/STACK.md`](docs/STACK.md)**.
 | [`video`](modules/video/) | LTX-2.3 image-to-video + native synced audio · `--upscale` | ✅ |
 | [`audio`](modules/audio/) | ACE-Step (music) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | Hunyuan3D 2.1 image → mesh (GLB / STL / OBJ) | ✅ |
+| [`blender`](modules/blender/) | **MCP bridge** — drive a live Blender (GUI); headless render backend is roadmap | ✅ interactive |
+| [`cad`](modules/cad/) | **MCP bridge** — drive a live FreeCAD (GUI); headless `FreeCADCmd` is roadmap | ✅ interactive |
 
 ## 🏗️ Architecture / engineering highlights
 
