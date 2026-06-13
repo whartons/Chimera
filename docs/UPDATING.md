@@ -39,17 +39,23 @@ so the weekly report only *points* at the core release — the authoritative che
    and `COMFY_REF` in [`scripts/update_report.py`](../scripts/update_report.py).
 
 ## 3 · Pinned node packs & the MCP server — *manual, audit-gated*
-LTXVideo, HunyuanVideo-Foley, QwenVL (git-pinned commits) and `comfyui-mcp` (npm-pinned version) are
-**pinned and security-audited** — Dependabot can't see them, which is exactly why the weekly report
-checks them. **Never bump to `@latest` blind.** When the report flags one behind:
+LTXVideo, HunyuanVideo-Foley, QwenVL and `freecad-mcp` (GitHub git-pinned commits), `comfyui-mcp`
+(npm-pinned version), and `blender_mcp` (Gitea git-pinned commit) are **pinned and security-audited**
+— Dependabot can't see them, which is exactly why the weekly report checks them (`freecad-mcp` rides
+the GitHub `check_git_pack`; `blender_mcp` uses the Gitea compare API since it is **not** on GitHub).
+**Never bump to `@latest` blind.** When the report flags one behind:
 1. **Re-audit the diff** between the current pin and the new commit/version — same standard as the
    original scan (look for new network calls, `eval`/`exec`, `torch.load(weights_only=False)`,
-   `trust_remote_code`, new cloud nodes). See the per-pack audit notes in
-   [`docs/CATALOG.md`](CATALOG.md) and the module `models.md`.
-2. Only if clean: bump the pin in **(a)** the install step in that module's `models.md`
-   (`git checkout <sha>` / npm version), **(b)** [`docs/STACK.md`](STACK.md), **(c)** the
-   audit-commit note in [`docs/CATALOG.md`](CATALOG.md), and **(d)** the `GIT_PACKS` / `NPM_PACKS`
-   table in [`scripts/update_report.py`](../scripts/update_report.py).
+   `trust_remote_code`, new cloud nodes; for the **DCC bridges** also: **new tools** — re-classify
+   Tier 1/2/3 and update **both** [`.claude/settings.json`](../.claude/settings.json) and
+   [`tests/test_mcp_gates.py`](../tests/test_mcp_gates.py) together — plus new telemetry/egress and,
+   for Blender, any `-t http`/transport change). See the per-pack audit notes in
+   [`docs/CATALOG.md`](CATALOG.md), the module `models.md` / `requirements.md`, and the bridge READMEs.
+2. Only if clean: bump the pin in **(a)** that module's `models.md` *(or `requirements.md` for the
+   DCC/CAD bridges)* (`git checkout <sha>` / version), **(b)** [`docs/STACK.md`](STACK.md), **(c)** the
+   audit-commit note in [`docs/CATALOG.md`](CATALOG.md), **(d)** the `GIT_PACKS` / `GITEA_PACKS` /
+   `NPM_PACKS` table in [`scripts/update_report.py`](../scripts/update_report.py), and **(e)** for the
+   MCP servers the pinned `@<sha>` ref in [`.mcp.json`](../.mcp.json) (`blender_mcp` / `freecad-mcp`).
 3. Run the gates, with a smoke render of that pack's modality.
 4. Commit (`chore(deps): bump <pack> to <sha> after re-audit`) + `CHANGELOG` entry.
 
