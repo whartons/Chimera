@@ -96,7 +96,7 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   orchestration logic, not the MCP bridge. The same pin + audit + per-tool-gate model now
   also covers **Blender** ([`modules/blender/`](modules/blender/)) and **FreeCAD**
   ([`modules/cad/`](modules/cad/)) — both **interactive/GUI only in Phase 1**, driven via
-  [`lab/blender_mcp`](https://projects.blender.org/labs/blender_mcp) and
+  [`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp) and
   [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), with gates in
   `.claude/settings.json`; headless automation and 3D/CAD self-correction are **roadmap
   (Phase 2–3)**.

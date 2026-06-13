@@ -68,7 +68,7 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   folder. Entirely opt-in — the tool generates fine without it. The *pattern* is public; your brand
   data stays gitignored. See [`modules/image/brand-kits.md`](modules/image/brand-kits.md).
 - **🧩 Drive Blender & FreeCAD too** — assistant-driven, **pinned/audited/per-tool-gated** GUI
-  bridges: official Blender Foundation [`lab/blender_mcp`](https://projects.blender.org/labs/blender_mcp)
+  bridges: official Blender Foundation [`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp)
   and [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), both interactive/GUI only.
   See [`modules/blender/`](modules/blender/) and [`modules/cad/`](modules/cad/). Headless 3D/CAD
   automation and self-correction are **on the roadmap (Phase 2–3)**, not shipped.
