@@ -316,6 +316,28 @@ third-party dependency for this backend.
 
 ---
 
+## 🛠️ DCC / CAD bridges (MCP)
+
+Peer tools to ComfyUI under the agent layer — driven by an assistant over **pinned,
+audited, loopback-only** MCP servers (same standard as the `comfyui-mcp` bridge).
+Interactive in Phase 1; headless automation backends are roadmap (Phase 2–3).
+
+| Tool | Server | Pin | License | Socket |
+|------|--------|-----|---------|--------|
+| **Blender** | official `lab/blender_mcp` (Blender Foundation, Gitea) | `v1.0.0` = `03004fd` | GPL-3.0-or-later | `127.0.0.1:9876` |
+| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `63acb30` (= v0.1.18) | MIT | `127.0.0.1:9875` |
+
+- **Blender** chosen over the high-profile `ahujasid/blender-mcp` on security grounds
+  (first-party, zero telemetry, headless-capable; the community server is GUI-only,
+  ships opt-out Supabase telemetry, and had a live file-read bug). See
+  [`../modules/blender/README.md`](../modules/blender/README.md).
+- **FreeCAD** — de-facto community standard, MIT, no telemetry, 14 tools incl. FEM via
+  CalculiX. See [`../modules/cad/README.md`](../modules/cad/README.md).
+- Both are **GUI-only**; the unattended self-correction loop will use separate headless
+  paths (`blender --background`, `FreeCADCmd`) — not these servers (Phase 2–3).
+
+---
+
 ## Where to get everything
 - **ComfyUI Templates Library** — sidebar, built in. First stop.
 - **ComfyUI docs / workflow examples** — https://docs.comfy.org/tutorials

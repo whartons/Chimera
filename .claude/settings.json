@@ -17,7 +17,23 @@
       "mcp__comfyui__upload_output",
       "mcp__comfyui__stop_comfyui",
       "mcp__comfyui__start_comfyui",
-      "mcp__comfyui__restart_comfyui"
+      "mcp__comfyui__restart_comfyui",
+      "mcp__blender__execute_blender_code",
+      "mcp__blender__execute_blender_code_for_cli",
+      "mcp__blender__render_viewport_to_path",
+      "mcp__blender__render_thumbnail_to_path",
+      "mcp__blender__get_blendfile_summary_datablocks_for_cli",
+      "mcp__blender__get_blendfile_summary_missing_files_for_cli",
+      "mcp__blender__get_blendfile_summary_of_linked_libraries_for_cli",
+      "mcp__blender__get_blendfile_summary_path_info_for_cli",
+      "mcp__blender__get_blendfile_summary_usage_guess_for_cli",
+      "mcp__freecad__execute_code",
+      "mcp__freecad__execute_code_async",
+      "mcp__freecad__create_object",
+      "mcp__freecad__edit_object",
+      "mcp__freecad__delete_object",
+      "mcp__freecad__insert_part_from_library",
+      "mcp__freecad__run_fem_analysis"
     ]
   }
 }

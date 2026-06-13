@@ -6,6 +6,17 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **DCC/CAD bridges (Phase 1)** — assistant-driven MCP bridges to **Blender** (official Blender
+  Foundation `lab/blender_mcp` @ `03004fd`, GPL-3.0, loopback :9876) and **FreeCAD**
+  (`neka-nat/freecad-mcp` @ `63acb30`, MIT, loopback :9875), repositioning Chimera as a generative +
+  DCC/CAD orchestration hub. Both are **pinned, from-source audited, and per-tool gated** (Tier-1
+  code-exec tools require per-call approval — guarded by `tests/test_mcp_gates.py`). New
+  `modules/blender/` + `modules/cad/` docs; weekly pin checks extended to Blender's Gitea
+  (`check_gitea_pack`) and FreeCAD's GitHub repo (existing `check_git_pack`) in
+  `scripts/update_report.py`. **Interactive only** — headless automation + 3D/CAD self-correction
+  are roadmap (Phase 2–3).
+
 ## [0.1.3] - 2026-06-09
 
 ### Added
