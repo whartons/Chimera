@@ -112,3 +112,28 @@ def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, 
         prov["pipeline_git_sha"] = pipeline_git_sha
     meta["provenance"] = prov
     return meta
+
+
+def _params_sig(params: dict, template: str) -> str:
+    blob = json.dumps({"t": template, "p": params}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def build_render_meta(*, mode, brand, seed, template, params, outputs, source, timestamp,
+                      blender_version=None, pipeline_git_sha=None):
+    """Schema-2 sidecar for a headless Blender render (kind='render'). Records the template, the
+    resolved params, the source asset + produced output basenames, and a params signature. Distinct
+    from build_meta (no ComfyUI graph). Not replayable yet — replay refuses kind='render'."""
+    meta = {
+        "schema": SCHEMA_VERSION, "kind": "render", "modality": "render",
+        "mode": mode, "brand": brand, "seed": seed,
+        "template": template, "params": params, "source": source, "outputs": outputs,
+        "timestamp": timestamp,
+    }
+    prov = {"params_signature": _params_sig(params, template)}
+    if blender_version:
+        prov["blender_version"] = blender_version
+    if pipeline_git_sha:
+        prov["pipeline_git_sha"] = pipeline_git_sha
+    meta["provenance"] = prov
+    return meta
