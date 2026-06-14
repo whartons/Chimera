@@ -1,6 +1,6 @@
 """mesh_render: import a mesh -> studio look -> Cycles -> hero PNG (+ optional turntable MP4).
 Params: {mesh, out_dir, stem, samples, res:[w,h], turntable:bool, frames:int}."""
-import bpy, sys, os
+import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as C
 
