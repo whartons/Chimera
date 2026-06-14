@@ -486,10 +486,20 @@ def _cad_params(args, source, tmp, seed):
 
 
 def _cad_sidecar_params(args):
-    """The CAD params recorded in the sidecar (pure): primitive dims + formats, or just formats."""
+    """The CAD params recorded in the sidecar: primitive dims, or (script) the script name + a content
+    hash so the params_signature actually varies across in-place script revisions (the whole point of the
+    self-correction loop), or just formats (convert)."""
     if args.mode == "primitive":
         d = {k: float(getattr(args, k)) for k in _SHAPE_DIMS[args.shape]}
         d["formats"] = _cad_formats(args)
+        return d
+    if args.mode == "script":
+        d = {"script": Path(args.script).name, "formats": _cad_formats(args)}
+        try:
+            import hashlib
+            d["script_sha"] = hashlib.sha256(Path(args.script).read_bytes()).hexdigest()[:16]
+        except OSError:
+            pass
         return d
     return {"formats": _cad_formats(args)}
 
@@ -525,8 +535,8 @@ def _validate_cad(args, ap):
     elif args.mode == "script":
         if not args.script:
             ap.error("cad --mode script needs --script <file.py>")
-        if not Path(args.script).exists():
-            ap.error(f"cad --mode script: script not found: {args.script}")
+        if not Path(args.script).is_file():
+            ap.error(f"cad --mode script: script not found (or not a file): {args.script}")
     else:  # convert
         ext = Path(args.from_).suffix.lower() if args.from_ else ""
         if ext not in _CONVERT_SRC_EXTS:
@@ -761,7 +771,8 @@ def main():
     ft.add_argument("--blender-bin", dest="blender_bin", default=None)
     ft.add_argument("--timeout", type=int, default=None)
     cd = sub.add_parser("cad",
-                        help="headless FreeCAD: author a parametric primitive or convert a CAD/mesh file")
+                        help="headless FreeCAD: parametric primitive, CAD/mesh convert, or run an "
+                             "agent-authored script (generative CAD)")
     cd.add_argument("--brand", default=None)
     cd.add_argument("--seed", type=int, default=None)
     cd.add_argument("--mode", choices=["primitive", "convert", "script"], default="primitive")

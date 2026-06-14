@@ -48,6 +48,14 @@ def test_cad_params_script_carries_script_path():
     assert p["formats"] == ["step", "stl"] and p["stem"] == "cad_script_3"
 
 
+def test_cad_sidecar_params_script_records_name_and_revision_hash(tmp_path):
+    s = tmp_path / "m.py"; s.write_text("box = 1")
+    d = G._cad_sidecar_params(_cad(mode="script", script=str(s)))
+    assert d["script"] == "m.py" and len(d["script_sha"]) == 16 and d["formats"] == ["step", "stl"]
+    s.write_text("box = 2")   # in-place revision must change the hash so the params_signature varies
+    assert G._cad_sidecar_params(_cad(mode="script", script=str(s)))["script_sha"] != d["script_sha"]
+
+
 def test_validate_cad_script_requires_existing_file(tmp_path):
     with pytest.raises(SystemExit):   # no --script
         G._validate_cad(_cad(mode="script", script=None), argparse.ArgumentParser())
