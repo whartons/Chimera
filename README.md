@@ -89,7 +89,7 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
   A FreeCAD self-correction loop (`cad → render → judge`) remains **roadmap**.
 
-**428 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**431 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -145,7 +145,7 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 428 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 431 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
   finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
   checks), linted with **ruff** and packaged as an installable
@@ -181,6 +181,16 @@ chimera audio --brand <brand> --mode foley --from-video clip.mp4 --subject "tire
 Brandless outputs land in `outputs/<media>/`; with `--brand` they route to
 `brands/<brand>/outputs/<media>/` — each with a reproducibility sidecar, **moved** (never duplicated).
 The opt-in `--watermark` composites the brand logo in-graph (needs a brand; off by default).
+
+**DCC/CAD — headless Blender + FreeCAD** (no ComfyUI; needs Blender ≥ 5.1 / FreeCAD ≥ 1.0 on PATH):
+
+```bash
+chimera render --from rover.glb --turntable                 # Blender Cycles hero PNG + 360° MP4
+chimera render --from rover.glb --mode finish --watertight  # clean → print-ready STL/GLB figurine
+chimera cad --shape tube --radius 12 --inner-radius 8 --height 30 --formats step,stl   # parametric CAD solid
+chimera cad --mode convert --from part.step --formats stl,obj                          # CAD/mesh format convert
+chimera finalize-texture --from winner.glb --views front.png,right.png,back.png,left.png  # all-around albedo bake
+```
 
 ### 🤖 Or let it correct itself
 `--brand` is **optional** here too — brandless judges subject + quality (a general QA gate); add a
