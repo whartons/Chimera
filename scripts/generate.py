@@ -34,7 +34,8 @@ from scripts.brandkit.outputs import route_output, select_output, NoOutputError,
 from scripts.brandkit.sidecar import build_meta
 import tempfile, shutil
 from scripts.brandkit import blender as blender_runner
-from scripts.brandkit.sidecar import build_render_meta
+from scripts.brandkit import freecad as freecad_runner
+from scripts.brandkit.sidecar import build_render_meta, build_cad_meta
 
 FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
            "3d": threed_filler.build}
@@ -44,6 +45,18 @@ FREE_BEFORE_DEFAULT = {"image": False, "video": True, "audio": True, "3d": True}
 RENDER_TIMEOUT = 1800
 _TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
                       "finish": "mesh_finish.py"}
+
+CAD_TIMEOUT = 600
+_TEMPLATE_FOR_CAD = {"primitive": "primitive.py", "convert": "convert.py"}
+_CAD_FORMATS = ("step", "stl", "obj")
+_SHAPE_DIMS = {
+    "box": ("length", "width", "height"),
+    "cylinder": ("radius", "height"),
+    "cone": ("radius", "radius2", "height"),
+    "sphere": ("radius",),
+    "tube": ("radius", "inner_radius", "height"),
+}
+_MESH_EXTS = {".stl", ".obj"}
 
 # CLI args harvested into the sidecar `inputs` dict (sidecar.relevant_inputs then keeps the
 # modality-relevant subset). Must remain a superset of every sidecar._INPUT_KEYS value, minus
@@ -257,6 +270,9 @@ def _args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None
     if data.get("kind") == "render":
         raise ValueError("render sidecars aren't replayable yet (Phase 2 produces them, "
                          "replay support is a later phase)")
+    if data.get("kind") == "cad":
+        raise ValueError("cad sidecars aren't replayable (headless FreeCAD geometry, not a "
+                         "ComfyUI render)")
     modality = data["modality"]
     inp = data.get("inputs", {})
     return argparse.Namespace(
@@ -442,6 +458,105 @@ def run_render(args, repo_root, ap):
         print(f"output -> {p}")
 
 
+def _cad_formats(args):
+    return [f.strip().lower() for f in args.formats.split(",") if f.strip()]
+
+
+def _cad_params(args, source, tmp, seed):
+    """The params blob handed to the FreeCAD template (pure). Primitive carries shape + its dims;
+    convert carries the absolute source path. `formats` is the normalized export list."""
+    p = {"out_dir": str(tmp), "stem": f"{args.brand or 'cad'}_{args.mode}_{seed}",
+         "formats": _cad_formats(args)}
+    if args.mode == "primitive":
+        p["shape"] = args.shape
+        for d in _SHAPE_DIMS[args.shape]:
+            p[d] = float(getattr(args, d))
+    else:  # convert
+        p["source"] = str(source)
+    return p
+
+
+def _cad_sidecar_params(args):
+    """The CAD params recorded in the sidecar (pure): primitive dims + formats, or just formats."""
+    if args.mode == "primitive":
+        d = {k: float(getattr(args, k)) for k in _SHAPE_DIMS[args.shape]}
+        d["formats"] = _cad_formats(args)
+        return d
+    return {"formats": _cad_formats(args)}
+
+
+def _primary_cad_output(paths):
+    """Pick the file the sidecar sits next to: a STEP (BREP) if present, else STL, else OBJ, else first."""
+    for ext in (".step", ".stl", ".obj"):
+        m = next((p for p in paths if p.suffix.lower() == ext), None)
+        if m:
+            return m
+    return paths[0]
+
+
+def _validate_cad(args, ap):
+    """Friendly host-side validation before shelling out: formats subset, positive dims, tube bore
+    < radius, cone top radius >= 0, and the one impossible convert (mesh source -> BREP STEP)."""
+    fmts = _cad_formats(args)
+    bad = [f for f in fmts if f not in _CAD_FORMATS]
+    if bad:
+        ap.error(f"--formats: unsupported {bad} (choose from {', '.join(_CAD_FORMATS)})")
+    if not fmts:
+        ap.error("--formats must list at least one of step/stl/obj")
+    if args.mode == "primitive":
+        for d in _SHAPE_DIMS[args.shape]:
+            if d == "radius2":          # a cone may taper to a sharp tip (radius2 == 0)
+                if float(args.radius2) < 0:
+                    ap.error("cone --radius2 must be >= 0")
+                continue
+            if float(getattr(args, d)) <= 0:
+                ap.error(f"--{d.replace('_', '-')} must be > 0 for shape {args.shape}")
+        if args.shape == "tube" and float(args.inner_radius) >= float(args.radius):
+            ap.error("tube --inner-radius must be < --radius")
+    else:  # convert: a mesh source can't become a BREP STEP solid headlessly
+        ext = Path(args.from_).suffix.lower() if args.from_ else ""
+        if ext in _MESH_EXTS and "step" in fmts:
+            ap.error("convert: a mesh source (.stl/.obj) cannot be exported to STEP "
+                     "(mesh -> BREP solid is not a headless operation); export stl/obj only")
+
+
+def run_cad(args, repo_root, ap):
+    _validate_cad(args, ap)
+    brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
+    seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
+    source = None
+    if args.mode == "convert":
+        # absolute path: the headless FreeCAD process runs with a different cwd.
+        source = _resolve_asset(brand_dir, args.from_,
+                                ("outputs/3d", "outputs", "products", "references"),
+                                ap, "cad convert --from").resolve()
+    tmp = Path(tempfile.mkdtemp(prefix="chimera_cad_"))
+    template = repo_root / "workflows" / "templates" / "freecad" / _TEMPLATE_FOR_CAD[args.mode]
+    try:
+        manifest = freecad_runner.run_template(
+            template, _cad_params(args, source, tmp, seed),
+            freecad_bin=args.freecad_bin, timeout=args.timeout or CAD_TIMEOUT)
+        outs = manifest.get("outputs", [])
+        if not outs:
+            print("cad produced no outputs", file=sys.stderr); sys.exit(1)
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed) for o in outs]
+    except freecad_runner.FreeCADJobError as e:
+        print(f"cad failed: {e}", file=sys.stderr); sys.exit(1)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    primary = _primary_cad_output(routed)
+    meta = build_cad_meta(mode=args.mode, shape=(args.shape if args.mode == "primitive" else None),
+                          brand=args.brand, seed=seed, template=template.name,
+                          params=_cad_sidecar_params(args), outputs=[p.name for p in routed],
+                          source=(Path(source).name if source else None),
+                          freecad_version=manifest.get("freecad_version"),
+                          timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
+                          pipeline_git_sha=git_provenance(repo_root))
+    write_sidecar(primary, meta)
+    for p in routed:
+        print(f"output -> {p}")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="generate.py")
     sub = ap.add_subparsers(dest="modality", required=True)
@@ -517,6 +632,25 @@ def main():
                     help="(finish) skip the hero render")
     rn.add_argument("--blender-bin", dest="blender_bin", default=None, help="blender path (else $BLENDER_BIN/PATH)")
     rn.add_argument("--timeout", type=int, default=None)
+    cd = sub.add_parser("cad",
+                        help="headless FreeCAD: author a parametric primitive or convert a CAD/mesh file")
+    cd.add_argument("--brand", default=None)
+    cd.add_argument("--seed", type=int, default=None)
+    cd.add_argument("--mode", choices=["primitive", "convert"], default="primitive")
+    cd.add_argument("--shape", choices=["box", "cylinder", "cone", "sphere", "tube"], default="box",
+                    help="(primitive) solid to build")
+    cd.add_argument("--length", type=float, default=40.0, help="(box) mm")
+    cd.add_argument("--width", type=float, default=30.0, help="(box) mm")
+    cd.add_argument("--height", type=float, default=20.0, help="(box/cylinder/cone/tube) mm")
+    cd.add_argument("--radius", type=float, default=15.0, help="(cylinder/cone/sphere/tube) mm")
+    cd.add_argument("--radius2", type=float, default=0.0, help="(cone) top radius mm (0 = sharp tip)")
+    cd.add_argument("--inner-radius", dest="inner_radius", type=float, default=8.0, help="(tube) bore mm")
+    cd.add_argument("--from", dest="from_", default=None,
+                    help="(convert) source CAD/mesh file: step/iges/brep or stl/obj (brand asset or path)")
+    cd.add_argument("--formats", default="step,stl", help="comma-separated subset of step,stl,obj")
+    cd.add_argument("--freecad-bin", dest="freecad_bin", default=None,
+                    help="FreeCADCmd path (else $FREECAD_BIN / PATH / default install)")
+    cd.add_argument("--timeout", type=int, default=None)
     rp = sub.add_parser("replay", help="re-run a render from its sidecar JSON")
     rp.add_argument("sidecar", help="path to a schema-2 sidecar .json")
     rp.add_argument("--seed", type=int, default=None, help="override the recorded seed")
@@ -577,6 +711,11 @@ def main():
         return
     if args.modality == "render":
         run_render(args, repo_root, ap)
+        return
+    if args.modality == "cad":
+        if args.mode == "convert" and not args.from_:
+            ap.error("cad --mode convert needs --from <file>")
+        run_cad(args, repo_root, ap)
         return
     run(args, repo_root, ap)
 
