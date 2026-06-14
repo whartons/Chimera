@@ -7,6 +7,20 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **3D self-correction over Blender renders (Phase 3)** — `auto_generate.py --pipeline mesh3d`
+  extends the self-correction loop to 3D: a brief becomes a concept image (txt2img, or `--from-image`
+  to fix the concept and reroll only the mesh), the concept becomes a Hunyuan3D mesh, the mesh is
+  rendered headlessly to a **4-view contact sheet** (new `workflows/templates/blender/mesh_eval.py`),
+  and a **form** rubric (`build_rubric(..., modality="3d")`) is judged on the grey-clay render. A new
+  `GeometryAwareJudge` folds **deterministic bmesh geometry checks** (non-manifold / open-edge /
+  loose-part / degenerate) into the verdict — defects a VLM can't see. The model-free loop core,
+  `parse_verdict`, the expander, and `ConsensusJudge` are reused unchanged; the loop's per-iteration
+  seed advance gives an implicit mesh reroll. Host-side contact-sheet montage in
+  `scripts/brandkit/montage.py` (Pillow, optional `[images]` extra). GPU-free CI (mocked ComfyUI
+  client + Blender runner); the `mesh_eval` template is live-validated on Blender 5.1. **Texturing
+  (Phase 4)** — Blender-route albedo bake (in-ComfyUI Hunyuan3D-Paint stays blocked on the
+  cu130/torch2.10/sm_120 `custom_rasterizer` wheel) — and **FreeCAD headless self-correction** remain
+  roadmap.
 - **Headless Blender render backend (Phase 2)** — `generate.py render` shells to
   `blender --background --python` with parameterized `bpy` templates from
   `workflows/templates/blender/`, backed by a job runner in `scripts/brandkit/blender.py`.
@@ -21,8 +35,8 @@ All notable changes to Chimera are documented here. The format follows
   Brand-aware (routes to `brands/<brand>/outputs/` + `kind:"render"` sidecar). Runs as a normal
   CLI subprocess — **no per-call MCP approval** (unlike the interactive bridge's gated
   `execute_blender_code`). CI tests mock the subprocess; GPU-free. Requires Blender ≥ 5.1 on PATH
-  or `$BLENDER_BIN`; Cycles GPU (OptiX/CUDA); MP4 via Blender's bundled FFmpeg. **Phase 3**
-  (VLM self-correction over renders) and **FreeCAD headless** remain roadmap.
+  or `$BLENDER_BIN`; Cycles GPU (OptiX/CUDA); MP4 via Blender's bundled FFmpeg. (Phase 3 — VLM
+  self-correction over these renders — shipped; see above. **FreeCAD headless** remains roadmap.)
 - **DCC/CAD bridges (Phase 1)** — assistant-driven MCP bridges to **Blender** (official Blender
   Foundation `lab/blender_mcp` @ `03004fd`, GPL-3.0, loopback :9876) and **FreeCAD**
   (`neka-nat/freecad-mcp` @ `63acb30`, MIT, loopback :9875), repositioning Chimera as a generative +

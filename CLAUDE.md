@@ -98,8 +98,9 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   ([`modules/cad/`](modules/cad/)) — both **interactive/GUI only in Phase 1**, driven via
   [`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp) and
   [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), with gates in
-  `.claude/settings.json`; headless automation and 3D/CAD self-correction are **roadmap
-  (Phase 2–3)**.
+  `.claude/settings.json`. Headless Blender automation (Phase 2) and 3D self-correction over
+  Blender renders (Phase 3, `auto_generate.py --pipeline mesh3d`) are **shipped**; FreeCAD headless
+  automation and CAD self-correction, plus 3D **texturing** (Phase 4), remain **roadmap**.
 
 ## Hardware
 Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (32 GB VRAM).
@@ -118,7 +119,7 @@ stale doc is a bug.
   `scripts/update_report.py`). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (the CI count uses
-  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 2).
+  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 6).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump
   `pyproject.toml` `version`, then tag + create the GitHub release.
 

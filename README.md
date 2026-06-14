@@ -74,9 +74,12 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   **Blender headless rendering is also shipped** (`generate.py render`): drive Blender headlessly
   from the CLI — mesh render + turntable MP4, ComfyUI→scene composite, and mesh
   finish/figurine → print-ready STL/GLB; brand-aware, GPU-free CI tested. Requires Blender ≥ 5.1
-  on PATH. Phase 3 (self-correction over renders) and FreeCAD headless remain **roadmap**.
+  on PATH. **Phase 3 — 3D self-correction is shipped too** (`auto_generate.py --pipeline mesh3d`):
+  concept → Hunyuan3D mesh → headless Blender contact-sheet render → VLM **form** judge + deterministic
+  bmesh geometry checks (watertight / manifold / loose-parts), refine, repeat. Texturing (Phase 4) and
+  FreeCAD headless self-correction remain **roadmap**.
 
-**341 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**368 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -103,7 +106,7 @@ is in **[`docs/STACK.md`](docs/STACK.md)**.
 ## 🧩 Modules
 | Module | What it does | Status |
 |--------|--------------|--------|
-| [`agent`](modules/agent/self-correction.md) | **Self-correction loop** (generate → VLM judge → refine) | ✅ |
+| [`agent`](modules/agent/self-correction.md) | **Self-correction loop** (generate → VLM judge → refine) — 2D image **and** 3D mesh (`--pipeline mesh3d`) | ✅ |
 | [`agent`](modules/agent/) | **MCP bridge** + security model — drive ComfyUI from an assistant | ✅ |
 | [`image`](modules/image/) | Z-Image (default) · FLUX.2 (secondary) — txt2img / logo / product · `--upscale` | ✅ |
 | [`video`](modules/video/) | LTX-2.3 image-to-video + native synced audio · `--upscale` | ✅ |
@@ -132,9 +135,10 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 341 tests run against a mocked ComfyUI client (graph-building,
-  routing, sidecar, replay, scaffolder, doctor, agent-loop logic, and the headless Blender render
-  runner), linted with **ruff** and packaged as an installable CLI — all verified by **CI on Linux + Windows**.
+- **Tested without a GPU, on every push.** 368 tests run against a mocked ComfyUI client (graph-building,
+  routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render runner, and
+  the 3D self-correction generator + geometry checks), linted with **ruff** and packaged as an installable
+  CLI — all verified by **CI on Linux + Windows**.
 
 ## ⚡ Use it — install once, then `chimera`
 
