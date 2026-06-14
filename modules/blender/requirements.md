@@ -42,14 +42,21 @@ is a different, rejected server; always launch from the pinned Gitea ref with
 
 ---
 
-## Render engine note (Phase 2)
+## Headless render
 
-Headless renders — `blender --background --python` driven by the self-correction loop
-(Phase 2+) — use **Cycles with CUDA or OptiX** for GPU acceleration. **EEVEE is not
-suitable for headless use** outside Linux (EGL support required); on Windows and macOS,
-Cycles is the only viable headless render engine. This does not affect the interactive
-MCP bridge (Phase 1), which renders inside the running Blender GUI using whatever
-engine is active in the scene.
+The `generate.py render` backend (`--mode mesh` / `comfy-scene` / `finish`) calls
+`blender --background --python <template>` as a subprocess. Additional requirements
+beyond those above:
+
+| | |
+|---|---|
+| **`blender` on PATH** | or set `$BLENDER_BIN` — the runner picks up `$BLENDER_BIN` first, then falls back to `blender` on `PATH` |
+| **Minimum version** | **5.1.0** (same as interactive; templates are validated against 5.1) |
+| **Render engine** | **Cycles** (CUDA or OptiX) — GPU render. **EEVEE is not suitable for headless use** outside Linux (EGL required); on Windows and macOS, Cycles is the only viable headless engine. This does not affect the interactive bridge, which uses whatever engine is active in the running scene |
+| **MP4 turntable** (`--turntable`) | uses Blender's **bundled FFmpeg** — no separate FFmpeg install. Set via `image_settings.media_type='VIDEO'` in the 5.x bpy API |
+
+This does not affect the interactive MCP bridge (which renders inside the running
+Blender GUI) and has no additional Python package requirements.
 
 ---
 

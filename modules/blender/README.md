@@ -1,12 +1,15 @@
 # `blender` — image-and-scene DCC bridge
 
-This module is the glue that lets an AI assistant **drive a live Blender session**:
-introspect the scene graph, manipulate objects, execute Python operations, and render
-previews — all from an MCP tool call. The scope here is **interactive only**: the
-assistant connects to a running Blender GUI instance over a loopback socket, reads
-and edits the scene, and fires renders into a folder you choose. The unattended
-headless path — `blender --background --python` driven by the self-correction loop —
-is a **Phase 2** item (forward-referenced here; it does not exist yet).
+This module covers **two shipped paths** for driving Blender from Chimera:
+
+1. **Interactive MCP bridge** — an AI assistant connects to a running Blender GUI
+   session over a loopback socket, introspects the scene graph, manipulates objects,
+   executes Python operations, and fires renders into a folder you choose.
+2. **Headless render backend** — `generate.py render` shells to `blender --background`
+   with parameterized `bpy` templates; no GUI required, no per-call MCP approval.
+   Three modes, all live-validated on Blender 5.1 / RTX 5090 — see below.
+
+Phase 3 (a VLM self-correction loop that judges its own renders) remains roadmap.
 
 ## The MCP bridge
 
@@ -51,14 +54,43 @@ System → Network → Allow Online Access`).
    `get_objects_summary` — it should return the active Blender scene's objects, proving
    the bridge reached the addon.
 
-## GUI-only caveat — two execution paths
+## Two execution paths
 
-The MCP bridge requires Blender's **GUI to be running** and the addon enabled; there
-is no background-mode equivalent in this module today. The unattended, render-farm
-style path — `blender --background --python <script>` with **Cycles (CUDA/OptiX)** —
-will be wired into the self-correction loop as a Phase 2 render backend. When that
-lands it will live here alongside the interactive bridge; for now, keep a Blender
-window open and the addon active for any MCP-assisted work.
+### Interactive MCP bridge (GUI)
+
+The MCP bridge requires Blender's **GUI to be running** and the addon enabled. Keep a
+Blender window open and the addon active for any MCP-assisted work. Every call to
+`execute_blender_code*` requires per-call approval (Tier 1); render and path tools
+require approval + a path allowlist (Tier 2).
+
+### Headless render backend (`generate.py render`)
+
+The headless path runs entirely as a **normal CLI subprocess** — `blender --background
+--python <template>` — with no Blender GUI and no per-call MCP approval. Templates
+live in `workflows/templates/blender/` and are parameterized at call time. The runner
+lives in `scripts/brandkit/blender.py`; invoke it via:
+
+```bash
+generate.py render [--brand <brand>] --input <file> [--mode <mode>] [options]
+```
+
+Three modes, all live-validated on Blender 5.1 / RTX 5090:
+
+- **`--mode mesh`** *(default)* — import a mesh (GLB / STL / OBJ) → studio look → Cycles
+  → hero PNG. Add `--turntable` to also produce an MP4 orbit animation.
+- **`--mode comfy-scene`** — take a ComfyUI image → emissive backdrop + reflective floor
+  + focal object → Cycles render. This is the **ComfyUI → Blender handoff**: a
+  ComfyUI-generated image becomes a scene element in a lit Blender set.
+- **`--mode finish`** — AI mesh → clean → optional `--watertight` voxel remesh →
+  decimate (`--target-tris`) → optional `--scale-mm` → material (or `--color project`)
+  → export STL / GLB (+ hero render). The **figurine / character-finish** pipeline for
+  print-ready output.
+
+All modes are **brand-aware**: outputs route to `brands/<brand>/outputs/` (or `outputs/`
+when brandless) with a `kind:"render"` sidecar. The test suite mocks the subprocess,
+so CI stays GPU-free.
+
+Phase 3 (a VLM self-correction loop over renders) is roadmap.
 
 ## Security audit (v1.0.0) & per-tool gates
 

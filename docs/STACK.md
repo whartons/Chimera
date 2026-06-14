@@ -41,7 +41,7 @@ The `chimera` package (**v0.1.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (324 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (341 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness rules (`select=["F"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -79,6 +79,12 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > check uses the Gitea compare API and bumps follow a git-SHA clone/checkout (see `UPDATING.md`).
 > `freecad-mcp` **is** on GitHub, so it rides the existing `check_git_pack`.
 
+> **Headless Blender render (shipped Phase 2):** `generate.py render` runs `blender --background
+> --python <template>` as a normal CLI subprocess — separate from the MCP bridge, no per-call
+> approval. Three modes (`mesh`, `comfy-scene`, `finish`) with Cycles GPU (OptiX/CUDA); templates in
+> `workflows/templates/blender/`. Requires Blender ≥ 5.1 on PATH or `$BLENDER_BIN`; CI tests mock
+> the subprocess (GPU-free). FreeCAD headless (`FreeCADCmd`) is roadmap.
+
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
 |----------|---------|-----------------|
@@ -100,7 +106,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (324 tests, `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
+py3.12 (341 tests, `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 
 ## 7 · Host / runtime stack (reference build)

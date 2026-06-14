@@ -7,6 +7,22 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Headless Blender render backend (Phase 2)** — `generate.py render` shells to
+  `blender --background --python` with parameterized `bpy` templates from
+  `workflows/templates/blender/`, backed by a job runner in `scripts/brandkit/blender.py`.
+  Three modes, all live-validated on Blender 5.1 / RTX 5090:
+  - `--mode mesh` *(default)*: import a mesh (GLB/STL/OBJ) → studio look → Cycles → hero PNG
+    (+ `--turntable` MP4);
+  - `--mode comfy-scene`: ComfyUI image → emissive backdrop + reflective floor + focal object →
+    Cycles render (the ComfyUI → Blender handoff);
+  - `--mode finish`: AI mesh → clean → optional `--watertight` voxel remesh → decimate
+    (`--target-tris`) → optional `--scale-mm` → material (or `--color project`) → export
+    STL/GLB (+ hero render) — the figurine/character-finish pipeline for print-ready output.
+  Brand-aware (routes to `brands/<brand>/outputs/` + `kind:"render"` sidecar). Runs as a normal
+  CLI subprocess — **no per-call MCP approval** (unlike the interactive bridge's gated
+  `execute_blender_code`). CI tests mock the subprocess; GPU-free. Requires Blender ≥ 5.1 on PATH
+  or `$BLENDER_BIN`; Cycles GPU (OptiX/CUDA); MP4 via Blender's bundled FFmpeg. **Phase 3**
+  (VLM self-correction over renders) and **FreeCAD headless** remain roadmap.
 - **DCC/CAD bridges (Phase 1)** — assistant-driven MCP bridges to **Blender** (official Blender
   Foundation `lab/blender_mcp` @ `03004fd`, GPL-3.0, loopback :9876) and **FreeCAD**
   (`neka-nat/freecad-mcp` @ `63acb30`, MIT, loopback :9875), repositioning Chimera as a generative +
