@@ -383,6 +383,8 @@ def _render_params(args, asset, tmp, seed):
                  scale_mm=args.scale_mm, color=args.color,
                  formats=[f.strip() for f in args.formats.split(",") if f.strip()],
                  render_still=bool(args.render_still))
+        if args.color == "project":
+            p["asset"] = str(args.project_image)
     return p
 
 
@@ -405,6 +407,8 @@ def _primary_output(paths):
 
 def run_render(args, repo_root, ap):
     brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
+    if args.mode == "finish" and args.color == "project" and not args.project_image:
+        ap.error("--color project needs --project-image <file>")
     seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
     if args.mode in ("mesh", "finish"):
         subdirs = ("outputs/3d", "outputs", "products", "references")
@@ -507,6 +511,8 @@ def main():
     rn.add_argument("--scale-mm", dest="scale_mm", type=float, default=None, help="(finish) longest-dim mm")
     rn.add_argument("--color", choices=["material", "project"], default="material", help="(finish) color method")
     rn.add_argument("--formats", default="stl,glb", help="(finish) comma-separated export formats")
+    rn.add_argument("--project-image", dest="project_image", default=None,
+                    help="(finish, --color project) image to project as color")
     rn.add_argument("--no-render", dest="render_still", action="store_false", default=True,
                     help="(finish) skip the hero render")
     rn.add_argument("--blender-bin", dest="blender_bin", default=None, help="blender path (else $BLENDER_BIN/PATH)")

@@ -18,8 +18,22 @@ def _args(**kw):
     base = dict(modality="render", brand=None, seed=7, from_="rover.glb", mode="mesh",
                 samples=96, res=[1080, 1080], turntable=False, frames=72, as_="backdrop",
                 target_tris=200000, watertight=False, scale_mm=None, color="material",
-                formats="stl,glb", render_still=True, blender_bin=None, timeout=None)
+                formats="stl,glb", render_still=True, project_image=None,
+                blender_bin=None, timeout=None)
     base.update(kw); return argparse.Namespace(**base)
+
+
+def test_finish_project_passes_image():
+    p = G._render_params(_args(mode="finish", color="project", project_image="/x/c.png"),
+                         "/x/m.glb", Path("/tmp/w"), 3)
+    assert p["asset"] == "/x/c.png"
+
+
+def test_finish_project_requires_image(monkeypatch):
+    a = _args(mode="finish", color="project", project_image=None)
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: Path("/x/m.glb"))
+    with pytest.raises(SystemExit):
+        G.run_render(a, Path("/tmp"), argparse.ArgumentParser())
 
 
 def test_render_params_mesh():
