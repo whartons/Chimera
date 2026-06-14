@@ -7,6 +7,21 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **3D albedo texturing (Phase 4a)** — `auto_generate.py --pipeline mesh3d --texture` restores color to
+  the 3D self-correction loop via a headless Blender bake (pure bpy/Cycles — never touches the blocked
+  `custom_rasterizer` path). `_common.bake_albedo()` smart-UV-unwraps the mesh, projects the concept
+  image from a front camera (computed with `world_to_camera_view` — headless-safe, since
+  `uv.project_from_view` needs a VIEW_3D region), shader-masks front faces vs a flat **`--back-fill`**
+  (`palette` = brand color, default; `mirror` = back-projected flipped concept), and EMIT-bakes a
+  `--texture-res` albedo atlas; `mesh_eval` assigns it as Base Color, renders colored stills, and
+  exports a self-contained **textured GLB**. The 3D rubric regains color/palette criteria via a
+  **thrash-safe** wording (`build_rubric(..., textured=True)` — "a plain or palette-filled back is
+  acceptable", so the loop never chases back texture a single front image can't produce); a
+  `<stem>.texture.json` sidecar records the textured status + GLB name. **Live-validated on Blender
+  5.1.2 / RTX 5090** (front-faithful projection, palette + mirror back-fills, embedded GLB — the smoke
+  caught and fixed the headless `project_from_view` bug); the full `--texture` loop end-to-end is
+  pending a ComfyUI run. **Roadmap:** generated all-around texture (Phase 4b — depth-ControlNet
+  multi-view repaint on the winning mesh; in-ComfyUI Hunyuan3D-Paint stays wheel-blocked).
 - **3D self-correction over Blender renders (Phase 3)** — `auto_generate.py --pipeline mesh3d`
   extends the self-correction loop to 3D: a brief becomes a concept image (txt2img, or `--from-image`
   to fix the concept and reroll only the mesh), the concept becomes a Hunyuan3D mesh, the mesh is
@@ -22,9 +37,8 @@ All notable changes to Chimera are documented here. The format follows
   **live-validated on Blender 5.1.2 / RTX 5090** — that caught and fixed a glTF vertex-split topology
   bug — with the full ComfyUI→Hunyuan3D→judge loop pending a live run.
 
-  **Roadmap:** Texturing (Phase 4) — Blender-route albedo bake (in-ComfyUI Hunyuan3D-Paint stays
-  blocked on the cu130/torch2.10/sm_120 `custom_rasterizer` wheel); and FreeCAD headless
-  self-correction.
+  **Roadmap:** Texturing (now shipped as Phase 4a above; all-around generative texture is Phase 4b);
+  and FreeCAD headless self-correction.
 - **Headless Blender render backend (Phase 2)** — `generate.py render` shells to
   `blender --background --python` with parameterized `bpy` templates from
   `workflows/templates/blender/`, backed by a job runner in `scripts/brandkit/blender.py`.

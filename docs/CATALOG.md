@@ -342,7 +342,9 @@ remains roadmap.
 - FreeCAD remains **GUI-only**; headless `FreeCADCmd` automation is roadmap.
 - Phase 3 (VLM self-correction over renders) is **shipped for Blender**
   (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
-  judge + geometry checks); the FreeCAD equivalent and 3D **texturing** (Phase 4) remain roadmap.
+  judge + geometry checks). **Phase 4a** adds albedo texturing (`--texture`: front-projected bake,
+  back palette-filled) restoring the color rubric; generated all-around texture (Phase 4b) and the
+  FreeCAD self-correction equivalent remain roadmap.
 
 ---
 
