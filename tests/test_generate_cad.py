@@ -87,6 +87,21 @@ def test_validate_cad_convert_mesh_to_stl_ok():
     G._validate_cad(_cad(mode="convert", from_="m.stl", formats="stl,obj"), argparse.ArgumentParser())
 
 
+def test_validate_cad_convert_rejects_unsupported_source_ext():
+    # a .glb legitimately lives in outputs/3d but the convert template can't import it
+    with pytest.raises(SystemExit):
+        G._validate_cad(_cad(mode="convert", from_="model.glb", formats="stl"), argparse.ArgumentParser())
+
+
+def test_validate_cad_convert_accepts_brep_source():
+    G._validate_cad(_cad(mode="convert", from_="part.iges", formats="step,stl"), argparse.ArgumentParser())
+
+
+def test_cad_formats_dedups_and_normalizes_case():
+    assert G._cad_formats(_cad(formats="step,step")) == ["step"]
+    assert G._cad_formats(_cad(formats="STEP, STL")) == ["step", "stl"]
+
+
 def test_run_cad_routes_and_sidecars(tmp_path, monkeypatch):
     repo = tmp_path
     monkeypatch.setattr(G.freecad_runner, "run_template",
@@ -106,6 +121,37 @@ def test_run_cad_routes_and_sidecars(tmp_path, monkeypatch):
     assert meta["kind"] == "cad" and meta["mode"] == "primitive" and meta["shape"] == "box"
     assert meta["seed"] == 5 and meta["provenance"]["freecad_version"] == "1.1.1"
     assert meta["provenance"]["pipeline_git_sha"] == "deadbee"
+
+
+def test_run_cad_convert_records_source_and_null_shape(tmp_path, monkeypatch):
+    repo = tmp_path
+    src = repo / "part.step"; src.write_text("brep")   # brandless: --from is a direct path
+    monkeypatch.setattr(G.freecad_runner, "run_template",
+                        lambda t, p, **kw: {"outputs": [str(tmp_path / "c.stl")], "freecad_version": "1.1.1"})
+    (tmp_path / "c.stl").write_text("m")
+    def fake_route(root, brand, s, mode, seed, **kw):
+        dest = repo / "outputs" / "3d" / f"{mode}_{seed}{Path(s).suffix}"
+        dest.parent.mkdir(parents=True, exist_ok=True); dest.write_text("x"); return dest
+    monkeypatch.setattr(G, "route_output", fake_route)
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    G.run_cad(_cad(mode="convert", from_=str(src), formats="stl"), repo, argparse.ArgumentParser())
+    meta = json.loads((repo / "outputs" / "3d" / "convert_5.json").read_text())
+    assert meta["kind"] == "cad" and meta["mode"] == "convert"
+    assert meta["shape"] is None and meta["source"] == "part.step"
+
+
+def test_run_cad_empty_outputs_exits(tmp_path, monkeypatch):
+    monkeypatch.setattr(G.freecad_runner, "run_template", lambda t, p, **kw: {"outputs": []})
+    with pytest.raises(SystemExit):
+        G.run_cad(_cad(shape="box"), tmp_path, argparse.ArgumentParser())
+
+
+def test_run_cad_job_error_exits(tmp_path, monkeypatch):
+    def boom(t, p, **kw):
+        raise G.freecad_runner.FreeCADJobError("kaboom")
+    monkeypatch.setattr(G.freecad_runner, "run_template", boom)
+    with pytest.raises(SystemExit):
+        G.run_cad(_cad(shape="box"), tmp_path, argparse.ArgumentParser())
 
 
 def test_replay_refuses_cad_sidecar():

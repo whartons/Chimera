@@ -69,6 +69,20 @@ def test_run_template_raises_when_no_manifest(tmp_path):
         F.run_template(tmpl, {}, freecad_bin="fc", _runner=runner)
 
 
+def test_run_template_last_manifest_line_wins(tmp_path):
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    runner = lambda argv, **kw: _fake_proc(
+        stdout='@@CHIMERA_MANIFEST@@ {"outputs": ["first"]}\n@@CHIMERA_MANIFEST@@ {"outputs": ["last"]}')
+    assert F.run_template(tmpl, {}, freecad_bin="fc", _runner=runner) == {"outputs": ["last"]}
+
+
+def test_run_template_raises_on_malformed_manifest_json(tmp_path):
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    runner = lambda argv, **kw: _fake_proc(stdout='@@CHIMERA_MANIFEST@@ {"outputs": [trunc')
+    with pytest.raises(F.FreeCADJobError, match="not valid JSON"):
+        F.run_template(tmpl, {}, freecad_bin="fc", _runner=runner)
+
+
 def test_find_freecad_prefers_explicit_then_env(monkeypatch):
     monkeypatch.setenv("FREECAD_BIN", "C:/x/FreeCADCmd.exe")
     monkeypatch.setattr(F.shutil, "which", lambda n: None)

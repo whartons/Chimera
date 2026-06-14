@@ -49,7 +49,12 @@ def run_template(template_path, params: dict, *, freecad_bin=None, timeout=600,
             raise FreeCADJobError(f"FreeCADCmd exited {proc.returncode}:\n{tail}")
         for line in reversed((proc.stdout or "").splitlines()):
             if line.startswith(MANIFEST_TAG):
-                return json.loads(line[len(MANIFEST_TAG):].strip())
+                payload = line[len(MANIFEST_TAG):].strip()
+                try:
+                    return json.loads(payload)
+                except json.JSONDecodeError as e:
+                    raise FreeCADJobError(
+                        f"FreeCAD manifest line was not valid JSON ({e}): {payload[:500]}") from e
         raise FreeCADJobError("FreeCAD job printed no manifest line (template error?):\n"
                               + (proc.stdout or "")[-2000:])
     finally:

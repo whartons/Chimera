@@ -57,6 +57,8 @@ _SHAPE_DIMS = {
     "tube": ("radius", "inner_radius", "height"),
 }
 _MESH_EXTS = {".stl", ".obj"}
+# source extensions the convert template can actually import (BREP family + mesh family)
+_CONVERT_SRC_EXTS = {".step", ".stp", ".iges", ".igs", ".brep", ".stl", ".obj"}
 
 # CLI args harvested into the sidecar `inputs` dict (sidecar.relevant_inputs then keeps the
 # modality-relevant subset). Must remain a superset of every sidecar._INPUT_KEYS value, minus
@@ -459,7 +461,9 @@ def run_render(args, repo_root, ap):
 
 
 def _cad_formats(args):
-    return [f.strip().lower() for f in args.formats.split(",") if f.strip()]
+    # de-dup while preserving order: `--formats step,step` would otherwise produce the same output
+    # path twice, and route_output would move it on the first pass then FileNotFoundError on the second.
+    return list(dict.fromkeys(f.strip().lower() for f in args.formats.split(",") if f.strip()))
 
 
 def _cad_params(args, source, tmp, seed):
@@ -513,8 +517,12 @@ def _validate_cad(args, ap):
                 ap.error(f"--{d.replace('_', '-')} must be > 0 for shape {args.shape}")
         if args.shape == "tube" and float(args.inner_radius) >= float(args.radius):
             ap.error("tube --inner-radius must be < --radius")
-    else:  # convert: a mesh source can't become a BREP STEP solid headlessly
+    else:  # convert
         ext = Path(args.from_).suffix.lower() if args.from_ else ""
+        if ext not in _CONVERT_SRC_EXTS:
+            ap.error(f"convert --from: unsupported source {ext or '(none)'} "
+                     "(use step/stp/iges/igs/brep or stl/obj)")
+        # a mesh source can't become a BREP STEP solid headlessly
         if ext in _MESH_EXTS and "step" in fmts:
             ap.error("convert: a mesh source (.stl/.obj) cannot be exported to STEP "
                      "(mesh -> BREP solid is not a headless operation); export stl/obj only")
