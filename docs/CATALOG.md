@@ -320,7 +320,9 @@ third-party dependency for this backend.
 
 Peer tools to ComfyUI under the agent layer — driven by an assistant over **pinned,
 audited, loopback-only** MCP servers (same standard as the `comfyui-mcp` bridge).
-Interactive in Phase 1; headless automation backends are roadmap (Phase 2–3).
+The MCP bridges are interactive (Phase 1); Blender headless rendering (Phase 2) and 3D
+self-correction over Blender renders (Phase 3) are shipped. FreeCAD headless automation
+remains roadmap.
 
 | Tool | Server | Pin | License | Socket |
 |------|--------|-----|---------|--------|

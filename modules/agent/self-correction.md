@@ -314,7 +314,9 @@ The winner's mesh lands in `outputs/3d/` (or `brands/<brand>/outputs/3d/`); the 
 and the `agent-run` sidecar (`modality:"3d"`, `winning_seed`) land in the images folder beside it.
 
 > **Status: built + GPU-free CI tested** (mocked ComfyUI client + Blender runner). The `mesh_eval`
-> bpy template is **live-validated on Blender 5.1**; an end-to-end loop smoke ran on the RTX 5090.
+> template reuses the Phase-2 `_common` helpers already live-validated on Blender 5.1; its new bmesh
+> geometry-probe code and the full concept→mesh→render→judge loop are pending an end-to-end live smoke
+> on the box (it needs ComfyUI + Blender running — not a CI step).
 
 ### Phase 4 — texturing (roadmap)
 

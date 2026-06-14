@@ -12,13 +12,14 @@ All notable changes to Chimera are documented here. The format follows
   to fix the concept and reroll only the mesh), the concept becomes a Hunyuan3D mesh, the mesh is
   rendered headlessly to a **4-view contact sheet** (new `workflows/templates/blender/mesh_eval.py`),
   and a **form** rubric (`build_rubric(..., modality="3d")`) is judged on the grey-clay render. A new
-  `GeometryAwareJudge` folds **deterministic bmesh geometry checks** (non-manifold / open-edge /
-  loose-part / degenerate) into the verdict — defects a VLM can't see. The model-free loop core,
+  `GeometryAwareJudge` folds **deterministic bmesh geometry checks** (non-manifold edges, open/boundary
+  edges, loose parts, empty/zero-tri, zero-extent bounds) into the verdict — defects a VLM can't see.
+  The model-free loop core,
   `parse_verdict`, the expander, and `ConsensusJudge` are reused unchanged; the loop's per-iteration
   seed advance gives an implicit mesh reroll. Host-side contact-sheet montage in
   `scripts/brandkit/montage.py` (Pillow, optional `[images]` extra). GPU-free CI (mocked ComfyUI
-  client + Blender runner); the `mesh_eval` template is live-validated on Blender 5.1. **Texturing
-  (Phase 4)** — Blender-route albedo bake (in-ComfyUI Hunyuan3D-Paint stays blocked on the
+  client + Blender runner); the `mesh_eval` template reuses the Phase-2 `_common` helpers validated on
+  Blender 5.1, with its end-to-end live smoke pending. **Texturing (Phase 4)** — Blender-route albedo bake (in-ComfyUI Hunyuan3D-Paint stays blocked on the
   cu130/torch2.10/sm_120 `custom_rasterizer` wheel) — and **FreeCAD headless self-correction** remain
   roadmap.
 - **Headless Blender render backend (Phase 2)** — `generate.py render` shells to
