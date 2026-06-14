@@ -1,5 +1,13 @@
-import json, types, pytest
+import json, subprocess, types, pytest
 from scripts.brandkit import blender as B
+
+
+def test_run_template_raises_on_timeout(tmp_path):
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    def runner(argv, **kw):
+        raise subprocess.TimeoutExpired(argv, kw["timeout"])
+    with pytest.raises(B.BlenderJobError, match="timed out"):
+        B.run_template(tmpl, {}, blender_bin="blender", timeout=5, _runner=runner)
 
 
 def _fake_proc(returncode=0, stdout="", stderr=""):
