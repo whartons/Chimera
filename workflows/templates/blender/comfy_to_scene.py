@@ -1,6 +1,6 @@
-"""comfy_to_scene: place a ComfyUI image as an emissive backdrop/plane with a reflective floor +
-a chrome focal object -> Cycles render. Params: {asset, out_dir, stem, samples, res:[w,h],
-placement: backdrop|plane|texture, frames:int}. (Video input renders its first frame in V1.)"""
+"""comfy_to_scene: place a ComfyUI image as an emissive backdrop behind a chrome focal object on a
+reflective floor -> Cycles render. Params: {asset, out_dir, stem, samples, res:[w,h], seed}.
+V1: image input + 'backdrop' placement only (plane/texture + video input are roadmap)."""
 import bpy, sys, os, math, mathutils
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as C
@@ -9,6 +9,7 @@ p = C.args()
 scn = C.reset_scene()
 dev = C.enable_gpu(scn)
 scn.cycles.samples = int(p["samples"])
+scn.cycles.seed = int(p.get("seed", 0))
 scn.render.resolution_x, scn.render.resolution_y = int(p["res"][0]), int(p["res"][1])
 
 img = bpy.data.images.load(p["asset"])

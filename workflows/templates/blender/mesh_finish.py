@@ -10,6 +10,7 @@ p = C.args()
 scn = C.reset_scene()
 dev = C.enable_gpu(scn)
 scn.cycles.samples = int(p["samples"])
+scn.cycles.seed = int(p.get("seed", 0))
 scn.render.resolution_x, scn.render.resolution_y = int(p["res"][0]), int(p["res"][1])
 obj = C.import_mesh(p["mesh"])
 bpy.context.view_layer.objects.active = obj

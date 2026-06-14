@@ -71,7 +71,7 @@ live in `workflows/templates/blender/` and are parameterized at call time. The r
 lives in `scripts/brandkit/blender.py`; invoke it via:
 
 ```bash
-generate.py render [--brand <brand>] --input <file> [--mode <mode>] [options]
+generate.py render [--brand <brand>] --from <file> [--mode <mode>] [options]
 ```
 
 Three modes, all live-validated on Blender 5.1 / RTX 5090:

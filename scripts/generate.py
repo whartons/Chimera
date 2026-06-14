@@ -504,8 +504,8 @@ def main():
     rn.add_argument("--res", type=int, nargs=2, default=[1080, 1080], metavar=("W", "H"))
     rn.add_argument("--turntable", action="store_true", help="(mesh) also render a 360 MP4")
     rn.add_argument("--frames", type=int, default=72)
-    rn.add_argument("--as", dest="as_", choices=["backdrop", "plane", "texture"], default="backdrop",
-                    help="(comfy-scene) how to place the image")
+    rn.add_argument("--as", dest="as_", choices=["backdrop"], default="backdrop",
+                    help="(comfy-scene) image placement (only 'backdrop' in V1; plane/texture are roadmap)")
     rn.add_argument("--target-tris", dest="target_tris", type=int, default=200000, help="(finish) decimate target")
     rn.add_argument("--watertight", action="store_true", help="(finish) voxel-remesh to a manifold solid")
     rn.add_argument("--scale-mm", dest="scale_mm", type=float, default=None, help="(finish) longest-dim mm")
