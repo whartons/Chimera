@@ -8,13 +8,15 @@ from pathlib import Path
 def contact_sheet(paths, out_path, *, cols=2) -> Path:
     """Tile `paths` into a `cols`-wide grid PNG at `out_path`; return the path. Cells are sized
     to the largest input; shorter rows are left blank on a dark background."""
+    # Validate args before touching the optional dep, so a misuse fails as ValueError
+    # regardless of whether Pillow is installed.
+    paths = [Path(p) for p in paths]
+    if not paths:
+        raise ValueError("contact_sheet needs at least one image")
     try:
         from PIL import Image
     except ImportError as e:  # optional dep — fail loudly only when actually called
         raise RuntimeError("contact_sheet needs Pillow (pip install -e '.[images]')") from e
-    paths = [Path(p) for p in paths]
-    if not paths:
-        raise ValueError("contact_sheet needs at least one image")
     imgs = [Image.open(str(p)).convert("RGB") for p in paths]
     try:
         cw = max(i.width for i in imgs)
