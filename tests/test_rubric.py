@@ -54,3 +54,33 @@ def test_build_rubric_omits_absent_style_and_palette_and_negative():
     assert "palette" not in joined
     assert "style matches" not in joined
     assert "avoids these traits" not in joined
+
+
+def test_build_rubric_3d_form_criteria_and_noun():
+    from scripts.agent.rubric import build_rubric
+    from scripts.brandkit.manifest import default_manifest
+    r = build_rubric(default_manifest(), "an armored knight", modality="3d")
+    assert r.noun == "3D render"
+    joined = " ".join(r.criteria).lower()
+    assert "clearly depicts: an armored knight" in joined
+    assert "proportions and silhouette" in joined
+    assert "no missing, broken, or fused" in joined
+    assert "holes, spikes, or floating" in joined
+    # grey clay: no color/palette criterion for 3d
+    assert "palette" not in joined
+
+
+def test_3d_rubric_prompt_keeps_verdict_tokens_and_3d_noun():
+    from scripts.agent.rubric import build_rubric
+    from scripts.brandkit.manifest import default_manifest
+    prompt = build_rubric(default_manifest(), "a rover", modality="3d").as_prompt()
+    assert "Evaluate the 3D render against this rubric" in prompt
+    assert "PASS" in prompt and "FAIL" in prompt and "FIX:" in prompt
+
+
+def test_image_rubric_unchanged_default():
+    from scripts.agent.rubric import build_rubric
+    from scripts.brandkit.manifest import default_manifest
+    r = build_rubric(default_manifest(), "a rover")
+    assert r.noun == "image"
+    assert r.as_prompt().startswith("Evaluate the image against this rubric")
