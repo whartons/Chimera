@@ -37,6 +37,17 @@ def test_open_edges_force_fail_and_add_issue(tmp_path):
     assert "MET - looks great" in v.issues  # inner issues preserved, structural unioned in
 
 
+def test_multiple_defects_all_unioned(tmp_path):
+    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "non_manifold_edges": 5, "loose_parts": 3})
+    j = GeometryAwareJudge(_Stub(Verdict(True, 0.6, ["MET - ok"])))
+    v = j.judge(str(sheet), rubric=None)
+    assert v.passed is False
+    assert any("not manifold" in i for i in v.issues)
+    assert any("disconnected parts" in i for i in v.issues)
+    assert "MET - ok" in v.issues
+    assert len(v.issues) == len(set(v.issues))  # no duplicates
+
+
 def test_no_checks_file_is_passthrough(tmp_path):
     sheet = tmp_path / "agent_7.png"
     sheet.write_text("x")
