@@ -98,3 +98,27 @@ def test_unknown_modality_raises():
     import pytest
     with pytest.raises(ValueError, match="modality"):
         build_rubric(_m(), "a knight", modality="3D")  # capital D is not a valid modality
+
+
+def test_3d_textured_rubric_adds_satisfiable_color_criteria():
+    r = build_rubric(_m(), "a knight", modality="3d", textured=True)
+    assert r.noun == "textured 3D render"
+    joined = " ".join(r.criteria).lower()
+    assert "proportions and silhouette" in joined
+    assert "colored consistent with" in joined
+    assert "a plain or palette-filled back/underside is acceptable" in joined
+    assert "brand palette" in joined
+
+
+def test_3d_textured_prompt_keeps_tokens():
+    p = build_rubric(_m(), "a rover", modality="3d", textured=True).as_prompt()
+    assert "Evaluate the textured 3D render against this rubric" in p
+    assert "PASS" in p and "FAIL" in p and "FIX:" in p
+
+
+def test_3d_untextured_unchanged_when_textured_false():
+    r = build_rubric(_m(), "a rover", modality="3d")
+    assert r.noun == "3D render"
+    joined = " ".join(r.criteria).lower()
+    assert "back/underside is acceptable" not in joined
+    assert "brand palette" not in joined

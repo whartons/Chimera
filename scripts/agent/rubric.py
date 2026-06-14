@@ -29,11 +29,14 @@ class Rubric:
         return "\n".join(lines)
 
 
-def build_rubric(manifest, subject: str, *, modality: str = "image") -> Rubric:
+def build_rubric(manifest, subject: str, *, modality: str = "image", textured: bool = False) -> Rubric:
     """Compose criteria from the subject + whichever brand traits are present.
 
     modality='3d' scores FORM on a grey clay render (Hunyuan3D output is untextured): no color/
-    palette criteria; the noun becomes '3D render'. modality='image' is the original 2D path."""
+    palette criteria; the noun becomes '3D render'. modality='3d', textured=True (Phase 4a) ADDS
+    color criteria worded to accept a plain/palette-filled back (the front bake is faithful, the
+    back is a flat fill) so the loop never chases back texture it cannot produce. modality='image'
+    is the original 2D path."""
     if modality not in ("image", "3d"):
         raise ValueError(f"modality must be 'image' or '3d', got {modality!r}")
     if modality == "3d":
@@ -46,11 +49,28 @@ def build_rubric(manifest, subject: str, *, modality: str = "image") -> Rubric:
             "The model is complete — no missing, broken, or fused limbs/parts.",
             "The surface is clean — no holes, spikes, or floating disconnected bits.",
         ]
-        if manifest.style:
-            criteria.append(f"The form's style matches: {manifest.style}.")
-        if manifest.negative:
-            criteria.append(f"The 3D render avoids these traits: {manifest.negative}.")
-        return Rubric(subject=subject, criteria=criteria, noun="3D render")
+        noun = "3D render"
+        if textured:
+            noun = "textured 3D render"
+            criteria.append(
+                f"The model's front and visible surfaces are colored consistent with {subject} — "
+                "a plain or palette-filled back/underside is acceptable."
+            )
+            if manifest.palette:
+                criteria.append(
+                    "The coloring uses the brand palette: "
+                    + ", ".join(str(c) for c in manifest.palette) + "."
+                )
+            if manifest.style:
+                criteria.append(f"The form's style matches: {manifest.style}.")
+            if manifest.negative:
+                criteria.append(f"The textured 3D render avoids these traits: {manifest.negative}.")
+        else:
+            if manifest.style:
+                criteria.append(f"The form's style matches: {manifest.style}.")
+            if manifest.negative:
+                criteria.append(f"The 3D render avoids these traits: {manifest.negative}.")
+        return Rubric(subject=subject, criteria=criteria, noun=noun)
 
     criteria = [f"The image clearly depicts: {subject}."]
     if manifest.style:
