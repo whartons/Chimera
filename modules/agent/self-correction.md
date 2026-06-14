@@ -314,9 +314,11 @@ The winner's mesh lands in `outputs/3d/` (or `brands/<brand>/outputs/3d/`); the 
 and the `agent-run` sidecar (`modality:"3d"`, `winning_seed`) land in the images folder beside it.
 
 > **Status: built + GPU-free CI tested** (mocked ComfyUI client + Blender runner). The `mesh_eval`
-> template reuses the Phase-2 `_common` helpers already live-validated on Blender 5.1; its new bmesh
-> geometry-probe code and the full concept→mesh→render→judge loop are pending an end-to-end live smoke
-> on the box (it needs ComfyUI + Blender running — not a CI step).
+> template — render, 4 orbit stills, the bmesh geometry probe, and the host-side montage — is
+> **live-validated on Blender 5.1.2 / RTX 5090** (the smoke caught and fixed a glTF vertex-split bug
+> that made watertight meshes read as thousands of loose parts). The full concept→mesh→render→judge
+> loop reuses already-live-validated components (Z-Image, Hunyuan3D, `LocalVLMJudge`) and is pending an
+> end-to-end live run (needs ComfyUI + the Hunyuan3D / Qwen2.5-VL models loaded — not a CI step).
 
 ### Phase 4 — texturing (roadmap)
 

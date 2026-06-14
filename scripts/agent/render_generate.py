@@ -47,13 +47,15 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         # --max-iters defaults to 3 for mesh3d for this reason.
         uploaded = _concept(pos, neg, seed)
 
-        # Stage B: image-conditioned Hunyuan3D mesh; route the GLB into outputs/3d.
+        # Stage B: image-conditioned Hunyuan3D mesh. Leave the GLB in the ComfyUI output dir for now
+        # and feed mesh_eval that path; only route it into outputs/3d after the render succeeds, so a
+        # failed Blender job doesn't orphan a meshless GLB in the curated outputs folder.
         wf3d = threed_filler.build(repo_root, manifest, from_image=uploaded, seed=seed,
                                    octree=args.octree, model=args.model)
         pid = client.queue_prompt(wf3d)
         client.wait(pid, max_wait=comfy_timeout)
         gname, gsub, _ = select_output(client, pid, wf3d)
-        glb = route_output(repo_root, args.brand, out_dir / gsub / gname, "agent", seed)
+        glb_src = out_dir / gsub / gname
 
         # Stage C: render 4 orbit stills + compute geometry checks (headless Blender).
         tmp = Path(tempfile.mkdtemp(prefix="chimera_eval_"))
@@ -61,7 +63,7 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             stem = f"{args.brand or 'agent'}_{seed}"
             mani = blender_runner(
                 template,
-                {"mesh": str(Path(glb).resolve()), "out_dir": str(tmp), "stem": stem,
+                {"mesh": str(glb_src.resolve()), "out_dir": str(tmp), "stem": stem,
                  "samples": args.samples, "res": list(args.res), "seed": seed, "views": 4},
                 blender_bin=args.blender_bin, timeout=blender_timeout)
             stills = mani.get("outputs", [])
@@ -70,7 +72,8 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             # Stage D: montage the 4 stills into one contact sheet (in tmp).
             sheet_tmp = tmp / "sheet.png"
             montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
-            # Stage E: route the sheet into outputs/images (moves it out of tmp).
+            # Stage E: render succeeded — route the mesh (outputs/3d) and the sheet (outputs/images).
+            route_output(repo_root, args.brand, glb_src, "agent", seed)
             sheet = route_output(repo_root, args.brand, sheet_tmp, "agent", seed)
 
             # Stage F: write the geometry facts next to the sheet for GeometryAwareJudge.

@@ -18,10 +18,13 @@ All notable changes to Chimera are documented here. The format follows
   `parse_verdict`, the expander, and `ConsensusJudge` are reused unchanged; the loop's per-iteration
   seed advance gives an implicit mesh reroll. Host-side contact-sheet montage in
   `scripts/brandkit/montage.py` (Pillow, optional `[images]` extra). GPU-free CI (mocked ComfyUI
-  client + Blender runner); the `mesh_eval` template reuses the Phase-2 `_common` helpers validated on
-  Blender 5.1, with its end-to-end live smoke pending. **Texturing (Phase 4)** — Blender-route albedo bake (in-ComfyUI Hunyuan3D-Paint stays blocked on the
-  cu130/torch2.10/sm_120 `custom_rasterizer` wheel) — and **FreeCAD headless self-correction** remain
-  roadmap.
+  client + Blender runner); `mesh_eval` (render + 4 orbit stills + bmesh geometry checks + montage) is
+  **live-validated on Blender 5.1.2 / RTX 5090** — that caught and fixed a glTF vertex-split topology
+  bug — with the full ComfyUI→Hunyuan3D→judge loop pending a live run.
+
+  **Roadmap:** Texturing (Phase 4) — Blender-route albedo bake (in-ComfyUI Hunyuan3D-Paint stays
+  blocked on the cu130/torch2.10/sm_120 `custom_rasterizer` wheel); and FreeCAD headless
+  self-correction.
 - **Headless Blender render backend (Phase 2)** — `generate.py render` shells to
   `blender --background --python` with parameterized `bpy` templates from
   `workflows/templates/blender/`, backed by a job runner in `scripts/brandkit/blender.py`.

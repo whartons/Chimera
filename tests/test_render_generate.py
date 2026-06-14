@@ -79,6 +79,22 @@ def test_generate_chains_concept_mesh_render_and_returns_sheet(monkeypatch, tmp_
     assert json.loads(cf.read_text())["open_edges"] == 7
 
 
+def test_blender_failure_does_not_route_glb(monkeypatch, tmp_path):
+    import pytest
+    client = _FakeClient()
+    calls, _ = _wire(monkeypatch, tmp_path, client)
+
+    def boom(template, params, **kw):
+        raise RuntimeError("blender exploded")
+
+    gen = rg.make_render_generate(_args(), tmp_path, manifest=object(), client=client,
+                                  blender_runner=boom)
+    with pytest.raises(RuntimeError):
+        gen("a knight", "blurry", 7)
+    # a failed render must not orphan a routed GLB in outputs/3d
+    assert not any(p.suffix == ".glb" for p in calls["routed"])
+
+
 def test_from_image_skips_txt2img(monkeypatch, tmp_path):
     client = _FakeClient()
     calls, fake_runner = _wire(monkeypatch, tmp_path, client)

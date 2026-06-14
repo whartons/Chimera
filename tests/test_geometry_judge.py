@@ -48,6 +48,15 @@ def test_multiple_defects_all_unioned(tmp_path):
     assert len(v.issues) == len(set(v.issues))  # no duplicates
 
 
+def test_already_failed_inner_stays_failed_and_unions(tmp_path):
+    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "open_edges": 3})
+    j = GeometryAwareJudge(_Stub(Verdict(False, 0.4, ["NOT-MET - wrong shape"])))
+    v = j.judge(str(sheet), rubric=None)
+    assert v.passed is False and v.score == 0.4
+    assert "NOT-MET - wrong shape" in v.issues
+    assert any("watertight" in i for i in v.issues)
+
+
 def test_no_checks_file_is_passthrough(tmp_path):
     sheet = tmp_path / "agent_7.png"
     sheet.write_text("x")
