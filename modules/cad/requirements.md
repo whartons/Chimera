@@ -55,19 +55,20 @@ before selecting the workbench.
 
 ---
 
-## Headless automation (Phase 2+)
+## Headless automation (`generate.py cad` — shipped)
 
-The interactive MCP bridge requires a live FreeCAD GUI window. For the
-unattended self-correction loop, the Phase 2 automation path will shell out to
-`FreeCADCmd` — for example:
+The interactive MCP bridge requires a live FreeCAD GUI window. For unattended geometry
+authoring, **`generate.py cad`** shells out to `FreeCADCmd` — for example:
 
 ```
-C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe  script.py
+C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe  <template.py>  <params.json>
 ```
 
-`FreeCADCmd` emits **geometry only** (STEP / STL / glTF — no headless renderer).
-Rendering for the judge step goes through the Blender Cycles step in the pipeline.
-This path does not exist yet; it is documented here as a forward reference.
+`FreeCADCmd` emits **geometry only** (STEP / STL / OBJ — **no headless renderer, and
+glTF is GUI-only**). The `cad` subcommand authors parametric primitives and converts
+CAD/mesh files; render-for-judge goes through the Blender Cycles step (export STL →
+`render --mode mesh`). See the module [README](README.md#headless-generatepy-cad-shipped)
+for usage. The FreeCAD-driven **self-correction loop** is still a forward reference.
 
 ---
 

@@ -105,9 +105,10 @@ two DCC/CAD applications:
 Both are **pinned to exact commits, audited, and per-tool-gated** via
 [`../../.claude/settings.json`](../../.claude/settings.json) — the same security model as the
 ComfyUI bridge. **Phase 1 (the MCP bridges) is GUI-only and interactive.** The headless Blender
-backend (Phase 2) and 3D self-correction over Blender renders (Phase 3,
-[`self-correction.md`](self-correction.md) §3D) are **shipped**; FreeCAD headless backends + CAD
-self-correction, plus 3D texturing (Phase 4), remain **roadmap**.
+backend (Phase 2), 3D self-correction over Blender renders (Phase 3,
+[`self-correction.md`](self-correction.md) §3D), front-projected albedo texturing (Phase 4a,
+`--texture`), and headless FreeCAD geometry (`generate.py cad`) are **shipped**. Generated all-around
+texture (Phase 4b) and the FreeCAD-driven CAD self-correction loop remain **roadmap**.
 
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**
