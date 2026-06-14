@@ -41,7 +41,7 @@ The `chimera` package (**v0.1.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (439 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (448 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness rules (`select=["F"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -63,6 +63,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 | **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `229437c` | video (LTX-2.3 i2v + synced audio + latent upscaler) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code` |
 | **ComfyUI-HunyuanVideo-Foley** | `phazei/ComfyUI-HunyuanVideo-Foley` | `afd2960` | audio foley (video→SFX) | safe-with-precautions — only 3 nodes used; never run the bundled `cli.py`/`infer.py`/`gradio_app.py` (pickle-RCE) |
 | **ComfyUI-QwenVL** | `1038lab/ComfyUI-QwenVL` | `fcd1ada` | agent local VLM judge (Qwen2.5-VL-7B) | safe-with-precautions — weights from the official Qwen repo only |
+| **ComfyUI_IPAdapter_plus** | `cubiq/ComfyUI_IPAdapter_plus` | `a0f451a` | Phase-4b auto-repaint (SDXL depth-CN + IPAdapter view generation) | safe-with-precautions — clean deps (torch/comfy/PIL/einops), no net/telemetry/exec; only the niche `IPAdapterEmbeds` loader does `torch.load` (don't feed it untrusted `.ipadpt`) |
 
 > Core-native (no pack needed): **Z-Image**, **ACE-Step 1.5**, **Hunyuan3D 2.1**, and the agent
 > verdict-capture node all ship in ComfyUI core — only the three packs above are third-party.
@@ -117,7 +118,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (439 tests local; ~433 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
+py3.12 (448 tests local; ~442 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

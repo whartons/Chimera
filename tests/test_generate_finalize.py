@@ -7,7 +7,9 @@ def _ft(**kw):
     base = dict(modality="finalize-texture", brand=None, seed=9, from_="win.glb",
                 views="f.png,r.png,b.png,l.png", azimuths=None, elevation=15.0,
                 back_fill="palette", texture_res=1024, samples=48, res=[768, 768],
-                blender_bin=None, timeout=None)
+                blender_bin=None, timeout=None,
+                auto_repaint=False, concept=None, subject=None, views_count=4,
+                cn_strength=0.7, ip_weight=0.8, comfy_url="http://127.0.0.1:8000", comfy_output_dir=None)
     base.update(kw); return argparse.Namespace(**base)
 
 
@@ -120,6 +122,52 @@ def test_run_finalize_texture_survives_montage_failure(tmp_path, monkeypatch):
     meta = json.loads(routed[".glb"].with_suffix(".json").read_text())
     assert meta["mode"] == "finalize-texture"
     assert meta["outputs"] == ["finalize_9.glb"]   # GLB only — sheet was skipped
+
+
+def test_validate_finalize_autorepaint_requires_concept_subject_outputdir():
+    ap = argparse.ArgumentParser()
+    with pytest.raises(SystemExit):   # no concept
+        G._validate_finalize(_ft(auto_repaint=True, concept=None, subject="x", comfy_output_dir="o"), ap)
+    with pytest.raises(SystemExit):   # no subject
+        G._validate_finalize(_ft(auto_repaint=True, concept="c.png", subject=None, comfy_output_dir="o"), ap)
+    with pytest.raises(SystemExit):   # no comfy-output-dir
+        G._validate_finalize(_ft(auto_repaint=True, concept="c.png", subject="x", comfy_output_dir=None), ap)
+    with pytest.raises(SystemExit):   # views_count out of range
+        G._validate_finalize(_ft(auto_repaint=True, concept="c.png", subject="x", comfy_output_dir="o",
+                                 views_count=9), ap)
+
+
+def test_validate_finalize_autorepaint_ok_without_views():
+    # --auto-repaint doesn't need --views
+    G._validate_finalize(_ft(auto_repaint=True, views=None, concept="c.png", subject="a rover",
+                             comfy_output_dir="o"), argparse.ArgumentParser())
+
+
+def test_run_finalize_texture_autorepaint_path(tmp_path, monkeypatch):
+    repo = tmp_path
+    (repo / "win.glb").write_text("mesh")
+    # auto-repaint generates the views via _auto_repaint_views (mocked) instead of resolving --views
+    monkeypatch.setattr(G, "_auto_repaint_views",
+                        lambda args, mesh, seed, brand_dir, repo_root, ap: (
+                            [Path(tmp_path / "rp0.png"), Path(tmp_path / "rp1.png")], [0.0, 180.0]))
+    monkeypatch.setattr(G.blender_runner, "run_template",
+                        lambda t, p, **kw: {"textured_glb": str(tmp_path / "o.glb"),
+                                            "outputs": [], "blender_version": "5.1.2"})
+    (tmp_path / "o.glb").write_text("g")
+    routed = {}
+    def fake_route(root, brand, src, mode, seed, **kw):
+        dest = repo / "outputs" / "3d" / f"{mode}_{seed}{Path(src).suffix}"
+        dest.parent.mkdir(parents=True, exist_ok=True); dest.write_text("x"); routed[Path(src).suffix] = dest
+        return dest
+    monkeypatch.setattr(G, "route_output", fake_route)
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    G.run_finalize_texture(_ft(from_=str(repo / "win.glb"), auto_repaint=True, views=None,
+                               concept=str(repo / "c.png"), subject="an armored rover",
+                               comfy_output_dir=str(tmp_path)), repo, argparse.ArgumentParser())
+    meta = json.loads(routed[".glb"].with_suffix(".json").read_text())
+    assert meta["mode"] == "finalize-texture" and meta["params"]["auto_repaint"] is True
+    assert meta["params"]["subject"] == "an armored rover" and meta["params"]["concept"] == "c.png"
+    assert meta["params"]["azimuths"] == [0.0, 180.0]
 
 
 def test_run_finalize_texture_no_glb_exits(tmp_path, monkeypatch):

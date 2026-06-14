@@ -81,15 +81,17 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   mesh (front-faithful, back palette-filled), restoring the color/palette rubric. **Phase 4b — all-around
   texture: the multi-view bake engine is shipped too** (`generate.py finalize-texture --from <glb> --views
   front,right,back,left`): `bake_multiview` projects N corrected views around the mesh and weighted-bakes
-  them into one albedo atlas, so back/sides carry real color. The ComfyUI depth-ControlNet + IPAdapter
-  auto-repaint that *generates* those views from the concept remains **roadmap** (VRAM/model-gated).
+  them into one albedo atlas, so back/sides carry real color. **Auto-repaint is shipped too**
+  (`finalize-texture --auto-repaint --concept <img>`): it renders per-view depth and runs an SDXL
+  **depth-ControlNet + IPAdapter** repaint to *generate* the views from the concept — live-validated
+  texturing an armored rover green/tan all the way around.
 - **FreeCAD is a peer CAD tool, headless too.** Beyond the interactive MCP bridge, **`generate.py cad`**
   drives `FreeCADCmd` headlessly to author **parametric primitives** (box / cylinder / cone / sphere /
   tube) and **convert** CAD/mesh files, exporting **STEP / STL / OBJ** — the BREP (STEP) authoring Blender
   can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
   A FreeCAD self-correction loop (`cad → render → judge`) remains **roadmap**.
 
-**439 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**448 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -145,7 +147,7 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 439 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 448 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
   finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
   checks), linted with **ruff** and packaged as an installable
@@ -190,7 +192,9 @@ chimera render --from rover.glb --mode finish --watertight  # clean → print-re
 chimera cad --shape tube --radius 12 --inner-radius 8 --height 30 --formats step,stl   # parametric CAD solid
 chimera cad --mode convert --from part.step --formats stl,obj                          # CAD/mesh format convert
 chimera cad --mode script --script mug.py --formats step,stl                            # generative CAD: run an agent-authored FreeCAD script
-chimera finalize-texture --from winner.glb --views front.png,right.png,back.png,left.png  # all-around albedo bake
+chimera finalize-texture --from winner.glb --views front.png,right.png,back.png,left.png  # all-around bake (manual views)
+chimera finalize-texture --from winner.glb --auto-repaint --concept concept.png --subject "an armored rover" \
+    --comfy-output-dir <dir>                                                              # all-around bake (auto SDXL repaint)
 ```
 
 ### 🤖 Or let it correct itself
