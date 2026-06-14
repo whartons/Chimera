@@ -239,7 +239,7 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     gt = nt.nodes.new("ShaderNodeMath"); gt.operation = 'GREATER_THAN'; gt.inputs[1].default_value = 0.15
     nt.links.new(geo.outputs["Normal"], dot.inputs[0])
     nt.links.new(dot.outputs["Value"], gt.inputs[0])
-    mix = nt.nodes.new("ShaderNodeMixRGB")
+    mix = nt.nodes.new("ShaderNodeMixRGB")  # TODO(blender>5.x): ShaderNodeMix(data_type='RGBA') when the MixRGB alias is dropped
     mix.inputs["Color1"].default_value = fill            # back / grazing -> fill
     nt.links.new(gt.outputs["Value"], mix.inputs["Fac"])
     if back_fill == "mirror":
@@ -279,4 +279,6 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     scn.camera = prev_cam
+    bpy.data.objects.remove(fcam, do_unlink=True)   # don't leak the temp cam (Phase 4b may re-bake)
+    bpy.data.cameras.remove(fcam_d)
     return img

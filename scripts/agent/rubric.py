@@ -40,16 +40,16 @@ def build_rubric(manifest, subject: str, *, modality: str = "image", textured: b
     if modality not in ("image", "3d"):
         raise ValueError(f"modality must be 'image' or '3d', got {modality!r}")
     if modality == "3d":
+        noun = "textured 3D render" if textured else "3D render"
         # No 'high quality (sharp, well-composed)' criterion: an untextured clay render's sharpness
         # is a renderer/camera property, not a fact about the model's geometry.
         criteria = [
-            f"The 3D render clearly depicts: {subject}.",
+            f"The {noun} clearly depicts: {subject}.",
             f"Proportions and silhouette are correct for {subject} "
             "(no stretched, melted, or collapsed regions).",
             "The model is complete — no missing, broken, or fused limbs/parts.",
             "The surface is clean — no holes, spikes, or floating disconnected bits.",
         ]
-        noun = "textured 3D render" if textured else "3D render"
         if textured:
             criteria.append(
                 f"The model's front and visible surfaces are colored consistent with {subject} — "

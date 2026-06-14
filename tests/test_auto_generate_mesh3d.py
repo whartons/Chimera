@@ -94,3 +94,11 @@ def test_back_fill_without_texture_is_rejected(monkeypatch):
                          "--subject", "x", "--comfy-output-dir", "/tmp/out"])
     with pytest.raises(SystemExit):
         AG.main()
+
+
+def test_texture_without_mesh3d_is_rejected(monkeypatch):
+    monkeypatch.setattr(sys, "argv",
+                        ["auto_generate.py", "--texture", "--subject", "x",
+                         "--comfy-output-dir", "/tmp/out"])  # default pipeline is image
+    with pytest.raises(SystemExit):
+        AG.main()
