@@ -22,6 +22,17 @@ def test_contact_sheet_creates_parent_dir(tmp_path):
     assert out.exists()
 
 
+def test_contact_sheet_odd_count_grid(tmp_path):
+    paths = []
+    for i in range(3):
+        p = tmp_path / f"v{i}.png"
+        Image.new("RGB", (32, 32)).save(str(p))
+        paths.append(p)
+    out = contact_sheet(paths, tmp_path / "sheet.png", cols=2)
+    with Image.open(str(out)) as im:
+        assert im.size == (64, 64)  # 3 imgs, cols=2 -> ceil(3/2)=2 rows
+
+
 def test_contact_sheet_empty_raises(tmp_path):
     with pytest.raises(ValueError):
         contact_sheet([], tmp_path / "sheet.png")

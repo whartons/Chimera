@@ -17,8 +17,10 @@ def contact_sheet(paths, out_path, *, cols=2) -> Path:
         from PIL import Image
     except ImportError as e:  # optional dep — fail loudly only when actually called
         raise RuntimeError("contact_sheet needs Pillow (pip install -e '.[images]')") from e
-    imgs = [Image.open(str(p)).convert("RGB") for p in paths]
+    imgs = []
     try:
+        for p in paths:  # incremental so finally closes any already-opened handles on a mid-list error
+            imgs.append(Image.open(str(p)).convert("RGB"))
         cw = max(i.width for i in imgs)
         ch = max(i.height for i in imgs)
         rows = (len(imgs) + cols - 1) // cols
