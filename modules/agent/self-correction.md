@@ -418,10 +418,15 @@ endpoint works. Configure via env (or `--llm-base-url`/`--llm-model`):
 
 | Provider | `CHIMERA_LLM_BASE_URL` | `CHIMERA_LLM_MODEL` | key |
 |---|---|---|---|
+| **Google Gemini** (OpenAI-compat) | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-pro` | `CHIMERA_LLM_API_KEY` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o` | `CHIMERA_LLM_API_KEY` / `OPENAI_API_KEY` |
 | Anthropic (OpenAI-compat) | `https://api.anthropic.com/v1` | `claude-opus-4-8` | `CHIMERA_LLM_API_KEY` / `ANTHROPIC_API_KEY` |
-| OpenRouter | `https://openrouter.ai/api/v1` | e.g. `anthropic/claude-...` | `CHIMERA_LLM_API_KEY` |
+| OpenRouter | `https://openrouter.ai/api/v1` | e.g. `google/gemini-2.5-pro` | `CHIMERA_LLM_API_KEY` |
 | Local (Ollama / LM Studio / vLLM) | `http://localhost:11434/v1` | a local model | (omit) |
+
+Any OpenAI-compatible endpoint works — Gemini, OpenAI, Anthropic, OpenRouter, Groq, Together, or a local
+server — because `LLMClient` only speaks `/v1/chat/completions`. For the vision **judge** the model must be
+multimodal (Gemini, GPT-4o, Claude, a local llava/Qwen-VL); for CAD **code-gen** any chat model works.
 
 ```
 python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" --backend api \

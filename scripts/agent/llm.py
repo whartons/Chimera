@@ -1,15 +1,16 @@
 """Provider-agnostic LLM backend for the agent loop — autonomous AI judge (#2) and CAD code-gen (#1).
 
 Targets the **OpenAI-compatible `/v1/chat/completions`** shape, the de-facto lingua franca, so ONE
-implementation works with OpenAI, **Anthropic's OpenAI-compat endpoint**, OpenRouter, Together, Groq, or a
-**local** server (Ollama / LM Studio / vLLM / llama.cpp). No vendor SDK — pure stdlib urllib/json/base64
-(zero new deps, CI-safe). Vision uses the OpenAI `image_url` data-URI part.
+implementation works with **Google Gemini**, OpenAI, **Anthropic's OpenAI-compat endpoint**, OpenRouter,
+Together, Groq, or a **local** server (Ollama / LM Studio / vLLM / llama.cpp). No vendor SDK — pure stdlib
+urllib/json/base64 (zero new deps, CI-safe). Vision uses the OpenAI `image_url` data-URI part.
 
 Config (env, with CLI overrides; no hardcoded vendor default):
-  CHIMERA_LLM_BASE_URL  https://api.openai.com/v1 | https://api.anthropic.com/v1 |
+  CHIMERA_LLM_BASE_URL  https://generativelanguage.googleapis.com/v1beta/openai (Gemini) |
+                        https://api.openai.com/v1 | https://api.anthropic.com/v1 |
                         https://openrouter.ai/api/v1 | http://localhost:11434/v1 (Ollama)
   CHIMERA_LLM_API_KEY   (falls back to OPENAI_API_KEY / ANTHROPIC_API_KEY; omit for keyless local)
-  CHIMERA_LLM_MODEL     gpt-4o | claude-opus-4-8 | qwen2.5-coder | llava | ...
+  CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen2.5-coder | llava | ...
 """
 from __future__ import annotations
 import os, json, base64, urllib.request, urllib.error
