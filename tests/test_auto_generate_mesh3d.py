@@ -1,4 +1,5 @@
 import sys, json, argparse
+import pytest
 import scripts.agent.auto_generate as AG
 
 
@@ -80,9 +81,16 @@ def test_texture_flag_builds_textured_rubric(monkeypatch):
 
 
 def test_bad_back_fill_is_rejected(monkeypatch):
-    import pytest
     monkeypatch.setattr(sys, "argv",
                         ["auto_generate.py", "--pipeline", "mesh3d", "--texture",
                          "--back-fill", "bogus", "--subject", "x", "--comfy-output-dir", "/tmp/out"])
+    with pytest.raises(SystemExit):
+        AG.main()
+
+
+def test_back_fill_without_texture_is_rejected(monkeypatch):
+    monkeypatch.setattr(sys, "argv",
+                        ["auto_generate.py", "--pipeline", "mesh3d", "--back-fill", "mirror",
+                         "--subject", "x", "--comfy-output-dir", "/tmp/out"])
     with pytest.raises(SystemExit):
         AG.main()

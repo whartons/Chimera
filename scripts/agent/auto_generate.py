@@ -164,6 +164,8 @@ def main():
     backend_err = _backend_error(args.backend)
     if backend_err:
         ap.error(backend_err)
+    if args.back_fill != "palette" and not args.texture:
+        ap.error("--back-fill applies only with --texture (mesh3d albedo bake)")
 
     if args.max_iters is None:
         args.max_iters = 3 if args.pipeline == "mesh3d" else 4
