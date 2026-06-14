@@ -50,6 +50,16 @@ def test_validate_finalize_accepts_matching_counts():
     G._validate_finalize(_ft(views="a.png,b.png", azimuths="0,180"), argparse.ArgumentParser())
 
 
+def test_validate_finalize_rejects_too_many_views():
+    with pytest.raises(SystemExit):  # 8 Proj UVs + 1 atlas > Blender's 8-UV-layer cap
+        G._validate_finalize(_ft(views=",".join(f"v{i}.png" for i in range(8))), argparse.ArgumentParser())
+
+
+def test_validate_finalize_rejects_non_numeric_azimuths():
+    with pytest.raises(SystemExit):
+        G._validate_finalize(_ft(views="a.png,b.png", azimuths="0,front"), argparse.ArgumentParser())
+
+
 def test_run_finalize_texture_routes_glb_sheet_and_sidecar(tmp_path, monkeypatch):
     repo = tmp_path
     (repo / "win.glb").write_text("mesh")
@@ -80,6 +90,36 @@ def test_run_finalize_texture_routes_glb_sheet_and_sidecar(tmp_path, monkeypatch
     assert meta["params"]["azimuths"] == [0.0, 90.0, 180.0, 270.0]
     assert meta["params"]["views"] == ["f.png", "r.png", "b.png", "l.png"]
     assert meta["provenance"]["blender_version"] == "5.1.2"
+
+
+def test_run_finalize_texture_survives_montage_failure(tmp_path, monkeypatch):
+    # a failed verification sheet (e.g. Pillow absent) must NOT sink the finalize: the GLB + sidecar
+    # still complete, just without the sheet.
+    repo = tmp_path
+    (repo / "win.glb").write_text("mesh")
+    for v in ("f.png", "r.png", "b.png", "l.png"):
+        (repo / v).write_text("img")
+    monkeypatch.setattr(G.blender_runner, "run_template",
+                        lambda t, p, **kw: {"textured_glb": str(tmp_path / "out.glb"),
+                                            "outputs": [str(tmp_path / "v0.png")], "blender_version": "5.1.2"})
+    (tmp_path / "out.glb").write_text("g"); (tmp_path / "v0.png").write_text("p")
+    routed = {}
+    def fake_route(root, brand, src, mode, seed, **kw):
+        dest = repo / "outputs" / "3d" / f"{mode}_{seed}{Path(src).suffix}"
+        dest.parent.mkdir(parents=True, exist_ok=True); dest.write_text("x")
+        routed[Path(src).suffix] = dest; return dest
+    monkeypatch.setattr(G, "route_output", fake_route)
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    import scripts.brandkit.montage as montage
+    def boom(*a, **k):
+        raise RuntimeError("Pillow not installed")
+    monkeypatch.setattr(montage, "contact_sheet", boom)
+    views_abs = ",".join(str(repo / v) for v in ("f.png", "r.png", "b.png", "l.png"))
+    G.run_finalize_texture(_ft(from_=str(repo / "win.glb"), views=views_abs), repo, argparse.ArgumentParser())
+    # the GLB sidecar still exists despite the montage failure
+    meta = json.loads(routed[".glb"].with_suffix(".json").read_text())
+    assert meta["mode"] == "finalize-texture"
+    assert meta["outputs"] == ["finalize_9.glb"]   # GLB only — sheet was skipped
 
 
 def test_run_finalize_texture_no_glb_exits(tmp_path, monkeypatch):

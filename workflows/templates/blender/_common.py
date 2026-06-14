@@ -303,10 +303,15 @@ def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
                    back_fill="palette", palette=None, res=1024):
     """All-around albedo bake (Phase 4b): project N corrected views (one per `azimuths` entry) onto the
     mesh and EMIT-bake a weighted blend into a res×res atlas. Each face takes each view weighted by how
-    front-on it is to that view (max(0, dot(Normal, -view_dir))^2); faces no view sees get a flat
-    `back_fill` (palette[0] or neutral grey). Generalizes bake_albedo (N=1) for the one-shot finalize of a
-    winning mesh. Pure bpy/Cycles — never touches the blocked custom_rasterizer path. Returns the baked
-    image. NEW bpy surface — validated in live smoke (synthetic distinct-per-view colours)."""
+    front-on it is to that view (max(0, dot(Normal, -view_dir))^2), gated to zero off the view's frame.
+    Faces no view sees get a flat `back_fill` (palette[0] or neutral grey). Generalizes bake_albedo (N=1)
+    for the one-shot finalize of a winning mesh. Pure bpy/Cycles — never touches the blocked
+    custom_rasterizer path. Returns the baked image. NEW bpy surface — validated in live smoke (synthetic
+    distinct-per-view colours).
+
+    Best for convex / near-convex meshes: like all projection baking there is no occlusion test, so a
+    deeply concave self-occluder can get an occluder's pixels projected onto a hidden-but-front-facing
+    face. At most 7 views (Blender caps a mesh at 8 UV layers; one is the atlas)."""
     if len(view_images) != len(azimuths):
         raise ValueError("bake_multiview: view_images and azimuths must be the same length")
     palette = palette or []
@@ -333,6 +338,7 @@ def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
     me = obj.data
     mw = obj.matrix_world
     prev_cam = scn.camera
+    prev_res = (scn.render.resolution_x, scn.render.resolution_y)  # restored at the end (stills use it)
 
     mat = bpy.data.materials.new("AlbedoMV")
     mat.use_nodes = True
@@ -351,6 +357,12 @@ def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
         cam, cam_d, vdir = _ring_camera(scn, centre, radius, az, elevation_deg)
         cams.append((cam, cam_d))
         scn.camera = cam
+        # match the projection frame to THIS view image's aspect (world_to_camera_view uses the scene
+        # render resolution for the frame) so non-square views aren't stretched; restored at the end.
+        vimg = bpy.data.images.load(img_path)
+        iw, ih = vimg.size
+        if iw and ih:
+            scn.render.resolution_x, scn.render.resolution_y = iw, ih
         bpy.context.view_layer.update()
         # per-view projection UV (world_to_camera_view: headless-safe, unlike uv.project_from_view)
         proj_uv = me.uv_layers.new(name=f"Proj{i}").name
@@ -359,9 +371,9 @@ def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
             for li in poly.loop_indices:
                 co = world_to_camera_view(scn, cam, mw @ me.vertices[me.loops[li].vertex_index].co)
                 pdata[li].uv = (co.x, co.y)
-        # view image sampled on its projection UV
+        # view image sampled on its projection UV; CLIP so off-frame faces read transparent (alpha 0)
         uvn = nt.nodes.new("ShaderNodeUVMap"); uvn.uv_map = proj_uv
-        tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = bpy.data.images.load(img_path)
+        tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = vimg; tex.extension = 'CLIP'
         nt.links.new(uvn.outputs["UV"], tex.inputs["Vector"])
         # weight w_i = max(0, dot(Normal, -view_dir))^2  (front-facing to THIS view)
         dot = nt.nodes.new("ShaderNodeVectorMath"); dot.operation = 'DOT_PRODUCT'
@@ -371,19 +383,24 @@ def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
         nt.links.new(dot.outputs["Value"], clamp.inputs[0])
         w = nt.nodes.new("ShaderNodeMath"); w.operation = 'POWER'; w.inputs[1].default_value = 2.0
         nt.links.new(clamp.outputs["Value"], w.inputs[0])
-        # weighted colour = color_i * w_i
+        # gate the weight to zero where the face is OUTSIDE this view's frame: CLIP gives alpha 0 there,
+        # so a front-facing-but-off-frame face contributes neither colour nor weight (no wrap/garbage bleed)
+        we = nt.nodes.new("ShaderNodeMath"); we.operation = 'MULTIPLY'
+        nt.links.new(w.outputs["Value"], we.inputs[0])
+        nt.links.new(tex.outputs["Alpha"], we.inputs[1])
+        # weighted colour = color_i * we
         wc = nt.nodes.new("ShaderNodeVectorMath"); wc.operation = 'SCALE'
         nt.links.new(tex.outputs["Color"], wc.inputs[0])
-        nt.links.new(w.outputs["Value"], wc.inputs["Scale"])
+        nt.links.new(we.outputs["Value"], wc.inputs["Scale"])
         if num_node is None:
-            num_node, den_node = wc, w
+            num_node, den_node = wc, we
         else:
             add_c = nt.nodes.new("ShaderNodeVectorMath"); add_c.operation = 'ADD'
             nt.links.new(num_node.outputs[0], add_c.inputs[0])
             nt.links.new(wc.outputs[0], add_c.inputs[1])
             add_w = nt.nodes.new("ShaderNodeMath"); add_w.operation = 'ADD'
             nt.links.new(den_node.outputs["Value"], add_w.inputs[0])
-            nt.links.new(w.outputs["Value"], add_w.inputs[1])
+            nt.links.new(we.outputs["Value"], add_w.inputs[1])
             num_node, den_node = add_c, add_w
 
     # normalized weighted colour = num / max(den, eps)
@@ -432,6 +449,7 @@ def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     scn.camera = prev_cam
+    scn.render.resolution_x, scn.render.resolution_y = prev_res   # don't leak per-view res to the stills
     for cam, cam_d in cams:        # don't leak the temp ring cameras
         bpy.data.objects.remove(cam, do_unlink=True)
         bpy.data.cameras.remove(cam_d)

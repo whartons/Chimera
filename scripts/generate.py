@@ -590,10 +590,16 @@ def _validate_finalize(args, ap):
     views = _finalize_views(args)
     if not views:
         ap.error("--views needs at least one image (azimuth order, front first)")
+    if len(views) > 7:
+        ap.error("--views: at most 7 (Blender caps a mesh at 8 UV layers; one is the bake atlas)")
     if args.azimuths:
-        naz = len([a for a in args.azimuths.split(",") if a.strip()])
-        if naz != len(views):
-            ap.error(f"--azimuths count ({naz}) must match --views count ({len(views)})")
+        az = [a for a in args.azimuths.split(",") if a.strip()]
+        if len(az) != len(views):
+            ap.error(f"--azimuths count ({len(az)}) must match --views count ({len(views)})")
+        try:
+            [float(a) for a in az]
+        except ValueError:
+            ap.error("--azimuths must be comma-separated numbers (degrees)")
 
 
 def run_finalize_texture(args, repo_root, ap):
@@ -624,10 +630,15 @@ def run_finalize_texture(args, repo_root, ap):
         routed_glb = route_output(repo_root, args.brand, Path(glb), "finalize", seed)
         stills = manifest.get("outputs", [])
         if stills:
-            from scripts.brandkit import montage
-            sheet_tmp = tmp / "sheet.png"
-            montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
-            sheet = route_output(repo_root, args.brand, sheet_tmp, "finalize", seed)
+            # the verification sheet is a nicety — its failure (e.g. Pillow absent) must NOT sink the
+            # finalize after the GLB is already routed, or we'd leave a GLB with no sidecar.
+            try:
+                from scripts.brandkit import montage
+                sheet_tmp = tmp / "sheet.png"
+                montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
+                sheet = route_output(repo_root, args.brand, sheet_tmp, "finalize", seed)
+            except Exception as e:   # noqa: BLE001 - best-effort verification render
+                print(f"warning: verification contact sheet skipped ({e})", file=sys.stderr)
     except blender_runner.BlenderJobError as e:
         print(f"finalize-texture failed: {e}", file=sys.stderr); sys.exit(1)
     finally:
