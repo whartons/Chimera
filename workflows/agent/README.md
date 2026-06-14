@@ -117,6 +117,30 @@ fail→pass driven exactly this way (an off-brand toy corrected into an on-brand
 3/3 consensus) is captured in
 [`../../modules/agent/self-correction.md`](../../modules/agent/self-correction.md).
 
+## 3D briefs (contact sheets)
+
+The same consensus recipe drives **3D form** correction via the `mesh3d` pipeline. The generation step
+produces a candidate mesh and a **4-view contact sheet** instead of a 2D image; the rubric, consensus,
+expander, and loop are unchanged.
+
+1. **Build the 3D rubric** — `build_rubric(manifest, subject, modality="3d")`: form criteria
+   (proportions/silhouette, completeness, clean surface), **no color/palette** (Hunyuan3D output is
+   untextured grey clay). `r.as_prompt()` is what each judge scores against, as before.
+2. **Generate a candidate contact sheet** — concept image → Hunyuan3D mesh → `mesh_eval` 4 orbit stills
+   → montaged contact sheet. Headless: `auto_generate.py --pipeline mesh3d`. For the assistant backend,
+   drive the same `make_render_generate(...)` closure (`scripts/agent/render_generate.py`) and judge the
+   contact-sheet PNG it returns.
+3. **Judge each contact sheet with M independent vision passes** against `r.as_prompt()`, exactly as for
+   images — but **also read the sibling `<stem>.checks.json`** the generator wrote and include any
+   `structural_issues(checks)` (non-manifold / not-watertight / disconnected) as **pre-judged NOT-MET
+   lines** in each pass (a VLM can't see those from a render). Parse with `parse_verdict()`.
+4. **Consensus + refine** as before — `consensus_verdict(texts)`, then `TemplatedExpander().expand(...)`
+   folds the unmet issues into the next **concept** prompt (the lever on an image-conditioned mesh).
+   Re-generate with a fresh seed (which also rerolls the mesh lift) and repeat to the cap.
+
+The autonomous equivalent wraps the local judge in `GeometryAwareJudge`, so the same checks-file merge
+happens with no assistant in the loop — `auto_generate.py --pipeline mesh3d --backend local`.
+
 ## When to use this
 
 - The brief has **subtle correctness** (anatomy, layout, count, "no X") where one

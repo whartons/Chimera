@@ -9,7 +9,9 @@ This module covers **two shipped paths** for driving Blender from Chimera:
    with parameterized `bpy` templates; no GUI required, no per-call MCP approval.
    Three modes, all live-validated on Blender 5.1 / RTX 5090 — see below.
 
-Phase 3 (a VLM self-correction loop that judges its own renders) remains roadmap.
+Phase 3 — a VLM self-correction loop that judges its own renders — is **shipped**
+(`auto_generate.py --pipeline mesh3d`; the `mesh_eval.py` template + the `agent` module power it).
+See [`../agent/self-correction.md`](../agent/self-correction.md).
 
 ## The MCP bridge
 
@@ -90,7 +92,14 @@ All modes are **brand-aware**: outputs route to `brands/<brand>/outputs/` (or `o
 when brandless) with a `kind:"render"` sidecar. The test suite mocks the subprocess,
 so CI stays GPU-free.
 
-Phase 3 (a VLM self-correction loop over renders) is roadmap.
+A fourth template, **`mesh_eval.py`**, powers the Phase 3 3D self-correction loop rather than the
+`render` CLI: it imports a mesh → renders **4 orbit stills** (Cycles) → computes **bmesh geometry
+checks** (non-manifold / open-edge / loose-part / tri-count / bounds) → emits both in its manifest. The
+agent loop montages the stills into one contact sheet for the VLM judge and folds the geometry checks
+into the verdict (see [`../agent/self-correction.md`](../agent/self-correction.md) §3D self-correction).
+
+Phase 3 — the VLM self-correction loop over Blender renders — is **shipped**
+(`auto_generate.py --pipeline mesh3d`); see [`../agent/self-correction.md`](../agent/self-correction.md).
 
 ## Security audit (v1.0.0) & per-tool gates
 

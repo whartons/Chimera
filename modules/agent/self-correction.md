@@ -258,3 +258,72 @@ variant is the natural fallback (judging quality drops accordingly).
 audited commit, consistent with the rest of Chimera's third-party-code policy (same
 standard applied to the [MCP bridge](README.md) and the foley pack). Re-audit before
 any pin bump.
+
+## 3D self-correction (Phase 3) — `--pipeline mesh3d`
+
+The same loop now corrects **3D meshes**. `auto_generate.py --pipeline mesh3d` runs:
+
+```
+subject ─► txt2img concept ─► Hunyuan3D mesh ─► Blender mesh_eval (4 orbit stills + geometry probe)
+        ─► contact-sheet PNG ─► VLM form judge (+ geometry checks) ─► FIX ─► refine ─► repeat
+```
+
+It reuses the **model-free core unchanged** — `run_loop`, `parse_verdict`, `TemplatedExpander`,
+`ConsensusJudge`. Only three pieces are new:
+
+| Piece | What |
+|---|---|
+| `scripts/agent/render_generate.py` | `make_render_generate(...)` — the `generate(pos, neg, seed)` closure: txt2img concept (or `--from-image`) → upload → Hunyuan3D mesh (routed to `outputs/3d`) → headless `mesh_eval.py` render+probe → host-side contact-sheet montage → returns the **contact-sheet PNG** the judge consumes. |
+| `workflows/templates/blender/mesh_eval.py` | bpy template: import mesh → 4 orbit Cycles stills → **bmesh geometry checks** (non-manifold / open-edge / loose-part / tri-count / bounds) → emits both in its manifest. |
+| `scripts/agent/judge.py` `GeometryAwareJudge` | wraps any `Judge`; reads the `<stem>.checks.json` the generator writes and **forces FAIL + unions structural NOT-MET issues** on any geometry defect (things a VLM can't see from a render). |
+
+**Form, not color.** Hunyuan3D output is **untextured grey clay**, so `build_rubric(manifest, subject,
+modality="3d")` scores *form* — recognizability, proportions/silhouette, completeness (no missing/
+broken/fused parts), clean surface — and **drops the color/palette criteria**. (Texturing is Phase 4.)
+
+**The lever is the concept image.** Hunyuan3D is image-conditioned (no text prompt steers the mesh
+graph), so the expander's `FIX` directives steer the **concept** prompt, and a fresh mesh is lifted from
+it each iteration. Two failure modes self-route: an *actionable* visual miss (wrong proportions, a
+missing part) folds into the next concept prompt; a *lift-lottery* defect (a melted back, a hole)
+usually yields no steerable FIX, so the concept holds steady while the loop's advancing seed **rerolls
+the mesh**. `--from-image` fixes the concept outright and makes the loop a pure mesh-reroll (the
+"character image → 3D model" path).
+
+**What the judge sees.** A single **contact sheet** of 4 orbit views (montaged host-side via
+`scripts/brandkit/montage.py`), so the VLM catches back/side defects a single hero view would hide.
+Geometry facts no render reveals (watertightness, manifoldness, disconnected chunks) are computed
+deterministically in `mesh_eval` and injected as pre-judged NOT-MET issues — **a hollow mesh can never
+PASS**, however good the contact sheet looks.
+
+**Backends.** Same `--backend` as the image loop: `local` (autonomous Qwen2.5-VL over the contact
+sheet, default) or the gated `assistant` consensus (the agent judges the contact sheet with M vision
+passes — see [`../../workflows/agent/README.md`](../../workflows/agent/README.md)).
+
+**Cost.** A mesh3d iteration runs two ComfyUI graphs + a Blender render, so `--max-iters` defaults to
+**3** (vs 4 for image); `--blender-timeout` budgets the render independently of the ComfyUI `--timeout`.
+
+**Invocation:**
+
+```
+python scripts/agent/auto_generate.py --pipeline mesh3d --subject "an armored knight on horseback" \
+    --comfy-output-dir <ComfyUI output dir> [--brand <brand>] [--from-image concept.png] \
+    [--octree 256] [--samples 48] [--res 640 640] [--max-iters 3] [--backend local|assistant]
+```
+
+The winner's mesh lands in `outputs/3d/` (or `brands/<brand>/outputs/3d/`); the judged contact sheet
+and the `agent-run` sidecar (`modality:"3d"`, `winning_seed`) land in the images folder beside it.
+
+> **Status: built + GPU-free CI tested** (mocked ComfyUI client + Blender runner). The `mesh_eval`
+> template — render, 4 orbit stills, the bmesh geometry probe, and the host-side montage — is
+> **live-validated on Blender 5.1.2 / RTX 5090** (the smoke caught and fixed a glTF vertex-split bug
+> that made watertight meshes read as thousands of loose parts). The full concept→mesh→render→judge
+> loop reuses already-live-validated components (Z-Image, Hunyuan3D, `LocalVLMJudge`) and is pending an
+> end-to-end live run (needs ComfyUI + the Hunyuan3D / Qwen2.5-VL models loaded — not a CI step).
+
+### Phase 4 — texturing (roadmap)
+
+The 3D loop judges grey clay because PBR texturing is deferred. The **Blender route** is viable and
+planned: generate back/side views in ComfyUI → UV-unwrap → **bake an albedo texture** → re-judge with
+the color/palette criteria restored. In-ComfyUI Hunyuan3D-Paint stays blocked on the
+cu130/torch2.10/sm_120 `custom_rasterizer` wheel (same wall as TRELLIS.2 — see
+[`../threed/README.md`](../threed/README.md)).

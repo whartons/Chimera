@@ -320,7 +320,9 @@ third-party dependency for this backend.
 
 Peer tools to ComfyUI under the agent layer — driven by an assistant over **pinned,
 audited, loopback-only** MCP servers (same standard as the `comfyui-mcp` bridge).
-Interactive in Phase 1; headless automation backends are roadmap (Phase 2–3).
+The MCP bridges are interactive (Phase 1); Blender headless rendering (Phase 2) and 3D
+self-correction over Blender renders (Phase 3) are shipped. FreeCAD headless automation
+remains roadmap.
 
 | Tool | Server | Pin | License | Socket |
 |------|--------|-----|---------|--------|
@@ -337,8 +339,10 @@ Interactive in Phase 1; headless automation backends are roadmap (Phase 2–3).
     the MCP bridge (no per-call approval). Templates in `workflows/templates/blender/`.
 - **FreeCAD** — de-facto community standard, MIT, no telemetry, 14 tools incl. FEM via
   CalculiX. See [`../modules/cad/README.md`](../modules/cad/README.md).
-- FreeCAD remains **GUI-only**; headless `FreeCADCmd` automation is roadmap (Phase 2–3).
-- Phase 3 (VLM self-correction over renders) remains roadmap for both tools.
+- FreeCAD remains **GUI-only**; headless `FreeCADCmd` automation is roadmap.
+- Phase 3 (VLM self-correction over renders) is **shipped for Blender**
+  (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
+  judge + geometry checks); the FreeCAD equivalent and 3D **texturing** (Phase 4) remain roadmap.
 
 ---
 

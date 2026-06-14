@@ -104,8 +104,10 @@ two DCC/CAD applications:
 
 Both are **pinned to exact commits, audited, and per-tool-gated** via
 [`../../.claude/settings.json`](../../.claude/settings.json) — the same security model as the
-ComfyUI bridge. **Phase 1 is GUI-only and interactive**; headless Blender/FreeCAD backends and
-3D/CAD self-correction are **roadmap (Phase 2–3)**.
+ComfyUI bridge. **Phase 1 (the MCP bridges) is GUI-only and interactive.** The headless Blender
+backend (Phase 2) and 3D self-correction over Blender renders (Phase 3,
+[`self-correction.md`](self-correction.md) §3D) are **shipped**; FreeCAD headless backends + CAD
+self-correction, plus 3D texturing (Phase 4), remain **roadmap**.
 
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**
