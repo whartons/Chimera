@@ -122,3 +122,12 @@ def test_3d_untextured_unchanged_when_textured_false():
     joined = " ".join(r.criteria).lower()
     assert "back/underside is acceptable" not in joined
     assert "brand palette" not in joined
+
+
+def test_3d_textured_brandless_has_color_but_no_palette_criterion():
+    from scripts.brandkit.manifest import BrandManifest
+    r = build_rubric(BrandManifest(name="Bare"), "a fox", modality="3d", textured=True)
+    joined = " ".join(r.criteria).lower()
+    assert "colored consistent with" in joined   # color criterion still added
+    assert "brand palette" not in joined          # but no palette criterion (empty palette)
+    assert "avoids these traits" not in joined    # and no negative criterion
