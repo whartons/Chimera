@@ -64,6 +64,22 @@ checks = {"non_manifold_edges": int(non_manifold), "open_edges": int(open_edges)
           "loose_parts": int(loose_parts), "tri_count": int(tri_count),
           "bounds_ok": bool(bounds_ok)}
 
+# --- Phase 4a: optional front-projection albedo bake (colors the stills + exports a textured GLB) ---
+textured = False
+textured_glb = None
+if p.get("texture") and p.get("asset"):
+    try:
+        C.bake_albedo(obj, scn, p["asset"], palette=p.get("palette") or [],
+                      back_fill=p.get("back_fill", "palette"), res=int(p.get("texture_res", 1024)))
+        glb = os.path.join(p["out_dir"], p["stem"] + "_textured.glb")
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.export_scene.gltf(filepath=glb, export_format='GLB', use_selection=True)
+        textured, textured_glb = True, glb
+    except Exception as exc:  # bake is new bpy surface — fall back to grey clay, report it
+        print("mesh_eval: bake_albedo failed, falling back to grey clay:", exc, file=sys.stderr)
+
 # --- N orbit stills (rotate the object about Z; origin is centred so it stays framed) ---
 views = int(p.get("views", 4))
 obj.rotation_mode = 'XYZ'
@@ -75,4 +91,5 @@ for i in range(views):
     stills.append(C.render_still(scn, os.path.join(p["out_dir"], f"{p['stem']}_v{i}.png")))
 obj.rotation_euler[2] = base
 
-C.emit({"outputs": stills, "checks": checks, "device": dev})
+C.emit({"outputs": stills, "checks": checks, "device": dev,
+        "textured": textured, "textured_glb": textured_glb})

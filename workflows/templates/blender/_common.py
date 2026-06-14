@@ -155,3 +155,121 @@ def render_turntable(scn, obj, out_dir, stem, frames):
     if not hits:
         raise RuntimeError("turntable produced no .mp4 (check Blender FFmpeg support)")
     return hits[-1]
+
+
+def _hex_to_rgba(h, default=(0.5, 0.5, 0.5, 1.0)):
+    """'#1c1f22' -> (r,g,b,1.0) in 0..1. Returns `default` on anything unparseable."""
+    try:
+        s = str(h).lstrip("#")
+        if len(s) == 3:
+            s = "".join(c * 2 for c in s)
+        r, g, b = (int(s[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+        return (r, g, b, 1.0)
+    except Exception:
+        return default
+
+
+def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=1024):
+    """Smart-UV unwrap `obj`, project `concept_path` from a dead-front camera onto front-facing
+    faces, and EMIT-bake into a res×res albedo atlas; back/grazing faces get a flat fill (palette[0]
+    or neutral grey), or a back-projected flipped concept when back_fill='mirror'. Leaves the
+    material wired for render (Principled Base Color <- baked atlas on the smart-project UV) and
+    returns the baked image. NEW bpy surface — validated in live smoke."""
+    fill = _hex_to_rgba(palette[0]) if palette else (0.5, 0.5, 0.5, 1.0)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    # 1. atlas UV (the bake target layout)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.02)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    atlas_uv = obj.data.uv_layers.active.name
+
+    # 2. dead-front camera aligned to the concept's view (looks at the object centre along +Y)
+    bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
+    centre = sum(bbox, mathutils.Vector()) / 8.0
+    radius = max((v - centre).length for v in bbox) or 1.0
+    fcam_d = bpy.data.cameras.new("FrontCam")
+    fcam = bpy.data.objects.new("FrontCam", fcam_d)
+    scn.collection.objects.link(fcam)
+    fcam.location = centre + mathutils.Vector((0.0, -radius * 3.0, 0.0))
+    fdir = (centre - fcam.location).normalized()
+    fcam.rotation_euler = fdir.to_track_quat('-Z', 'Y').to_euler()
+    prev_cam = scn.camera
+    scn.camera = fcam
+
+    # 3. projection UV from that front view (screen-space coords == concept image coords)
+    proj_uv = obj.data.uv_layers.new(name="Proj").name
+    obj.data.uv_layers.active = obj.data.uv_layers[proj_uv]
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.project_from_view(camera_bounds=True, correct_aspect=True, scale_to_bounds=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # 4. albedo target image
+    img = bpy.data.images.new("albedo", width=res, height=res, alpha=False)
+
+    # 5. material: EMIT = mix(fill, concept-via-Proj, front-mask); + the atlas bake-target node
+    mat = bpy.data.materials.new("Albedo")
+    mat.use_nodes = True
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    emit = nt.nodes.new("ShaderNodeEmission")
+    concept = bpy.data.images.load(concept_path)
+    ctex = nt.nodes.new("ShaderNodeTexImage"); ctex.image = concept
+    cuv = nt.nodes.new("ShaderNodeUVMap"); cuv.uv_map = proj_uv
+    nt.links.new(cuv.outputs["UV"], ctex.inputs["Vector"])
+    # front mask: dot(world Normal, -front_dir) > 0 — front faces point back toward the camera
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    dot = nt.nodes.new("ShaderNodeVectorMath"); dot.operation = 'DOT_PRODUCT'
+    dot.inputs[1].default_value = (-fdir.x, -fdir.y, -fdir.z)
+    gt = nt.nodes.new("ShaderNodeMath"); gt.operation = 'GREATER_THAN'; gt.inputs[1].default_value = 0.15
+    nt.links.new(geo.outputs["Normal"], dot.inputs[0])
+    nt.links.new(dot.outputs["Value"], gt.inputs[0])
+    mix = nt.nodes.new("ShaderNodeMixRGB")
+    mix.inputs["Color1"].default_value = fill            # back / grazing -> fill
+    nt.links.new(gt.outputs["Value"], mix.inputs["Fac"])
+    if back_fill == "mirror":
+        # back-project a horizontally-flipped concept for rear faces (symmetric subjects)
+        flip = nt.nodes.new("ShaderNodeMapping"); flip.inputs["Scale"].default_value = (-1.0, 1.0, 1.0)
+        muv = nt.nodes.new("ShaderNodeUVMap"); muv.uv_map = proj_uv
+        nt.links.new(muv.outputs["UV"], flip.inputs["Vector"])
+        mtex = nt.nodes.new("ShaderNodeTexImage"); mtex.image = concept
+        nt.links.new(flip.outputs["Vector"], mtex.inputs["Vector"])
+        nt.links.new(mtex.outputs["Color"], mix.inputs["Color1"])
+    nt.links.new(ctex.outputs["Color"], mix.inputs["Color2"])  # front -> concept
+    nt.links.new(mix.outputs["Color"], emit.inputs["Color"])
+    nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+    # bake-target node: the atlas image on the smart-project UV, selected+active
+    auv = nt.nodes.new("ShaderNodeUVMap"); auv.uv_map = atlas_uv
+    atex = nt.nodes.new("ShaderNodeTexImage"); atex.image = img
+    nt.links.new(auv.outputs["UV"], atex.inputs["Vector"])
+    for n in nt.nodes:
+        n.select = False
+    atex.select = True
+    nt.nodes.active = atex
+
+    # 6. EMIT bake into the atlas (Blender 5.1: set EXTEND margin explicitly)
+    scn.render.engine = 'CYCLES'
+    scn.render.bake.margin_type = 'EXTEND'
+    bpy.ops.object.bake(type='EMIT', margin=max(4, res // 64))
+
+    # 7. rewire for RENDER: Principled Base Color <- baked atlas on the atlas UV
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = 0.6
+    auv2 = nt.nodes.new("ShaderNodeUVMap"); auv2.uv_map = atlas_uv
+    atex2 = nt.nodes.new("ShaderNodeTexImage"); atex2.image = img
+    nt.links.new(auv2.outputs["UV"], atex2.inputs["Vector"])
+    nt.links.new(atex2.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    scn.camera = prev_cam
+    return img
