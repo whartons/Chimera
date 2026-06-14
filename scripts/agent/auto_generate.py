@@ -22,8 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.agent.expander import TemplatedExpander
-from scripts.agent.judge import LocalVLMJudge
+from scripts.agent.judge import LocalVLMJudge, GeometryAwareJudge
 from scripts.agent.loop import run_loop
+from scripts.agent.rubric import build_rubric
+from scripts.agent.render_generate import make_render_generate
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.manifest import load_manifest, default_manifest
@@ -86,7 +88,9 @@ def _write_run_sidecar(result, args, repo_root):
     meta = {
         # `kind` discriminator: this is a run summary, NOT a replayable render sidecar
         # (no inputs/model/negative) — generate.py replay refuses it on this key.
-        "schema": 2, "kind": "agent-run", "modality": "image", "mode": "agent",
+        "schema": 2, "kind": "agent-run",
+        "modality": "3d" if getattr(args, "pipeline", "image") == "mesh3d" else "image",
+        "mode": "agent",
         "brand": args.brand, "subject": args.subject, "agent": True,
         "backend": args.backend, "iterations": len(result.history),
         "passed": result.passed,
@@ -115,11 +119,24 @@ def main():
                     help="brand folder under brands/; omit for general (non-branded) "
                          "self-correction (subject+quality rubric, output -> outputs/)")
     ap.add_argument("--subject", required=True)
-    ap.add_argument("--max-iters", dest="max_iters", type=int, default=4)
+    ap.add_argument("--max-iters", dest="max_iters", type=int, default=None)
     ap.add_argument("--seeds", default=None, help="comma-separated seeds, one per iteration")
     ap.add_argument("--backend", choices=["local", "assistant"], default="local",
                     help="local = autonomous Qwen2.5-VL judge (default); assistant = agent-driven "
                          "vision consensus (optional, requires the agent in the loop)")
+    ap.add_argument("--pipeline", choices=["image", "mesh3d"], default="image",
+                    help="image = txt2img self-correction (default); mesh3d = concept -> Hunyuan3D "
+                         "mesh -> Blender contact-sheet render -> form judge")
+    ap.add_argument("--from-image", dest="from_image", default=None,
+                    help="(mesh3d) fix the concept image and reroll only the mesh (skips txt2img)")
+    ap.add_argument("--octree", type=int, default=None, help="(mesh3d) Hunyuan3D octree_resolution")
+    ap.add_argument("--samples", type=int, default=48, help="(mesh3d) Cycles samples per still")
+    ap.add_argument("--res", type=int, nargs=2, default=[640, 640],
+                    help="(mesh3d) per-still resolution W H")
+    ap.add_argument("--blender-bin", dest="blender_bin", default=None,
+                    help="(mesh3d) path to the Blender executable (else $BLENDER_BIN / PATH / default)")
+    ap.add_argument("--blender-timeout", dest="blender_timeout", type=int, default=None,
+                    help="(mesh3d) max seconds for the Blender render job (default 1800)")
     ap.add_argument("--comfy-url", dest="comfy_url", default="http://127.0.0.1:8000")
     ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", required=True,
                     help="ComfyUI output dir: routes renders AND is where the judge drops verdicts")
@@ -132,16 +149,25 @@ def main():
     if backend_err:
         ap.error(backend_err)
 
+    if args.max_iters is None:
+        args.max_iters = 3 if args.pipeline == "mesh3d" else 4
+
     repo_root = Path(__file__).resolve().parents[2]
     m = _resolve_manifest(repo_root, args.brand)
     client = ComfyClient(args.comfy_url)
-
     expander = TemplatedExpander()
-    judge = LocalVLMJudge(client, repo_root, args.comfy_output_dir)
-    generate = _make_generate(args, repo_root, m, client)
+
+    if args.pipeline == "mesh3d":
+        rubric = build_rubric(m, args.subject, modality="3d")
+        generate = make_render_generate(args, repo_root, m, client)
+        judge = GeometryAwareJudge(LocalVLMJudge(client, repo_root, args.comfy_output_dir))
+    else:
+        rubric = None  # run_loop builds the image rubric
+        generate = _make_generate(args, repo_root, m, client)
+        judge = LocalVLMJudge(client, repo_root, args.comfy_output_dir)
 
     result = run_loop(expander=expander, judge=judge, generate=generate, manifest=m,
-                      subject=args.subject, max_iters=args.max_iters,
+                      subject=args.subject, rubric=rubric, max_iters=args.max_iters,
                       seeds=_parse_seeds(args.seeds))
 
     _print_summary(result)
