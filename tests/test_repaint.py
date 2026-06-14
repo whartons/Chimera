@@ -53,6 +53,46 @@ def test_strengths_and_weight_are_tunable():
     assert find_node_by_title(wf, "brand:ipadapter")[1]["inputs"]["weight"] == 0.9
 
 
+def test_build_prev_view_adds_second_ipadapter():
+    wf = _wf(prev_view_image="prev.png", prev_weight=0.3)
+    pv = find_node_by_title(wf, "brand:prevview")
+    ip2 = find_node_by_title(wf, "brand:ipadapter2")
+    assert pv[1]["inputs"]["image"] == "prev.png"
+    # 2nd IPAdapter chains off the 1st and consumes the prev view at prev_weight
+    assert ip2[1]["inputs"]["model"] == [find_node_by_title(wf, "brand:ipadapter")[0], 0]
+    assert ip2[1]["inputs"]["image"] == [pv[0], 0] and ip2[1]["inputs"]["weight"] == 0.3
+    assert find_node_by_title(wf, "brand:ksampler")[1]["inputs"]["model"] == [ip2[0], 0]
+
+
+def test_build_without_prev_view_has_no_second_ipadapter():
+    wf = _wf()
+    from scripts.brandkit.nodes import NodeNotFound
+    import pytest
+    with pytest.raises(NodeNotFound):
+        find_node_by_title(wf, "brand:ipadapter2")
+
+
+def test_mask_background_greys_out_far_pixels(tmp_path):
+    from PIL import Image
+    from scripts.brandkit.repaint import _mask_background
+    # view = solid red; depth = left half white (object), right half black (background)
+    Image.new("RGB", (4, 2), (200, 30, 30)).save(tmp_path / "view.png")
+    d = Image.new("L", (4, 2), 0)
+    for y in range(2):
+        d.putpixel((0, y), 255); d.putpixel((1, y), 255)   # left half = object
+    d.save(tmp_path / "depth.png")
+    out = _mask_background(str(tmp_path / "view.png"), str(tmp_path / "depth.png"), str(tmp_path / "m.png"))
+    m = Image.open(out).convert("RGB")
+    assert m.getpixel((0, 0)) == (200, 30, 30)     # object kept
+    assert m.getpixel((3, 0)) == (128, 128, 128)   # background greyed
+
+
+def test_mask_background_falls_back_when_unreadable(tmp_path):
+    from scripts.brandkit.repaint import _mask_background
+    out = _mask_background(str(tmp_path / "nope.png"), str(tmp_path / "nodepth.png"), str(tmp_path / "m.png"))
+    assert out == str(tmp_path / "nope.png")   # missing files -> returns the original path
+
+
 def test_generate_views_orchestration(tmp_path, monkeypatch):
     calls = {"uploads": [], "queued": 0}
 

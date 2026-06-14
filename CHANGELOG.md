@@ -33,8 +33,9 @@ All notable changes to Chimera are documented here. The format follows
   (all pinned; see CATALOG). Tunable `--cn-strength`/`--ip-weight`/`--views-count`; sidecar records the
   auto-repaint provenance. **Live-validated on the RTX 5090:** an armored-rover mesh textured green/tan
   **all the way around** (vs Phase-4a's flat palette back). This completes the Phase-4b roadmap item; the
-  manual `--views` mode is unchanged. (Note: a busy concept background can bleed at silhouette edges —
-  use a plain-background concept or lower `--ip-weight`.)
+  manual `--views` mode is unchanged. **Polish:** each repainted view is masked to its depth silhouette
+  before baking (the concept's background no longer bleeds onto edges), and views after the first add a
+  second IPAdapter pass on the previous painted view (`prev_weight`) for **cross-view consistency**.
 - **Generative CAD self-correction — `cad --mode script`** — a third `cad` mode that runs an
   **agent/user-authored FreeCAD Python script** headless (`workflows/templates/freecad/script_exec.py`)
   and exports what it builds to STEP/STL/OBJ. The script runs with `App`/`FreeCAD`, `Part`, `Mesh`, and an
