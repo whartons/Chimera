@@ -89,7 +89,7 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
   A FreeCAD self-correction loop (`cad → render → judge`) remains **roadmap**.
 
-**431 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**439 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -123,7 +123,7 @@ is in **[`docs/STACK.md`](docs/STACK.md)**.
 | [`audio`](modules/audio/) | ACE-Step (music) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | Hunyuan3D 2.1 image → mesh (GLB / STL / OBJ) | ✅ |
 | [`blender`](modules/blender/) | **MCP bridge** — drive a live Blender (GUI); **`generate.py render`** — headless mesh render, ComfyUI→scene, mesh finish/figurine; **`finalize-texture`** — all-around multi-view albedo bake | ✅ |
-| [`cad`](modules/cad/) | **MCP bridge** — drive a live FreeCAD (GUI); **`generate.py cad`** — headless parametric primitives + CAD/mesh convert → STEP/STL/OBJ | ✅ |
+| [`cad`](modules/cad/) | **MCP bridge** — drive a live FreeCAD (GUI); **`generate.py cad`** — headless parametric primitives, CAD/mesh convert, + agent-authored scripts (generative CAD) → STEP/STL/OBJ | ✅ |
 
 ## 🏗️ Architecture / engineering highlights
 
@@ -145,7 +145,7 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 431 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 439 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
   finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
   checks), linted with **ruff** and packaged as an installable
@@ -189,6 +189,7 @@ chimera render --from rover.glb --turntable                 # Blender Cycles her
 chimera render --from rover.glb --mode finish --watertight  # clean → print-ready STL/GLB figurine
 chimera cad --shape tube --radius 12 --inner-radius 8 --height 30 --formats step,stl   # parametric CAD solid
 chimera cad --mode convert --from part.step --formats stl,obj                          # CAD/mesh format convert
+chimera cad --mode script --script mug.py --formats step,stl                            # generative CAD: run an agent-authored FreeCAD script
 chimera finalize-texture --from winner.glb --views front.png,right.png,back.png,left.png  # all-around albedo bake
 ```
 

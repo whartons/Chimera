@@ -382,3 +382,25 @@ see [`../threed/README.md`](../threed/README.md)), but it needs new models (~2�
 (Blender + base + ControlNet + IPAdapter) and live cross-view tuning, so it's deferred to a VRAM-free,
 attended run (own spec→plan→validate cycle). Confirm cu130-compatible depth-ControlNet / IPAdapter builds
 for the concept base (Z-Image / FLUX.2) before implementing; audit + pin any new node pack first.
+
+## CAD self-correction (FreeCAD, agent-authored script)
+
+The same generate→judge→refine loop applies to **parametric CAD**, but the lever differs. Image→3D
+varies the concept image + seed; CAD geometry is **deterministic**, so the lever is the **script itself**.
+
+The loop: a brief → an **agent-authored FreeCAD Python script** → `generate.py cad --mode script
+--script <file>` executes it headless into a BREP solid + STL → `generate.py render --mode mesh` renders
+it → a VLM judges form/printability → the FIX feedback drives the **agent to revise the script** (e.g.
+"handle too thin" → bump wall thickness) → re-execute, repeat. No geometry gate is needed (FreeCAD BREP
+output is clean/manifold, unlike Hunyuan3D); `cad` already validates dims host-side.
+
+**Generator = the agent (when present).** Writing/revising parametric code is the part a local model
+can't do, so — exactly like the assistant *judge* backend — the agent is the generator. An **autonomous
+code-gen backend** (a `--backend`/driver calling a code-gen model to author + revise the script) is
+**roadmap**; the enabling capability (`cad --mode script`) ships now.
+
+> **Status: shipped + live-validated (2026-06-14).** Authored a parametric mug (hollow body + torus
+> handle), executed it headless via `cad --mode script` → STL, rendered it, judged it, then revised the
+> script (roomier handle + a BREP rim fillet) and re-ran — a real author→exec→render→judge→revise
+> iteration. The script is `exec()`'d unsandboxed in an isolated `FreeCADCmd` process (run only scripts
+> you authored/audited); see [`../cad/README.md`](../cad/README.md#--mode-script--generative-cad-self-correction).

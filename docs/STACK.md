@@ -41,7 +41,7 @@ The `chimera` package (**v0.1.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (431 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (439 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness rules (`select=["F"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -89,10 +89,12 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 >
 > **Headless FreeCAD `cad` (shipped):** `generate.py cad` shells `FreeCADCmd <template> <params.json>`
 > (job runner `scripts/brandkit/freecad.py`, templates in `workflows/templates/freecad/`) to author
-> parametric primitives (box/cylinder/cone/sphere/tube) and convert CAD/mesh files → STEP/STL/OBJ. Also
-> a normal CLI subprocess, no per-call approval. Requires FreeCAD ≥ 1.0 (`FreeCADCmd`) on PATH,
+> parametric primitives (box/cylinder/cone/sphere/tube), convert CAD/mesh files, and **`--mode script`**
+> (headless exec of an agent-authored FreeCAD `.py` for generative CAD self-correction) → STEP/STL/OBJ.
+> Also a normal CLI subprocess, no per-call approval. Requires FreeCAD ≥ 1.0 (`FreeCADCmd`) on PATH,
 > `$FREECAD_BIN`, or the default install; CI mocks the subprocess (GPU-free). glTF export is GUI-only
-> (use STL for the Blender bridge); the FreeCAD self-correction loop is roadmap.
+> (use STL for the Blender bridge). The CAD self-correction loop is assistant-driven (agent authors the
+> script); an autonomous code-gen backend is roadmap.
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
@@ -115,7 +117,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (431 tests local; ~425 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
+py3.12 (439 tests local; ~433 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

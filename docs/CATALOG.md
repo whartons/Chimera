@@ -340,10 +340,13 @@ geometry (`generate.py cad`). The FreeCAD self-correction loop remains roadmap.
 - **FreeCAD** — de-facto community standard, MIT, no telemetry, 14 tools incl. FEM via
   CalculiX. See [`../modules/cad/README.md`](../modules/cad/README.md).
 - **FreeCAD headless `cad` is shipped** — `generate.py cad` drives `FreeCADCmd` to author
-  parametric primitives (box/cylinder/cone/sphere/tube) and convert CAD/mesh files → STEP/STL/OBJ
-  (templates in `workflows/templates/freecad/`, runner `scripts/brandkit/freecad.py`). STEP is the
-  BREP authoring Blender lacks; glTF stays GUI-only (use STL → Blender). No model — deterministic
-  geometry. The interactive MCP bridge stays the route for live edits.
+  parametric primitives (box/cylinder/cone/sphere/tube), convert CAD/mesh files, and **`--mode script`**
+  run an agent-authored FreeCAD script (generative CAD) → STEP/STL/OBJ (templates in
+  `workflows/templates/freecad/`, runner `scripts/brandkit/freecad.py`). STEP is the BREP authoring
+  Blender lacks; glTF stays GUI-only (use STL → Blender). No model — deterministic geometry. The
+  **CAD self-correction loop** (brief → agent-authored script → `cad` → `render` → judge → revise) is
+  assistant-driven; an autonomous code-gen backend is roadmap. The interactive MCP bridge stays the
+  route for live edits.
 - Phase 3 (VLM self-correction over renders) is **shipped for Blender**
   (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
   judge + geometry checks). **Phase 4a** adds albedo texturing (`--texture`: front-projected bake,
