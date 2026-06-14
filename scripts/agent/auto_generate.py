@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
-"""Headless self-correction loop (local backend): render -> VLM-judge -> refine, until PASS.
+"""Headless self-correction loop (local backend): generate -> VLM-judge -> refine, until PASS.
 
-Wires the model-free agent core (expander + run_loop) to the real ComfyUI image filler and a
-local Qwen2.5-VL judge (LocalVLMJudge over the agent-vlm-judge.json graph). Each iteration the
-expander folds the previous verdict's unmet-criterion issues back into the prompt, so renders
-converge on the rubric.
+Wires the model-free agent core (expander + run_loop) to a real generator and a local Qwen2.5-VL
+judge (LocalVLMJudge over the agent-vlm-judge.json graph). Each iteration the expander folds the
+previous verdict's unmet-criterion issues back into the prompt, so candidates converge on the rubric.
+
+Two pipelines (--pipeline):
+  * image (default) — ComfyUI txt2img; the rubric scores the 2D render.
+  * mesh3d         — txt2img concept -> Hunyuan3D mesh -> headless Blender contact-sheet render
+                     (4 orbit views) -> a FORM rubric judged on the grey-clay render, with
+                     deterministic bmesh geometry checks (watertight/manifold/loose-parts) folded
+                     into the verdict via GeometryAwareJudge. --from-image fixes the concept and
+                     rerolls only the mesh.
 
 --brand is OPTIONAL. With a brand, the rubric enforces that brand's style/palette/negative and the
 winner routes into brands/<brand>/outputs/. Brandless (omit --brand), the rubric collapses to
-subject + quality (a general "is this actually X, and is it sharp/clean?" QA gate) and the winner
-routes into the global outputs/.
+subject + quality (image) or subject + form (mesh3d), and the winner routes into the global outputs/.
 
   python scripts/agent/auto_generate.py [--brand example-brand] --subject "an armored rover" \
       --comfy-output-dir <comfy_output_dir> [--max-iters 4] [--seeds 7,8,9] [--variant turbo]
+  python scripts/agent/auto_generate.py --pipeline mesh3d --subject "an armored knight" \
+      --comfy-output-dir <comfy_output_dir> [--from-image concept.png] [--octree 256] [--max-iters 3]
 
 --comfy-output-dir is required: it both routes renders into the output folder (brand or global) AND
 is where the judge graph drops its verdict .txt. Only the local backend exists (no Claude-API path).
