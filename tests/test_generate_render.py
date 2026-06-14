@@ -1,6 +1,17 @@
-import json, argparse
+import json, argparse, pytest
 from pathlib import Path
 import scripts.generate as G
+
+
+def test_render_params_comfy_scene():
+    p = G._render_params(_args(mode="comfy-scene", as_="plane"), "/x/art.png", Path("/tmp/w"), 2)
+    assert p["asset"] == "/x/art.png" and p["placement"] == "plane" and p["frames"] == 72
+    assert "mesh" not in p
+
+
+def test_replay_refuses_render_sidecar():
+    with pytest.raises(ValueError, match="render"):
+        G._args_from_sidecar({"schema": 2, "kind": "render", "modality": "render"})
 
 
 def _args(**kw):
