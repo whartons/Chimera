@@ -46,6 +46,9 @@ RENDER_TIMEOUT = 1800
 _TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
                       "finish": "mesh_finish.py"}
 
+FINALIZE_TIMEOUT = 1800
+_FINALIZE_TEMPLATE = "mesh_finalize.py"
+
 CAD_TIMEOUT = 600
 _TEMPLATE_FOR_CAD = {"primitive": "primitive.py", "convert": "convert.py"}
 _CAD_FORMATS = ("step", "stl", "obj")
@@ -565,6 +568,95 @@ def run_cad(args, repo_root, ap):
         print(f"output -> {p}")
 
 
+def _finalize_views(args):
+    return [v.strip() for v in args.views.split(",") if v.strip()]
+
+
+def _finalize_azimuths(args, n):
+    """Camera azimuths (deg) for the N views: explicit --azimuths CSV, else evenly spaced from front=0."""
+    if args.azimuths:
+        return [float(a) for a in args.azimuths.split(",") if a.strip()]
+    return [360.0 * i / n for i in range(n)]
+
+
+def _finalize_params(args, mesh, view_paths, azimuths, tmp, seed, palette):
+    return {"mesh": str(mesh), "out_dir": str(tmp), "stem": f"{args.brand or 'finalize'}_{seed}",
+            "view_images": [str(v) for v in view_paths], "azimuths": azimuths,
+            "elevation": args.elevation, "back_fill": args.back_fill, "palette": palette,
+            "texture_res": args.texture_res, "samples": args.samples, "res": list(args.res), "seed": seed}
+
+
+def _validate_finalize(args, ap):
+    views = _finalize_views(args)
+    if not views:
+        ap.error("--views needs at least one image (azimuth order, front first)")
+    if len(views) > 7:
+        ap.error("--views: at most 7 (Blender caps a mesh at 8 UV layers; one is the bake atlas)")
+    if args.azimuths:
+        az = [a for a in args.azimuths.split(",") if a.strip()]
+        if len(az) != len(views):
+            ap.error(f"--azimuths count ({len(az)}) must match --views count ({len(views)})")
+        try:
+            [float(a) for a in az]
+        except ValueError:
+            ap.error("--azimuths must be comma-separated numbers (degrees)")
+
+
+def run_finalize_texture(args, repo_root, ap):
+    _validate_finalize(args, ap)
+    if args.brand:
+        brand_dir = repo_root / "brands" / args.brand
+        m = load_manifest(brand_dir / "brand.yaml")
+    else:
+        brand_dir, m = None, default_manifest()
+    seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
+    # absolute paths: the headless Blender process runs with a different cwd.
+    mesh = _resolve_asset(brand_dir, args.from_, ("outputs/3d", "outputs", "products", "references"),
+                          ap, "finalize-texture --from").resolve()
+    view_paths = [_resolve_asset(brand_dir, v, ("outputs/images", "outputs", "references", "products"),
+                                 ap, "finalize-texture --views").resolve() for v in _finalize_views(args)]
+    azimuths = _finalize_azimuths(args, len(view_paths))
+    palette = list(getattr(m, "palette", []) or [])
+    tmp = Path(tempfile.mkdtemp(prefix="chimera_finalize_"))
+    template = repo_root / "workflows" / "templates" / "blender" / _FINALIZE_TEMPLATE
+    sheet = None
+    try:
+        manifest = blender_runner.run_template(
+            template, _finalize_params(args, mesh, view_paths, azimuths, tmp, seed, palette),
+            blender_bin=args.blender_bin, timeout=args.timeout or FINALIZE_TIMEOUT)
+        glb = manifest.get("textured_glb")
+        if not glb:
+            print("finalize-texture produced no textured GLB", file=sys.stderr); sys.exit(1)
+        routed_glb = route_output(repo_root, args.brand, Path(glb), "finalize", seed)
+        stills = manifest.get("outputs", [])
+        if stills:
+            # the verification sheet is a nicety — its failure (e.g. Pillow absent) must NOT sink the
+            # finalize after the GLB is already routed, or we'd leave a GLB with no sidecar.
+            try:
+                from scripts.brandkit import montage
+                sheet_tmp = tmp / "sheet.png"
+                montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
+                sheet = route_output(repo_root, args.brand, sheet_tmp, "finalize", seed)
+            except Exception as e:   # noqa: BLE001 - best-effort verification render
+                print(f"warning: verification contact sheet skipped ({e})", file=sys.stderr)
+    except blender_runner.BlenderJobError as e:
+        print(f"finalize-texture failed: {e}", file=sys.stderr); sys.exit(1)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    outs = [routed_glb] + ([sheet] if sheet else [])
+    meta = build_render_meta(mode="finalize-texture", brand=args.brand, seed=seed, template=template.name,
+                             params={"views": [Path(v).name for v in view_paths], "azimuths": azimuths,
+                                     "elevation": args.elevation, "back_fill": args.back_fill,
+                                     "texture_res": args.texture_res},
+                             outputs=[p.name for p in outs], source=Path(mesh).name,
+                             blender_version=manifest.get("blender_version"),
+                             timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
+                             pipeline_git_sha=git_provenance(repo_root))
+    write_sidecar(routed_glb, meta)
+    for p in outs:
+        print(f"output -> {p}")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="generate.py")
     sub = ap.add_subparsers(dest="modality", required=True)
@@ -640,6 +732,25 @@ def main():
                     help="(finish) skip the hero render")
     rn.add_argument("--blender-bin", dest="blender_bin", default=None, help="blender path (else $BLENDER_BIN/PATH)")
     rn.add_argument("--timeout", type=int, default=None)
+    ft = sub.add_parser("finalize-texture",
+                        help="headless Blender: all-around albedo bake of N corrected views onto a mesh (Phase 4b)")
+    ft.add_argument("--brand", default=None)
+    ft.add_argument("--seed", type=int, default=None)
+    ft.add_argument("--from", dest="from_", required=True,
+                    help="mesh to texture (GLB/STL/OBJ; brand asset or path — e.g. a winning mesh3d GLB)")
+    ft.add_argument("--views", required=True,
+                    help="comma-separated corrected view images in azimuth order, front first "
+                         "(4 views = front,right,back,left)")
+    ft.add_argument("--azimuths", default=None,
+                    help="comma-separated camera azimuths in degrees (default: evenly spaced, front=0)")
+    ft.add_argument("--elevation", type=float, default=15.0, help="camera elevation in degrees")
+    ft.add_argument("--back-fill", dest="back_fill", choices=["palette", "grey"], default="palette",
+                    help="fill for faces no view sees (palette[0] or neutral grey)")
+    ft.add_argument("--texture-res", dest="texture_res", type=int, default=1024)
+    ft.add_argument("--samples", type=int, default=48, help="Cycles samples for the verification stills")
+    ft.add_argument("--res", type=int, nargs=2, default=[768, 768], metavar=("W", "H"))
+    ft.add_argument("--blender-bin", dest="blender_bin", default=None)
+    ft.add_argument("--timeout", type=int, default=None)
     cd = sub.add_parser("cad",
                         help="headless FreeCAD: author a parametric primitive or convert a CAD/mesh file")
     cd.add_argument("--brand", default=None)
@@ -724,6 +835,9 @@ def main():
         if args.mode == "convert" and not args.from_:
             ap.error("cad --mode convert needs --from <file>")
         run_cad(args, repo_root, ap)
+        return
+    if args.modality == "finalize-texture":
+        run_finalize_texture(args, repo_root, ap)
         return
     run(args, repo_root, ap)
 

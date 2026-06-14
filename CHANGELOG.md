@@ -7,6 +7,22 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **All-around 3D texture — multi-view bake engine (Phase 4b)** — `generate.py finalize-texture --from
+  <glb> --views front,right,back,left` bakes N corrected views into one albedo atlas so the back/sides
+  carry real color (Phase 4a colored only from one front projection). New `_common.bake_multiview`
+  generalizes `bake_albedo` from 1 → N views: a ring camera per view, a per-view `world_to_camera_view`
+  projection UV (headless-safe), a per-view front-facing weight `max(0,dot(N,-dir))²`, a weighted blend
+  `Σ(w·c)/max(Σw,ε)`, and a flat `--back-fill` (`palette`/`grey`) for faces no view sees; EMIT-baked to a
+  `--texture-res` atlas, rewired as Base Color, exported as a textured GLB with orbit verification stills.
+  New `mesh_finalize.py` template; CLI runs the existing Blender job runner, routes the GLB + a contact
+  sheet to `outputs/`, writes a `kind:"render" mode:"finalize-texture"` sidecar (view basenames +
+  azimuths). Pure bpy/Cycles — never touches the blocked `custom_rasterizer` path. **Live-validated on
+  Blender 5.1.2 / RTX 5090**: a 4-distinct-colour-view bake of a sphere put all four colours in the baked
+  atlas (R 13% · G 14% · B 12% · Y 22%), end-to-end CLI routed + sidecared, partial-view back-fill
+  confirmed. Views are supplied today (artist/manual). **Roadmap:** the **ComfyUI depth-ControlNet +
+  IPAdapter auto-repaint** that *generates* the N views from the concept (+ its `render_views` per-view
+  depth/normal pass renderer) — pure inference, NOT wheel-blocked, but new models (~2–3 GB) + ~32 GB VRAM
+  peak, so deferred to a VRAM-free, attended run.
 - **Headless FreeCAD `cad` subcommand** — `generate.py cad` drives `FreeCADCmd` (GUI-less) as a normal
   CLI subprocess to author and convert CAD geometry, completing FreeCAD's headless path (the peer of the
   Phase-2 Blender render backend; the interactive MCP bridge stays Phase 1). Two modes:

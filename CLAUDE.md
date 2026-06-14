@@ -100,9 +100,11 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), with gates in
   `.claude/settings.json`. Headless Blender automation (Phase 2), 3D self-correction over Blender
   renders (Phase 3, `auto_generate.py --pipeline mesh3d`), front-projected albedo **texturing**
-  (Phase 4a, `--texture`), and headless FreeCAD geometry (`generate.py cad` — parametric primitives +
-  CAD/mesh convert → STEP/STL/OBJ) are **shipped**. Generated all-around texture (Phase 4b) and the
-  FreeCAD CAD self-correction loop (`cad → render → judge`) remain **roadmap**.
+  (Phase 4a, `--texture`), the all-around **multi-view bake engine** (Phase 4b, `generate.py
+  finalize-texture` → `_common.bake_multiview`), and headless FreeCAD geometry (`generate.py cad` —
+  parametric primitives + CAD/mesh convert → STEP/STL/OBJ) are **shipped**. The Phase-4b **ComfyUI
+  depth-ControlNet + IPAdapter auto-repaint** that generates the views (and its `render_views` pass
+  renderer), plus the FreeCAD CAD self-correction loop (`cad → render → judge`), remain **roadmap**.
 
 ## Hardware
 Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (32 GB VRAM).

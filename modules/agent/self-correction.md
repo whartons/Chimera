@@ -347,10 +347,30 @@ lighting (lit-looking albedo, not delit). **Live-validated on Blender 5.1.2 / RT
 caught and fixed the headless `project_from_view` bug); the full `--texture` loop end-to-end is pending
 a ComfyUI run.
 
-### Phase 4b — generated all-around texture (roadmap)
+### Phase 4b — all-around texture: multi-view bake engine (shipped) + auto-repaint (roadmap)
 
 Phase 4a's back is approximate because one front image has no back data. **Phase 4b** finalizes the
-**winning** mesh (once, not per iteration): render depth/normal per view → ComfyUI depth-ControlNet +
-IPAdapter multi-view repaint → bake all views into the atlas, restoring faithful all-around color.
-In-ComfyUI Hunyuan3D-Paint stays blocked on the cu130/torch2.10/sm_120 `custom_rasterizer` wheel (same
-wall as TRELLIS.2 — see [`../threed/README.md`](../threed/README.md)).
+**winning** mesh once (not per iteration) with real all-around color. It splits into a shipped engine and
+a deferred view-generator:
+
+**Shipped — the multi-view bake engine.** `generate.py finalize-texture --from <glb> --views
+front,right,back,left` runs the `mesh_finalize.py` template, which calls **`_common.bake_multiview()`** —
+a generalization of `bake_albedo` from 1 → N views: a ring camera per view, a per-view
+`world_to_camera_view` projection UV, a per-view front-facing weight `max(0,dot(N,-dir))²`, a normalized
+weighted blend `Σ(w·c)/max(Σw,ε)`, and a flat `--back-fill` for faces no view sees → EMIT-baked atlas →
+textured GLB + orbit verification stills, routed to `outputs/` with a `mode:"finalize-texture"` sidecar.
+Pure bpy/Cycles. **Live-validated on Blender 5.1.2 / RTX 5090** (a 4-distinct-colour-view bake of a sphere
+put all four colours in the atlas — R 13 / G 14 / B 12 / Y 22 %). Today the N corrected views are
+**supplied** (an artist's paints, or any source); this alone is a usable finalize step for the winning
+mesh (its name is in the loop's `<sheet>.texture.json` sidecar).
+
+**Roadmap — the ComfyUI auto-repaint that generates the views.** So the loop can finalize without
+hand-painted views: a `render_views` template renders per-view depth/normal/grey-beauty for the winning
+mesh → for each view a **depth-ControlNet** (lock geometry) + **IPAdapter** (carry concept identity)
+ComfyUI graph paints a corrected view (front first, later views conditioned on prior ones for cross-view
+consistency) → feed the N views to the shipped `bake_multiview`. Pure inference, so **not** wheel-blocked
+(unlike in-ComfyUI Hunyuan3D-Paint, still stuck on the cu130/torch2.10/sm_120 `custom_rasterizer` wheel —
+see [`../threed/README.md`](../threed/README.md)), but it needs new models (~2–3 GB) + ~32 GB VRAM peak
+(Blender + base + ControlNet + IPAdapter) and live cross-view tuning, so it's deferred to a VRAM-free,
+attended run (own spec→plan→validate cycle). Confirm cu130-compatible depth-ControlNet / IPAdapter builds
+for the concept base (Z-Image / FLUX.2) before implementing; audit + pin any new node pack first.
