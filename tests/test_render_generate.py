@@ -86,6 +86,9 @@ def test_from_image_skips_txt2img(monkeypatch, tmp_path):
     concept.write_text("img")
     gen = rg.make_render_generate(_args(from_image=str(concept)), tmp_path, manifest=object(),
                                   client=client, blender_runner=fake_runner)
-    gen("ignored", "ignored", 11)
-    assert client.queued == 1
+    sheet = gen("ignored", "ignored", 11)
+    assert client.queued == 1                       # mesh graph only; txt2img skipped
     assert client.uploads[0].name == "fixed_concept.png"
+    # the rest of the chain still fires on the skip path
+    assert calls["runner"] is not None and len(calls["montage"]) == 4
+    assert Path(sheet).suffix == ".png" and Path(sheet).exists()

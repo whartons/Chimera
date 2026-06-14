@@ -24,7 +24,10 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
     repo_root = Path(repo_root)
     out_dir = Path(args.comfy_output_dir)
     template = repo_root / "workflows" / "templates" / "blender" / _MESH_EVAL
+    # Two independent budgets: --timeout caps each ComfyUI wait; the Blender job (mesh render +
+    # 4 stills) gets its own --blender-timeout so tuning the ComfyUI wait can't starve the render.
     comfy_timeout = args.timeout or 900
+    blender_timeout = getattr(args, "blender_timeout", None) or _BLENDER_TIMEOUT
 
     def _concept(pos, neg, seed):
         """Stage A: produce the concept image and return the ComfyUI-uploaded name to condition
@@ -39,6 +42,9 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         return client.upload_image(out_dir / subfolder / fname)
 
     def generate(pos, neg, seed):
+        # Expensive: one txt2img graph (unless --from-image) + one Hunyuan3D mesh graph + one
+        # headless Blender render per call. A single iteration can take minutes — the loop's
+        # --max-iters defaults to 3 for mesh3d for this reason.
         uploaded = _concept(pos, neg, seed)
 
         # Stage B: image-conditioned Hunyuan3D mesh; route the GLB into outputs/3d.
@@ -57,13 +63,14 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
                 template,
                 {"mesh": str(Path(glb).resolve()), "out_dir": str(tmp), "stem": stem,
                  "samples": args.samples, "res": list(args.res), "seed": seed, "views": 4},
-                blender_bin=args.blender_bin, timeout=args.timeout or _BLENDER_TIMEOUT)
+                blender_bin=args.blender_bin, timeout=blender_timeout)
             stills = mani.get("outputs", [])
             checks = mani.get("checks", {})
 
-            # Stage D/E: montage to a tmp sheet, then route into outputs/images.
+            # Stage D: montage the 4 stills into one contact sheet (in tmp).
             sheet_tmp = tmp / "sheet.png"
             montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
+            # Stage E: route the sheet into outputs/images (moves it out of tmp).
             sheet = route_output(repo_root, args.brand, sheet_tmp, "agent", seed)
 
             # Stage F: write the geometry facts next to the sheet for GeometryAwareJudge.
