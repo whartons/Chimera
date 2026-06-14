@@ -282,3 +282,157 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     bpy.data.objects.remove(fcam, do_unlink=True)   # don't leak the temp cam (Phase 4b may re-bake)
     bpy.data.cameras.remove(fcam_d)
     return img
+
+
+def _ring_camera(scn, centre, radius, az_deg, el_deg):
+    """Create+link a temp camera on a ring around `centre` at azimuth/elevation (deg), looking at it.
+    Returns (cam_object, cam_data, view_dir). az 0 = front (-Y); +az rotates toward +X (right);
+    so 4 evenly-spaced views are front / right / back / left. Caller removes both datablocks."""
+    a, e = math.radians(az_deg), math.radians(el_deg)
+    offset = mathutils.Vector((math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e)))
+    cam_d = bpy.data.cameras.new("RingCam")
+    cam = bpy.data.objects.new("RingCam", cam_d)
+    scn.collection.objects.link(cam)
+    cam.location = centre + offset * (radius * 3.0)
+    view_dir = (centre - cam.location).normalized()
+    cam.rotation_euler = view_dir.to_track_quat('-Z', 'Y').to_euler()
+    return cam, cam_d, view_dir
+
+
+def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
+                   back_fill="palette", palette=None, res=1024):
+    """All-around albedo bake (Phase 4b): project N corrected views (one per `azimuths` entry) onto the
+    mesh and EMIT-bake a weighted blend into a res×res atlas. Each face takes each view weighted by how
+    front-on it is to that view (max(0, dot(Normal, -view_dir))^2); faces no view sees get a flat
+    `back_fill` (palette[0] or neutral grey). Generalizes bake_albedo (N=1) for the one-shot finalize of a
+    winning mesh. Pure bpy/Cycles — never touches the blocked custom_rasterizer path. Returns the baked
+    image. NEW bpy surface — validated in live smoke (synthetic distinct-per-view colours)."""
+    if len(view_images) != len(azimuths):
+        raise ValueError("bake_multiview: view_images and azimuths must be the same length")
+    palette = palette or []
+    fill = _hex_to_rgba(palette[0]) if (back_fill == "palette" and palette) else (0.5, 0.5, 0.5, 1.0)
+    eps = 1e-4
+
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    # 1. atlas UV (bake-target layout)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.02)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    atlas_uv = obj.data.uv_layers.active.name
+
+    # 2. frame: object bounds centre + radius
+    bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
+    centre = sum(bbox, mathutils.Vector()) / 8.0
+    radius = max((v - centre).length for v in bbox) or 1.0
+
+    from bpy_extras.object_utils import world_to_camera_view
+    me = obj.data
+    mw = obj.matrix_world
+    prev_cam = scn.camera
+
+    mat = bpy.data.materials.new("AlbedoMV")
+    mat.use_nodes = True
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    emit = nt.nodes.new("ShaderNodeEmission")
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+
+    cams = []                       # temp cameras to remove at the end
+    num_node = None                 # running Σ (w_i · color_i)  (vector)
+    den_node = None                 # running Σ w_i              (scalar)
+    for i, (img_path, az) in enumerate(zip(view_images, azimuths, strict=True)):
+        cam, cam_d, vdir = _ring_camera(scn, centre, radius, az, elevation_deg)
+        cams.append((cam, cam_d))
+        scn.camera = cam
+        bpy.context.view_layer.update()
+        # per-view projection UV (world_to_camera_view: headless-safe, unlike uv.project_from_view)
+        proj_uv = me.uv_layers.new(name=f"Proj{i}").name
+        pdata = me.uv_layers[proj_uv].data
+        for poly in me.polygons:
+            for li in poly.loop_indices:
+                co = world_to_camera_view(scn, cam, mw @ me.vertices[me.loops[li].vertex_index].co)
+                pdata[li].uv = (co.x, co.y)
+        # view image sampled on its projection UV
+        uvn = nt.nodes.new("ShaderNodeUVMap"); uvn.uv_map = proj_uv
+        tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = bpy.data.images.load(img_path)
+        nt.links.new(uvn.outputs["UV"], tex.inputs["Vector"])
+        # weight w_i = max(0, dot(Normal, -view_dir))^2  (front-facing to THIS view)
+        dot = nt.nodes.new("ShaderNodeVectorMath"); dot.operation = 'DOT_PRODUCT'
+        dot.inputs[1].default_value = (-vdir.x, -vdir.y, -vdir.z)
+        nt.links.new(geo.outputs["Normal"], dot.inputs[0])
+        clamp = nt.nodes.new("ShaderNodeMath"); clamp.operation = 'MAXIMUM'; clamp.inputs[1].default_value = 0.0
+        nt.links.new(dot.outputs["Value"], clamp.inputs[0])
+        w = nt.nodes.new("ShaderNodeMath"); w.operation = 'POWER'; w.inputs[1].default_value = 2.0
+        nt.links.new(clamp.outputs["Value"], w.inputs[0])
+        # weighted colour = color_i * w_i
+        wc = nt.nodes.new("ShaderNodeVectorMath"); wc.operation = 'SCALE'
+        nt.links.new(tex.outputs["Color"], wc.inputs[0])
+        nt.links.new(w.outputs["Value"], wc.inputs["Scale"])
+        if num_node is None:
+            num_node, den_node = wc, w
+        else:
+            add_c = nt.nodes.new("ShaderNodeVectorMath"); add_c.operation = 'ADD'
+            nt.links.new(num_node.outputs[0], add_c.inputs[0])
+            nt.links.new(wc.outputs[0], add_c.inputs[1])
+            add_w = nt.nodes.new("ShaderNodeMath"); add_w.operation = 'ADD'
+            nt.links.new(den_node.outputs["Value"], add_w.inputs[0])
+            nt.links.new(w.outputs["Value"], add_w.inputs[1])
+            num_node, den_node = add_c, add_w
+
+    # normalized weighted colour = num / max(den, eps)
+    den_safe = nt.nodes.new("ShaderNodeMath"); den_safe.operation = 'MAXIMUM'; den_safe.inputs[1].default_value = eps
+    nt.links.new(den_node.outputs["Value"], den_safe.inputs[0])
+    inv = nt.nodes.new("ShaderNodeMath"); inv.operation = 'DIVIDE'; inv.inputs[0].default_value = 1.0
+    nt.links.new(den_safe.outputs["Value"], inv.inputs[1])
+    avg = nt.nodes.new("ShaderNodeVectorMath"); avg.operation = 'SCALE'
+    nt.links.new(num_node.outputs[0], avg.inputs[0])
+    nt.links.new(inv.outputs["Value"], avg.inputs["Scale"])
+    # coverage: faces no view sees (den <= eps) -> flat fill
+    seen = nt.nodes.new("ShaderNodeMath"); seen.operation = 'GREATER_THAN'; seen.inputs[1].default_value = eps
+    nt.links.new(den_node.outputs["Value"], seen.inputs[0])
+    mix = nt.nodes.new("ShaderNodeMixRGB")  # TODO(blender>5.x): ShaderNodeMix(data_type='RGBA')
+    mix.inputs["Color1"].default_value = fill
+    nt.links.new(seen.outputs["Value"], mix.inputs["Fac"])
+    nt.links.new(avg.outputs[0], mix.inputs["Color2"])
+    nt.links.new(mix.outputs["Color"], emit.inputs["Color"])
+    nt.links.new(emit.outputs["Emission"], out.inputs["Surface"])
+
+    # atlas bake-target node (selected + active), on the smart-project UV
+    img = bpy.data.images.new("albedo_mv", width=res, height=res, alpha=False)
+    obj.data.uv_layers.active = me.uv_layers[atlas_uv]
+    auv = nt.nodes.new("ShaderNodeUVMap"); auv.uv_map = atlas_uv
+    atex = nt.nodes.new("ShaderNodeTexImage"); atex.image = img
+    nt.links.new(auv.outputs["UV"], atex.inputs["Vector"])
+    for n in nt.nodes:
+        n.select = False
+    atex.select = True
+    nt.nodes.active = atex
+
+    # EMIT bake into the atlas (Blender 5.1: EXTEND margin)
+    scn.render.engine = 'CYCLES'
+    scn.render.bake.margin_type = 'EXTEND'
+    bpy.ops.object.bake(type='EMIT', margin=max(4, res // 64))
+
+    # rewire for RENDER: Principled Base Color <- baked atlas
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = 0.6
+    auv2 = nt.nodes.new("ShaderNodeUVMap"); auv2.uv_map = atlas_uv
+    atex2 = nt.nodes.new("ShaderNodeTexImage"); atex2.image = img
+    nt.links.new(auv2.outputs["UV"], atex2.inputs["Vector"])
+    nt.links.new(atex2.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    scn.camera = prev_cam
+    for cam, cam_d in cams:        # don't leak the temp ring cameras
+        bpy.data.objects.remove(cam, do_unlink=True)
+        bpy.data.cameras.remove(cam_d)
+    return img
