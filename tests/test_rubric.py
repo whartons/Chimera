@@ -84,3 +84,17 @@ def test_image_rubric_unchanged_default():
     r = build_rubric(default_manifest(), "a rover")
     assert r.noun == "image"
     assert r.as_prompt().startswith("Evaluate the image against this rubric")
+
+
+def test_3d_rubric_includes_style_and_negative_when_present():
+    r = build_rubric(_m(), "a knight", modality="3d")
+    joined = " ".join(r.criteria).lower()
+    assert "form's style matches: rugged tactical" in joined
+    assert "avoids these traits: blurry, cartoonish" in joined
+    assert "palette" not in joined  # still no color criterion for grey clay
+
+
+def test_unknown_modality_raises():
+    import pytest
+    with pytest.raises(ValueError, match="modality"):
+        build_rubric(_m(), "a knight", modality="3D")  # capital D is not a valid modality

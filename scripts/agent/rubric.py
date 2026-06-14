@@ -34,7 +34,11 @@ def build_rubric(manifest, subject: str, *, modality: str = "image") -> Rubric:
 
     modality='3d' scores FORM on a grey clay render (Hunyuan3D output is untextured): no color/
     palette criteria; the noun becomes '3D render'. modality='image' is the original 2D path."""
+    if modality not in ("image", "3d"):
+        raise ValueError(f"modality must be 'image' or '3d', got {modality!r}")
     if modality == "3d":
+        # No 'high quality (sharp, well-composed)' criterion: an untextured clay render's sharpness
+        # is a renderer/camera property, not a fact about the model's geometry.
         criteria = [
             f"The 3D render clearly depicts: {subject}.",
             f"Proportions and silhouette are correct for {subject} "
