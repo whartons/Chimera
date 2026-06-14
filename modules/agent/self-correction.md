@@ -383,9 +383,12 @@ cu130/torch2.10/sm_120 `custom_rasterizer` wheel — see [`../threed/README.md`]
 Models (all pinned/audited — see [`../../docs/CATALOG.md`](../../docs/CATALOG.md)): cubiq
 `ComfyUI_IPAdapter_plus` @ `a0f451a` + `ip-adapter-plus_sdxl_vit-h` + `CLIP-ViT-H-14` +
 `xinsir/controlnet-depth-sdxl-1.0`. **Live-validated on the RTX 5090:** an armored rover textured green/tan
-all the way around. **Tip:** a busy concept background can bleed at silhouette edges — use a plain-background
-concept or lower `--ip-weight`. **Roadmap:** cross-view consistency conditioning (later views on earlier),
-and an autonomous in-loop finalize on the mesh3d winner.
+all the way around. **Polish (shipped):** each repainted view is masked to its depth silhouette before
+baking (the concept's background no longer bleeds onto edges), and views after the first add a second
+IPAdapter pass on the previous painted view (`prev_weight`, default 0.4) for **cross-view consistency**.
+A busy concept background still helps less than a plain one — lower `--ip-weight` if identity over-imposes.
+**Roadmap:** an autonomous **in-loop finalize** (auto-run `--auto-repaint` on the mesh3d loop's winning
+mesh, reusing its concept) — today, run `finalize-texture --auto-repaint` on the winning GLB manually.
 
 ## CAD self-correction (FreeCAD, agent-authored script)
 

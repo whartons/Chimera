@@ -20,12 +20,14 @@ DEFAULT_NEG = "blurry, low quality, deformed, extra limbs, duplicated parts, wat
 
 def build(*, depth_image, concept_image, positive, negative=DEFAULT_NEG, seed,
           width=1024, height=1024, steps=28, cfg=6.5,
-          cn_strength=0.7, ip_weight=0.8,
+          cn_strength=0.7, ip_weight=0.8, prev_view_image=None, prev_weight=0.4,
           checkpoint=DEFAULT_SDXL, ipadapter=DEFAULT_IPADAPTER,
           clip_vision=DEFAULT_CLIPVISION, controlnet=DEFAULT_DEPTH_CN) -> dict:
     """API-format graph. `depth_image`/`concept_image` are uploaded ComfyUI input names. `positive`
-    describes the subject (IPAdapter carries the concept's specifics, ControlNet the geometry)."""
-    return {
+    describes the subject (IPAdapter carries the concept's specifics, ControlNet the geometry). When
+    `prev_view_image` is given (an already-painted neighbour view), a second IPAdapter pass conditions
+    on it at `prev_weight` for cross-view consistency, so later views match the earlier ones' look."""
+    wf = {
         "ckpt": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": checkpoint},
                  "_meta": {"title": "brand:ckpt"}},
         "positive": {"class_type": "CLIPTextEncode", "inputs": {"text": positive, "clip": ["ckpt", 1]},
@@ -68,6 +70,41 @@ def build(*, depth_image, concept_image, positive, negative=DEFAULT_NEG, seed,
         "save": {"class_type": "SaveImage", "inputs": {"images": ["decode", 0], "filename_prefix": "repaint"},
                  "_meta": {"title": "brand:save"}},
     }
+    if prev_view_image:
+        # cross-view consistency: a 2nd IPAdapter pass on the previous painted view (lower weight),
+        # so this view's look matches the already-painted neighbour. KSampler takes the chained model.
+        wf["prevview"] = {"class_type": "LoadImage", "inputs": {"image": prev_view_image},
+                          "_meta": {"title": "brand:prevview"}}
+        wf["ipadapter2"] = {"class_type": "IPAdapterAdvanced",
+                            "inputs": {"model": ["ipadapter", 0], "ipadapter": ["ipmodel", 0],
+                                       "image": ["prevview", 0], "clip_vision": ["clipvis", 0],
+                                       "weight": prev_weight, "weight_type": "linear",
+                                       "combine_embeds": "concat", "start_at": 0.0, "end_at": 1.0,
+                                       "embeds_scaling": "V only"},
+                            "_meta": {"title": "brand:ipadapter2"}}
+        wf["ksampler"]["inputs"]["model"] = ["ipadapter2", 0]
+    return wf
+
+
+def _mask_background(view_path, depth_path, out_path, *, thresh=12, fill=(128, 128, 128)):
+    """Composite a repainted view over neutral grey using its depth map as a silhouette mask: where the
+    depth is near-black (background), replace the view pixel with `fill`. Removes the concept's background
+    from the baked views so it can't bleed onto the mesh's silhouette edges. Best-effort: needs Pillow;
+    on any failure returns the original view path unchanged. Returns the path actually usable for baking."""
+    try:
+        from PIL import Image
+        v = Image.open(view_path).convert("RGB")
+        d = Image.open(depth_path).convert("L").resize(v.size)
+        vpx, dpx = v.load(), d.load()
+        w, h = v.size
+        for y in range(h):
+            for x in range(w):
+                if dpx[x, y] < thresh:
+                    vpx[x, y] = fill
+        v.save(out_path)
+        return out_path
+    except Exception:   # noqa: BLE001 - Pillow absent / unreadable -> fall back to the raw view
+        return view_path
 
 
 def generate_views(client, *, mesh, concept_path, subject, azimuths, comfy_output_dir, out_dir,
@@ -86,14 +123,19 @@ def generate_views(client, *, mesh, concept_path, subject, azimuths, comfy_outpu
     depths = rv.get("outputs", [])
     out = Path(comfy_output_dir)
     views = []
+    prev_up = None   # previous painted view (masked, uploaded) -> cross-view consistency
     for i, dp in enumerate(depths):
         dup = client.upload_image(Path(dp))
-        wf = build(depth_image=dup, concept_image=concept_up,
+        wf = build(depth_image=dup, concept_image=concept_up, prev_view_image=prev_up,
                    positive=f"{subject}, full object, clean studio render, plain solid background",
                    negative=negative, seed=seed + 1 + i, width=res, height=res,
                    cn_strength=cn_strength, ip_weight=ip_weight)
         pid = client.queue_prompt(wf)
         client.wait(pid, max_wait=comfy_timeout)
         fname, subfolder, _ = select_output(client, pid, wf)
-        views.append(str(out / subfolder / fname))
+        raw = out / subfolder / fname
+        # strip the concept's background using the depth silhouette so it can't bleed onto edges
+        masked = _mask_background(str(raw), str(dp), str(raw.with_name(raw.stem + "_masked.png")))
+        views.append(str(masked))
+        prev_up = client.upload_image(Path(masked))   # condition the next view on this one
     return views, depths
