@@ -201,13 +201,20 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     prev_cam = scn.camera
     scn.camera = fcam
 
-    # 3. projection UV from that front view (screen-space coords == concept image coords)
+    # 3. projection UV from the front camera, computed directly per-loop. (bpy.ops.uv.project_from_view
+    #    needs a VIEW_3D region context, which does not exist under `blender --background`; the
+    #    world_to_camera_view math is headless-safe and gives the same screen-space == concept coords.)
+    from bpy_extras.object_utils import world_to_camera_view
     proj_uv = obj.data.uv_layers.new(name="Proj").name
-    obj.data.uv_layers.active = obj.data.uv_layers[proj_uv]
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.uv.project_from_view(camera_bounds=True, correct_aspect=True, scale_to_bounds=False)
-    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.context.view_layer.update()
+    me = obj.data
+    mw = obj.matrix_world
+    proj_data = me.uv_layers[proj_uv].data
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            co = world_to_camera_view(scn, fcam, mw @ me.vertices[me.loops[li].vertex_index].co)
+            proj_data[li].uv = (co.x, co.y)
+    obj.data.uv_layers.active = me.uv_layers[atlas_uv]  # bake target layout is the smart-project UV
 
     # 4. albedo target image
     img = bpy.data.images.new("albedo", width=res, height=res, alpha=False)
