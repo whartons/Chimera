@@ -123,6 +123,7 @@ def frame_object(scn, obj, lens=70, margin=1.4):
 
 
 def render_still(scn, path):
+    scn.render.image_settings.media_type = 'IMAGE'   # Blender 5.x: select stills before format
     scn.render.image_settings.file_format = 'PNG'
     scn.render.filepath = path
     bpy.ops.render.render(write_still=True)
@@ -132,15 +133,19 @@ def render_still(scn, path):
 def render_turntable(scn, obj, out_dir, stem, frames):
     """Spin `obj` 360 over `frames` and encode an MP4 (Blender-bundled FFmpeg). Returns the
     actual .mp4 path (globbed, since Blender appends a frame-range suffix)."""
+    # default new keyframes to LINEAR for a constant-speed spin — set via the user pref BEFORE
+    # inserting, so we never touch Action.fcurves (removed in Blender 5.x slotted actions).
+    try:
+        bpy.context.preferences.edit.keyframe_new_interpolation_type = 'LINEAR'
+    except Exception:
+        pass
     obj.rotation_mode = 'XYZ'
     obj.rotation_euler[2] = 0.0
     obj.keyframe_insert("rotation_euler", index=2, frame=1)
     obj.rotation_euler[2] = math.radians(360)
     obj.keyframe_insert("rotation_euler", index=2, frame=frames)
-    for fc in obj.animation_data.action.fcurves:
-        for kp in fc.keyframe_points:
-            kp.interpolation = 'LINEAR'
     scn.frame_start, scn.frame_end = 1, frames
+    scn.render.image_settings.media_type = 'VIDEO'   # Blender 5.x: VIDEO exposes the FFMPEG format
     scn.render.image_settings.file_format = 'FFMPEG'
     scn.render.ffmpeg.format = 'MPEG4'
     scn.render.ffmpeg.codec = 'H264'

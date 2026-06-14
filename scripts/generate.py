@@ -410,7 +410,9 @@ def run_render(args, repo_root, ap):
         subdirs = ("outputs/3d", "outputs", "products", "references")
     else:
         subdirs = ("outputs/images", "outputs/video", "outputs", "references", "products")
-    asset = _resolve_asset(brand_dir, args.from_, subdirs, ap, f"render --from ({args.mode})")
+    # absolute path: the headless Blender process runs with a different cwd, so a relative
+    # --from would not resolve inside the template.
+    asset = _resolve_asset(brand_dir, args.from_, subdirs, ap, f"render --from ({args.mode})").resolve()
     tmp = Path(tempfile.mkdtemp(prefix="chimera_render_"))
     template = repo_root / "workflows" / "templates" / "blender" / _TEMPLATE_FOR_MODE[args.mode]
     try:
