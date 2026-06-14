@@ -137,3 +137,24 @@ def build_render_meta(*, mode, brand, seed, template, params, outputs, source, t
         prov["pipeline_git_sha"] = pipeline_git_sha
     meta["provenance"] = prov
     return meta
+
+
+def build_cad_meta(*, mode, shape, brand, seed, template, params, outputs, source, timestamp,
+                   freecad_version=None, pipeline_git_sha=None):
+    """Schema-2 sidecar for a headless FreeCAD job (kind='cad'). Records the template, resolved
+    params (dims/formats), the produced output basenames, the shape (primitive) or source (convert),
+    and a params signature. Distinct from build_render_meta (no Blender). Not replayable — replay
+    refuses kind='cad'."""
+    meta = {
+        "schema": SCHEMA_VERSION, "kind": "cad", "modality": "cad",
+        "mode": mode, "shape": shape, "brand": brand, "seed": seed,
+        "template": template, "params": params, "source": source, "outputs": outputs,
+        "timestamp": timestamp,
+    }
+    prov = {"params_signature": _params_sig(params, template)}
+    if freecad_version:
+        prov["freecad_version"] = freecad_version
+    if pipeline_git_sha:
+        prov["pipeline_git_sha"] = pipeline_git_sha
+    meta["provenance"] = prov
+    return meta
