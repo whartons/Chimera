@@ -105,9 +105,12 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   depth-ControlNet+IPAdapter via `scripts/brandkit/repaint.py`), and headless FreeCAD geometry
   (`generate.py cad` — parametric primitives + CAD/mesh convert → STEP/STL/OBJ, **plus `--mode script`** =
   headless exec of an agent-authored FreeCAD script for **generative CAD self-correction**: brief → script
-  → `cad` → `render` → judge → revise) are **shipped**. The CAD self-correction loop is **assistant-driven**
-  (the agent authors/revises the script). **Roadmap:** an **autonomous code-gen backend** for the CAD loop,
-  and Phase-4b cross-view-consistency conditioning + an in-loop finalize on the mesh3d winner.
+  → `cad` → `render` → judge → revise) are **shipped** — both **assistant-driven** (`cad --mode script`)
+  and **autonomous** (`auto_generate.py --pipeline cad`, where a **provider-agnostic LLM** writes/revises
+  the script — `scripts/agent/llm.py`, OpenAI-compatible/no-SDK, env-configured for
+  OpenAI/Anthropic/OpenRouter/local). The same backend gives an **`--backend api`** AI judge for any loop
+  (local Qwen stays the default). **Roadmap:** Phase-4b cross-view-consistency conditioning + an in-loop
+  finalize on the mesh3d winner.
 
 ## Hardware
 Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (32 GB VRAM).

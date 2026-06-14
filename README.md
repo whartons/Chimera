@@ -36,9 +36,12 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   *iterates to a passing result*: build a rubric (brand-specific, or a general subject + quality bar)
   → generate → a **VLM judges the output against the rubric** → unmet criteria are fed back into the
   prompt → regenerate until it passes or hits an
-  iteration cap. A **judge-agnostic, model-free core** (unit-tested, no GPU) with two interchangeable
-  backends: a **headless local Qwen2.5-VL-7B** judge, and an **assistant multi-judge-consensus** pass.
-  Live-validated end-to-end. See [`modules/agent/self-correction.md`](modules/agent/self-correction.md).
+  iteration cap. A **judge-agnostic, model-free core** (unit-tested, no GPU) with interchangeable judge
+  backends: a **headless local Qwen2.5-VL-7B** judge (default), a **provider-agnostic `--backend api`**
+  (any OpenAI-compatible LLM — OpenAI / Anthropic / OpenRouter / local Ollama), and an assistant consensus
+  pass. It drives **image, 3D (`--pipeline mesh3d`), and fully-autonomous generative CAD (`--pipeline cad`** —
+  an LLM writes + revises a FreeCAD script → render → judge → revise). Live-validated end-to-end. See
+  [`modules/agent/self-correction.md`](modules/agent/self-correction.md).
 - **🔌 Drive ComfyUI from an AI assistant** — a **pinned, security-audited** [MCP bridge](modules/agent/)
   exposes pipeline actions so an assistant (e.g. Claude) can run ComfyUI for you, with **per-tool
   approval gates** on the dangerous tools. The self-correction loop + the bridge are the two halves of
@@ -91,7 +94,7 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
   A FreeCAD self-correction loop (`cad → render → judge`) remains **roadmap**.
 
-**448 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**467 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -147,7 +150,7 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 448 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 467 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
   finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
   checks), linted with **ruff** and packaged as an installable
