@@ -32,11 +32,18 @@ from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.outputs import route_output, select_output, NoOutputError, write_sidecar
 from scripts.brandkit.sidecar import build_meta
+import tempfile, shutil
+from scripts.brandkit import blender as blender_runner
+from scripts.brandkit.sidecar import build_render_meta
 
 FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
            "3d": threed_filler.build}
 TIMEOUTS = {"image": 900, "video": 3600, "audio": 1800, "3d": 3600}
 FREE_BEFORE_DEFAULT = {"image": False, "video": True, "audio": True, "3d": True}
+
+RENDER_TIMEOUT = 1800
+_TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
+                      "finish": "mesh_finish.py"}
 
 # CLI args harvested into the sidecar `inputs` dict (sidecar.relevant_inputs then keeps the
 # modality-relevant subset). Must remain a superset of every sidecar._INPUT_KEYS value, minus
@@ -247,6 +254,9 @@ def _args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None
     if data.get("kind") == "agent-run":
         raise ValueError("this is an agent-run sidecar (auto_generate.py), not a "
                          "replayable render sidecar")
+    if data.get("kind") == "render":
+        raise ValueError("render sidecars aren't replayable yet (Phase 2 produces them, "
+                         "replay support is a later phase)")
     modality = data["modality"]
     inp = data.get("inputs", {})
     return argparse.Namespace(
@@ -361,6 +371,77 @@ def run(args, repo_root, ap):
         print(f"output filename: {fname} (pass --comfy-output-dir to relocate into the brand folder)")
 
 
+def _render_params(args, asset, tmp, seed):
+    p = {"out_dir": str(tmp), "stem": f"{args.brand or 'render'}_{args.mode}_{seed}",
+         "samples": args.samples, "res": list(args.res), "engine": "CYCLES", "seed": seed}
+    if args.mode == "mesh":
+        p.update(mesh=str(asset), turntable=bool(args.turntable), frames=args.frames)
+    elif args.mode == "comfy-scene":
+        p.update(asset=str(asset), placement=args.as_, frames=args.frames)
+    else:  # finish
+        p.update(mesh=str(asset), target_tris=args.target_tris, watertight=bool(args.watertight),
+                 scale_mm=args.scale_mm, color=args.color,
+                 formats=[f.strip() for f in args.formats.split(",") if f.strip()],
+                 render_still=bool(args.render_still))
+        if args.color == "project":
+            p["asset"] = str(args.project_image)
+    return p
+
+
+def _sidecar_params(args):
+    keys = {"mesh": ("samples", "res", "turntable", "frames"),
+            "comfy-scene": ("samples", "res", "as_", "frames"),
+            "finish": ("samples", "res", "target_tris", "watertight", "scale_mm", "color",
+                       "formats", "render_still")}[args.mode]
+    return {k: getattr(args, k) for k in keys}
+
+
+def _primary_output(paths):
+    """Pick the file the sidecar sits next to: a PNG if present, else a GLB, else the first."""
+    for ext in (".png", ".glb"):
+        m = next((p for p in paths if p.suffix.lower() == ext), None)
+        if m:
+            return m
+    return paths[0]
+
+
+def run_render(args, repo_root, ap):
+    brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
+    if args.mode == "finish" and args.color == "project" and not args.project_image:
+        ap.error("--color project needs --project-image <file>")
+    seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
+    if args.mode in ("mesh", "finish"):
+        subdirs = ("outputs/3d", "outputs", "products", "references")
+    else:
+        subdirs = ("outputs/images", "outputs/video", "outputs", "references", "products")
+    # absolute path: the headless Blender process runs with a different cwd, so a relative
+    # --from would not resolve inside the template.
+    asset = _resolve_asset(brand_dir, args.from_, subdirs, ap, f"render --from ({args.mode})").resolve()
+    tmp = Path(tempfile.mkdtemp(prefix="chimera_render_"))
+    template = repo_root / "workflows" / "templates" / "blender" / _TEMPLATE_FOR_MODE[args.mode]
+    try:
+        manifest = blender_runner.run_template(
+            template, _render_params(args, asset, tmp, seed),
+            blender_bin=args.blender_bin, timeout=args.timeout or RENDER_TIMEOUT)
+        outs = manifest.get("outputs", [])
+        if not outs:
+            print("render produced no outputs", file=sys.stderr); sys.exit(1)
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed) for o in outs]
+    except blender_runner.BlenderJobError as e:
+        print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    primary = _primary_output(routed)
+    meta = build_render_meta(mode=args.mode, brand=args.brand, seed=seed, template=template.name,
+                             params=_sidecar_params(args), outputs=[p.name for p in routed],
+                             source=Path(asset).name, blender_version=manifest.get("blender_version"),
+                             timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
+                             pipeline_git_sha=git_provenance(repo_root))
+    write_sidecar(primary, meta)
+    for p in routed:
+        print(f"output -> {p}")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="generate.py")
     sub = ap.add_subparsers(dest="modality", required=True)
@@ -413,6 +494,29 @@ def main():
     td.add_argument("--model", default=None, help="3D checkpoint override")
     td.add_argument("--format", choices=["glb", "stl", "obj"], default=None,
                     help="3D export format (default glb; stl/obj converted host-side, geometry only)")
+    rn = sub.add_parser("render", help="headless Blender: render a mesh / ComfyUI asset, or finish a mesh")
+    rn.add_argument("--brand", default=None)
+    rn.add_argument("--seed", type=int, default=None)
+    rn.add_argument("--from", dest="from_", required=True,
+                    help="mesh (mesh/finish) or image|video (comfy-scene); a brand asset or a file path")
+    rn.add_argument("--mode", choices=["mesh", "comfy-scene", "finish"], default="mesh")
+    rn.add_argument("--samples", type=int, default=96)
+    rn.add_argument("--res", type=int, nargs=2, default=[1080, 1080], metavar=("W", "H"))
+    rn.add_argument("--turntable", action="store_true", help="(mesh) also render a 360 MP4")
+    rn.add_argument("--frames", type=int, default=72)
+    rn.add_argument("--as", dest="as_", choices=["backdrop"], default="backdrop",
+                    help="(comfy-scene) image placement (only 'backdrop' in V1; plane/texture are roadmap)")
+    rn.add_argument("--target-tris", dest="target_tris", type=int, default=200000, help="(finish) decimate target")
+    rn.add_argument("--watertight", action="store_true", help="(finish) voxel-remesh to a manifold solid")
+    rn.add_argument("--scale-mm", dest="scale_mm", type=float, default=None, help="(finish) longest-dim mm")
+    rn.add_argument("--color", choices=["material", "project"], default="material", help="(finish) color method")
+    rn.add_argument("--formats", default="stl,glb", help="(finish) comma-separated export formats")
+    rn.add_argument("--project-image", dest="project_image", default=None,
+                    help="(finish, --color project) image to project as color")
+    rn.add_argument("--no-render", dest="render_still", action="store_false", default=True,
+                    help="(finish) skip the hero render")
+    rn.add_argument("--blender-bin", dest="blender_bin", default=None, help="blender path (else $BLENDER_BIN/PATH)")
+    rn.add_argument("--timeout", type=int, default=None)
     rp = sub.add_parser("replay", help="re-run a render from its sidecar JSON")
     rp.add_argument("sidecar", help="path to a schema-2 sidecar .json")
     rp.add_argument("--seed", type=int, default=None, help="override the recorded seed")
@@ -470,6 +574,9 @@ def main():
         print(f"replaying {args.sidecar} (modality={rargs.modality} mode={rargs.mode} "
               f"brand={rargs.brand} seed={rargs.seed})")
         run(rargs, repo_root, ap)
+        return
+    if args.modality == "render":
+        run_render(args, repo_root, ap)
         return
     run(args, repo_root, ap)
 

@@ -331,10 +331,14 @@ Interactive in Phase 1; headless automation backends are roadmap (Phase 2–3).
   (first-party, zero telemetry, headless-capable; the community server is GUI-only,
   ships opt-out Supabase telemetry, and had a live file-read bug). See
   [`../modules/blender/README.md`](../modules/blender/README.md).
+  - The **interactive bridge** (GUI) is Phase 1. The **headless `generate.py render`
+    backend** (`--mode mesh` / `comfy-scene` / `finish`, Blender Cycles, live-validated
+    on Blender 5.1) is also shipped — it runs as a normal CLI subprocess, not through
+    the MCP bridge (no per-call approval). Templates in `workflows/templates/blender/`.
 - **FreeCAD** — de-facto community standard, MIT, no telemetry, 14 tools incl. FEM via
   CalculiX. See [`../modules/cad/README.md`](../modules/cad/README.md).
-- Both are **GUI-only**; the unattended self-correction loop will use separate headless
-  paths (`blender --background`, `FreeCADCmd`) — not these servers (Phase 2–3).
+- FreeCAD remains **GUI-only**; headless `FreeCADCmd` automation is roadmap (Phase 2–3).
+- Phase 3 (VLM self-correction over renders) remains roadmap for both tools.
 
 ---
 
