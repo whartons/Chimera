@@ -20,7 +20,10 @@ def structural_issues(checks: dict) -> list[str]:
     lp = int(checks.get("loose_parts", 1) or 1)
     if lp > 1:
         issues.append(f"NOT-MET: mesh has {lp} disconnected parts (expected 1)")
-    if int(checks.get("tri_count", 1) or 0) == 0:
+    # An explicit 0 means an empty mesh (flag it); a missing key or None means "not measured"
+    # (treat as good, consistent with the other checks) — so guard on `is not None`.
+    tc = checks.get("tri_count")
+    if tc is not None and int(tc) == 0:
         issues.append("NOT-MET: mesh is empty/degenerate (0 triangles)")
     if checks.get("bounds_ok", True) is False:
         issues.append("NOT-MET: mesh is degenerate (zero/near-zero extent)")

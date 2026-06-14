@@ -16,7 +16,7 @@ def test_open_edges_flag_watertight():
 
 def test_non_manifold_flag():
     out = structural_issues({**_CLEAN, "non_manifold_edges": 3})
-    assert "not manifold" in out[0] and "3" in out[0]
+    assert len(out) == 1 and "not manifold" in out[0] and "3" in out[0]
 
 
 def test_loose_parts_only_flag_above_one():
@@ -32,6 +32,12 @@ def test_empty_and_degenerate():
 
 def test_missing_keys_are_treated_as_clean():
     assert structural_issues({}) == []
+
+
+def test_none_values_treated_as_clean():
+    # A malformed/empty checks.json (json null) must not false-trigger — None == "not measured".
+    none_checks = {k: None for k in _CLEAN}
+    assert structural_issues(none_checks) == []
 
 
 def test_suffix_constant():
