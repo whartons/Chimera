@@ -102,9 +102,12 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   renders (Phase 3, `auto_generate.py --pipeline mesh3d`), front-projected albedo **texturing**
   (Phase 4a, `--texture`), the all-around **multi-view bake engine** (Phase 4b, `generate.py
   finalize-texture` → `_common.bake_multiview`), and headless FreeCAD geometry (`generate.py cad` —
-  parametric primitives + CAD/mesh convert → STEP/STL/OBJ) are **shipped**. The Phase-4b **ComfyUI
-  depth-ControlNet + IPAdapter auto-repaint** that generates the views (and its `render_views` pass
-  renderer), plus the FreeCAD CAD self-correction loop (`cad → render → judge`), remain **roadmap**.
+  parametric primitives + CAD/mesh convert → STEP/STL/OBJ, **plus `--mode script`** = headless exec of an
+  agent-authored FreeCAD script for **generative CAD self-correction**: brief → script → `cad` → `render`
+  → judge → revise) are **shipped**. The CAD self-correction loop is **assistant-driven** (the agent
+  authors/revises the script). The Phase-4b **ComfyUI depth-ControlNet + IPAdapter auto-repaint** that
+  generates the views (and its `render_views` pass renderer), plus an **autonomous code-gen backend** for
+  the CAD loop, remain **roadmap**.
 
 ## Hardware
 Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (32 GB VRAM).

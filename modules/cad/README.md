@@ -76,6 +76,9 @@ python scripts/generate.py cad --shape cone --radius 20 --radius2 0 --height 40
 
 # convert an existing CAD/mesh file between formats
 python scripts/generate.py cad --mode convert --from part.step --formats stl,obj
+
+# run an agent/user-authored parametric script (generative CAD)
+python scripts/generate.py cad --mode script --script mug.py --formats step,stl
 ```
 
 - **Shapes:** `box` (`--length/--width/--height`), `cylinder` (`--radius/--height`),
@@ -85,17 +88,39 @@ python scripts/generate.py cad --mode convert --from part.step --formats stl,obj
   `FreeCADCmd` emits **geometry only**; STEP is the BREP/parametric format Blender can't
   read, so `cad` is how you produce it. **glTF is GUI-only in FreeCAD** — export STL and
   hand it to `render --mode mesh` for a Cycles render/turntable, or `render --mode finish`
-  for a print-ready figurine. That STL → Blender hop is also the render-for-judge route a
-  future FreeCAD self-correction loop would use.
+  for a print-ready figurine. That STL → Blender hop is also the render-for-judge route the
+  CAD self-correction loop uses (see `--mode script` below).
 - **Binary:** resolved from `--freecad-bin`, `$FREECAD_BIN`, `FreeCADCmd`/`freecadcmd` on
   PATH, then the default Windows install (`C:\Program Files\FreeCAD *\bin\FreeCADCmd.exe`).
 - Outputs route to `brands/<brand>/outputs/3d/` (or `outputs/3d/` brandless) with a
   `kind:"cad"` reproducibility sidecar (template, resolved dims/formats, params signature,
   FreeCAD version, pipeline git sha).
 
-**Still roadmap:** sketch/constraint modeling, FEM headless, assemblies, and the FreeCAD
-**self-correction loop** (`cad → render → judge`). Keep a FreeCAD window open with the addon
-active for live MCP-assisted editing.
+### `--mode script` — generative CAD self-correction
+
+`--mode script --script <file.py>` runs an **agent/user-authored FreeCAD Python script** headless and
+exports what it builds. The script runs with `App`/`FreeCAD`, `Part`, `Mesh`, and an active `doc` in
+scope; it builds geometry as objects in `doc` (or sets `RESULT = [objs]`), and the runner owns
+export/emit. STEP export needs **Part (BREP)** objects — a `Mesh::Feature` exports to `stl`/`obj` only
+(the runner rejects mesh→STEP with a clear message). The sidecar records the script name + a content
+hash, so the `params_signature` varies across in-place revisions.
+
+This is the lever for a **CAD self-correction loop**: a brief → an agent-authored parametric script →
+`cad --mode script` → `render --mode mesh` → a VLM judges the form/printability → FIX feedback → the
+agent **revises the script** → repeat. When an agent is present it is the script generator (same idea as
+the assistant judge backend); an autonomous code-gen backend is roadmap. Live-validated by authoring a
+parametric mug, executing it headless, rendering + judging it, then revising the script (roomier handle
++ a BREP rim fillet) and re-running — a real author→exec→render→judge→revise iteration.
+
+> ⚠️ **`--mode script` `exec()`s the script unsandboxed** in the `FreeCADCmd` process (no network,
+> isolated process, but full Python — same trust as running a FreeCAD macro you wrote). **Run only
+> scripts you authored or audited.** This is a deliberate first-party CLI capability; it is *not* exposed
+> as an MCP tool, so the per-tool gates below (which govern the interactive bridge) do not apply to it.
+> The gated MCP `execute_code` remains the separate, approval-per-call GUI path.
+
+**Still roadmap:** sketch/constraint modeling, FEM headless, assemblies, and the **autonomous** code-gen
+backend for the CAD self-correction loop (the assistant-driven loop above is shipped). Keep a FreeCAD
+window open with the addon active for live MCP-assisted editing.
 
 ## Security audit (commit `63acb30`) & per-tool gates
 

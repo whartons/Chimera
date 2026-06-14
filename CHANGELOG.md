@@ -7,6 +7,19 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Generative CAD self-correction — `cad --mode script`** — a third `cad` mode that runs an
+  **agent/user-authored FreeCAD Python script** headless (`workflows/templates/freecad/script_exec.py`)
+  and exports what it builds to STEP/STL/OBJ. The script runs with `App`/`FreeCAD`, `Part`, `Mesh`, and an
+  active `doc` in scope; it builds geometry in `doc` (or sets `RESULT=[objs]`) and the runner owns
+  export/emit (rejecting mesh→STEP up front; STEP needs Part/BREP). The `kind:"cad"` sidecar records the
+  script name + a content hash so the params signature varies across in-place revisions. This is the lever
+  for a **CAD self-correction loop**: brief → agent-authored parametric script → `cad --mode script` →
+  `render --mode mesh` → VLM form/printability judge → FIX → agent revises the script → repeat. The
+  agent is the script generator when present (an autonomous code-gen backend is roadmap). **Live-validated:**
+  authored a parametric mug, executed it headless, rendered + judged it, then revised the script (roomier
+  handle + a BREP rim fillet) and re-ran — a real author→exec→render→judge→revise iteration. The script is
+  `exec()`'d unsandboxed in an isolated `FreeCADCmd` process (first-party CLI capability, no network, not
+  an MCP tool — run only scripts you authored/audited).
 - **All-around 3D texture — multi-view bake engine (Phase 4b)** — `generate.py finalize-texture --from
   <glb> --views front,right,back,left` bakes N corrected views into one albedo atlas so the back/sides
   carry real color (Phase 4a colored only from one front projection). New `_common.bake_multiview`
@@ -101,6 +114,16 @@ All notable changes to Chimera are documented here. The format follows
   (`check_gitea_pack`) and FreeCAD's GitHub repo (existing `check_git_pack`) in
   `scripts/update_report.py`. **Interactive only** — headless automation + 3D/CAD self-correction
   are roadmap (Phase 2–3).
+
+### Changed
+- **3D self-correction geometry gate recalibrated for real Hunyuan3D output.** The first end-to-end live
+  run (Z-Image → Hunyuan3D → real Qwen2.5-VL judge, **PASS 0.95** on an armored rover) showed raw
+  Hunyuan3D meshes are inherently ~34% non-manifold (confirmed at zero weld) — baseline for surface-net
+  extraction, not a defect — so the old `structural_issues` (fail on any non-manifold/open edge)
+  force-failed *every* real mesh, overriding even a 0.95 form score. It now fails only on
+  **empty/degenerate** meshes or ones **fragmented into many islands** (`DEFAULT_MAX_LOOSE_PARTS`,
+  tunable); non-manifold/open edges stay in the `.checks.json` sidecar for provenance. `--texture` was
+  likewise validated live (front-faithful red/gold knight helmet).
 
 ## [0.1.3] - 2026-06-09
 
