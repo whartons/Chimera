@@ -320,10 +320,37 @@ and the `agent-run` sidecar (`modality:"3d"`, `winning_seed`) land in the images
 > loop reuses already-live-validated components (Z-Image, Hunyuan3D, `LocalVLMJudge`) and is pending an
 > end-to-end live run (needs ComfyUI + the Hunyuan3D / Qwen2.5-VL models loaded — not a CI step).
 
-### Phase 4 — texturing (roadmap)
+### Phase 4a — front-projected albedo texturing (`--texture`)
 
-The 3D loop judges grey clay because PBR texturing is deferred. The **Blender route** is viable and
-planned: generate back/side views in ComfyUI → UV-unwrap → **bake an albedo texture** → re-judge with
-the color/palette criteria restored. In-ComfyUI Hunyuan3D-Paint stays blocked on the
-cu130/torch2.10/sm_120 `custom_rasterizer` wheel (same wall as TRELLIS.2 — see
-[`../threed/README.md`](../threed/README.md)).
+`--pipeline mesh3d --texture` restores color to the loop via a **headless Blender bake** (pure
+bpy/Cycles — it never touches the blocked `custom_rasterizer` path). Per iteration, before the orbit
+renders, `_common.bake_albedo()`:
+
+1. `smart_project`-unwraps the mesh into an albedo atlas (Hunyuan3D output is UV-less, so always unwrap);
+2. projects the **concept image** (the same one that conditioned Hunyuan3D) from a dead-front camera —
+   computed with `world_to_camera_view` per loop, because `bpy.ops.uv.project_from_view` needs a VIEW_3D
+   region that doesn't exist under `--background`;
+3. shader-masks **front-facing faces → concept** vs un-projected faces → a flat **`--back-fill`**
+   (`palette` = `manifest.palette[0]`, the default; `mirror` = a back-projected flipped concept, for
+   symmetric crest/relief subjects);
+4. **EMIT-bakes** a `--texture-res` (default 1024) atlas, rewires it as Principled Base Color, and
+   `mesh_eval` exports a self-contained **textured GLB**.
+
+The stills are then colored, so the contact-sheet judge sees color. `build_rubric(..., textured=True)`
+re-adds the color/palette criteria with **thrash-safe** wording — *"a plain or palette-filled back is
+acceptable"* — so a genuinely wrong **front** color folds a `FIX` into the next concept prompt (color
+self-correction, through the existing channel) while the loop never chases back texture a single front
+image can't produce. A `<stem>.texture.json` sidecar records the textured status + GLB name.
+
+**v1 honesty:** front-faithful, back palette-filled (or mirrored); the EMIT bake captures the concept's
+lighting (lit-looking albedo, not delit). **Live-validated on Blender 5.1.2 / RTX 5090** (the smoke
+caught and fixed the headless `project_from_view` bug); the full `--texture` loop end-to-end is pending
+a ComfyUI run.
+
+### Phase 4b — generated all-around texture (roadmap)
+
+Phase 4a's back is approximate because one front image has no back data. **Phase 4b** finalizes the
+**winning** mesh (once, not per iteration): render depth/normal per view → ComfyUI depth-ControlNet +
+IPAdapter multi-view repaint → bake all views into the atlas, restoring faithful all-around color.
+In-ComfyUI Hunyuan3D-Paint stays blocked on the cu130/torch2.10/sm_120 `custom_rasterizer` wheel (same
+wall as TRELLIS.2 — see [`../threed/README.md`](../threed/README.md)).

@@ -1,4 +1,5 @@
 import sys, json, argparse
+import pytest
 import scripts.agent.auto_generate as AG
 
 
@@ -58,3 +59,46 @@ def test_main_image_default_max_iters_unchanged(monkeypatch):
                          "--comfy-output-dir", "/tmp/out"])
     AG.main()
     assert captured["max_iters"] == 4 and captured["rubric"] is None  # image path unchanged
+
+
+def test_texture_flag_builds_textured_rubric(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+    monkeypatch.setattr(AG, "make_render_generate", lambda *a, **k: (lambda p, n, s: "x.png"))
+    monkeypatch.setattr(AG, "LocalVLMJudge", lambda *a, **k: object())
+
+    def fake_run_loop(**kw):
+        captured.update(kw)
+        from scripts.agent.loop import LoopResult
+        return LoopResult(best_image=None, best_verdict=None, passed=False, history=[])
+
+    monkeypatch.setattr(AG, "run_loop", fake_run_loop)
+    monkeypatch.setattr(sys, "argv",
+                        ["auto_generate.py", "--pipeline", "mesh3d", "--texture",
+                         "--subject", "a knight", "--comfy-output-dir", "/tmp/out"])
+    AG.main()
+    assert captured["rubric"].noun == "textured 3D render"
+
+
+def test_bad_back_fill_is_rejected(monkeypatch):
+    monkeypatch.setattr(sys, "argv",
+                        ["auto_generate.py", "--pipeline", "mesh3d", "--texture",
+                         "--back-fill", "bogus", "--subject", "x", "--comfy-output-dir", "/tmp/out"])
+    with pytest.raises(SystemExit):
+        AG.main()
+
+
+def test_back_fill_without_texture_is_rejected(monkeypatch):
+    monkeypatch.setattr(sys, "argv",
+                        ["auto_generate.py", "--pipeline", "mesh3d", "--back-fill", "mirror",
+                         "--subject", "x", "--comfy-output-dir", "/tmp/out"])
+    with pytest.raises(SystemExit):
+        AG.main()
+
+
+def test_texture_without_mesh3d_is_rejected(monkeypatch):
+    monkeypatch.setattr(sys, "argv",
+                        ["auto_generate.py", "--texture", "--subject", "x",
+                         "--comfy-output-dir", "/tmp/out"])  # default pipeline is image
+    with pytest.raises(SystemExit):
+        AG.main()

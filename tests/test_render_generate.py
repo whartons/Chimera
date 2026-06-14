@@ -29,7 +29,7 @@ def _args(**kw):
 
 def _wire(monkeypatch, tmp_path, client):
     """Stub the heavy seams; record what the closure does. Returns a `calls` dict."""
-    calls = {"runner": None, "montage": None, "routed": []}
+    calls = {"runner": None, "montage": None, "routed": [], "routed_src": []}
 
     monkeypatch.setattr(rg.image_filler, "build", lambda *a, **k: {"g": "txt2img"})
     monkeypatch.setattr(rg.threed_filler, "build", lambda *a, **k: {"g": "mesh"})
@@ -43,6 +43,7 @@ def _wire(monkeypatch, tmp_path, client):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text("x")
         calls["routed"].append(dest)
+        calls["routed_src"].append(Path(src))
         return dest
 
     monkeypatch.setattr(rg, "route_output", fake_route)
@@ -108,3 +109,51 @@ def test_from_image_skips_txt2img(monkeypatch, tmp_path):
     # the rest of the chain still fires on the skip path
     assert calls["runner"] is not None and len(calls["montage"]) == 4
     assert Path(sheet).suffix == ".png" and Path(sheet).exists()
+
+
+def _texture_args(**kw):
+    # one source of truth for the baseline namespace: _args() + the texture fields
+    return _args(texture=True, back_fill="palette", texture_res=1024, **kw)
+
+
+class _PaletteManifest:
+    palette = ["#1c1f22", "#2e3338"]
+
+
+def test_texture_threads_concept_and_params_and_routes_textured_glb(monkeypatch, tmp_path):
+    client = _FakeClient()
+    calls, _ = _wire(monkeypatch, tmp_path, client)
+
+    def textured_runner(template, params, **kw):
+        calls["runner"] = (Path(template).name, params)
+        stills = [str(Path(params["out_dir"]) / f"{params['stem']}_v{i}.png") for i in range(4)]
+        tglb = str(Path(params["out_dir"]) / f"{params['stem']}_textured.glb")
+        Path(tglb).write_text("glb")
+        return {"outputs": stills, "checks": {"open_edges": 0}, "textured": True, "textured_glb": tglb}
+
+    gen = rg.make_render_generate(_texture_args(), tmp_path, manifest=_PaletteManifest(),
+                                  client=client, blender_runner=textured_runner)
+    sheet = gen("a knight", "blurry", 7)
+
+    rp = calls["runner"][1]
+    assert rp["texture"] is True and rp["back_fill"] == "palette" and rp["texture_res"] == 1024
+    assert rp["asset"].endswith("concept.png")
+    assert rp["palette"] == ["#1c1f22", "#2e3338"]
+    assert any(p.name.endswith("_textured.glb") for p in calls["routed_src"])
+    tf = Path(sheet).with_name(Path(sheet).stem + rg.RENDER_TEXTURE_SUFFIX)
+    meta = json.loads(tf.read_text())
+    assert meta["textured"] is True
+    assert meta["glb"].endswith(".glb")  # routed GLB name recorded for Phase 4b
+
+
+def test_texture_off_routes_raw_glb_and_no_texture_sidecar(monkeypatch, tmp_path):
+    client = _FakeClient()
+    calls, fake_runner = _wire(monkeypatch, tmp_path, client)
+    gen = rg.make_render_generate(_args(), tmp_path, manifest=object(), client=client,
+                                  blender_runner=fake_runner)
+    sheet = gen("a knight", "blurry", 7)
+    rp = calls["runner"][1]
+    assert rp["texture"] is False
+    assert any(p.name == "mesh.glb" for p in calls["routed_src"])
+    tf = Path(sheet).with_name(Path(sheet).stem + rg.RENDER_TEXTURE_SUFFIX)
+    assert not tf.exists()

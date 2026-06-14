@@ -98,8 +98,17 @@ checks** (non-manifold / open-edge / loose-part / tri-count / bounds) → emits 
 agent loop montages the stills into one contact sheet for the VLM judge and folds the geometry checks
 into the verdict (see [`../agent/self-correction.md`](../agent/self-correction.md) §3D self-correction).
 
-Phase 3 — the VLM self-correction loop over Blender renders — is **shipped**
-(`auto_generate.py --pipeline mesh3d`); see [`../agent/self-correction.md`](../agent/self-correction.md).
+**Phase 4a — albedo texturing.** With `texture: true` + a concept `asset`, `mesh_eval` calls
+`_common.bake_albedo()`, which `smart_project`-unwraps the mesh, projects the concept from a dead-front
+camera (via `world_to_camera_view` — `bpy.ops.uv.project_from_view` is unusable under `--background`),
+shader-masks front faces vs a flat `back_fill` (`palette` color, or a `mirror` back-projection), and
+EMIT-bakes a `texture_res` albedo atlas; `mesh_eval` then exports a self-contained **textured GLB** and
+emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipeline mesh3d --texture`.
+
+Phase 3 (self-correction over renders) and Phase 4a (albedo texturing) are **shipped**
+(`auto_generate.py --pipeline mesh3d [--texture]`); see
+[`../agent/self-correction.md`](../agent/self-correction.md). Generated all-around texture is Phase 4b
+(roadmap).
 
 ## Security audit (v1.0.0) & per-tool gates
 

@@ -17,6 +17,7 @@ from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
 
 _MESH_EVAL = "mesh_eval.py"
 _BLENDER_TIMEOUT = 1800  # mesh render + 4 stills + bmesh probe
+RENDER_TEXTURE_SUFFIX = ".texture.json"
 
 
 def make_render_generate(args, repo_root, manifest, client, *, blender_runner=run_template):
@@ -28,28 +29,36 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
     # 4 stills) gets its own --blender-timeout so tuning the ComfyUI wait can't starve the render.
     comfy_timeout = args.timeout or 900
     blender_timeout = getattr(args, "blender_timeout", None) or _BLENDER_TIMEOUT
+    # Texture settings are fixed for the whole loop — resolve once (getattr-guarded so lean test
+    # namespaces / partial args still work), not per generate() call.
+    texture = bool(getattr(args, "texture", False))
+    back_fill = getattr(args, "back_fill", "palette")
+    texture_res = int(getattr(args, "texture_res", 1024))
+    palette = list(getattr(manifest, "palette", []) or [])
 
     def _concept(pos, neg, seed):
-        """Stage A: produce the concept image and return the ComfyUI-uploaded name to condition
-        Hunyuan3D. With --from-image, skip txt2img and upload the fixed concept directly."""
+        """Stage A: produce the concept image; return (uploaded_name, local_path). The uploaded
+        name conditions Hunyuan3D; the local path is the texture source for the Phase-4a bake.
+        With --from-image, upload the fixed concept directly and skip txt2img."""
         if args.from_image:
-            return client.upload_image(Path(args.from_image))
+            local = Path(args.from_image)
+            return client.upload_image(local), local
         wf = image_filler.build(repo_root, manifest, positive=pos, negative=neg, seed=seed,
                                 mode="txt2img", variant=args.variant, model=args.model)
         pid = client.queue_prompt(wf)
         client.wait(pid, max_wait=comfy_timeout)
         fname, subfolder, _ = select_output(client, pid, wf)
-        return client.upload_image(out_dir / subfolder / fname)
+        local = out_dir / subfolder / fname
+        return client.upload_image(local), local
 
     def generate(pos, neg, seed):
         # Expensive: one txt2img graph (unless --from-image) + one Hunyuan3D mesh graph + one
         # headless Blender render per call. A single iteration can take minutes — the loop's
         # --max-iters defaults to 3 for mesh3d for this reason.
-        uploaded = _concept(pos, neg, seed)
+        uploaded, concept_path = _concept(pos, neg, seed)
 
-        # Stage B: image-conditioned Hunyuan3D mesh. Leave the GLB in the ComfyUI output dir for now
-        # and feed mesh_eval that path; only route it into outputs/3d after the render succeeds, so a
-        # failed Blender job doesn't orphan a meshless GLB in the curated outputs folder.
+        # Stage B: Hunyuan3D mesh. Leave the GLB in the ComfyUI output dir; only route it after the
+        # render succeeds, so a failed Blender job doesn't orphan a meshless GLB in outputs/3d.
         wf3d = threed_filler.build(repo_root, manifest, from_image=uploaded, seed=seed,
                                    octree=args.octree, model=args.model)
         pid = client.queue_prompt(wf3d)
@@ -57,14 +66,16 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         gname, gsub, _ = select_output(client, pid, wf3d)
         glb_src = out_dir / gsub / gname
 
-        # Stage C: render 4 orbit stills + compute geometry checks (headless Blender).
+        # Stage C: render 4 orbit stills + geometry checks (+ Phase-4a: bake + textured GLB).
         tmp = Path(tempfile.mkdtemp(prefix="chimera_eval_"))
         try:
             stem = f"{args.brand or 'agent'}_{seed}"
             mani = blender_runner(
                 template,
                 {"mesh": str(glb_src.resolve()), "out_dir": str(tmp), "stem": stem,
-                 "samples": args.samples, "res": list(args.res), "seed": seed, "views": 4},
+                 "samples": args.samples, "res": list(args.res), "seed": seed, "views": 4,
+                 "texture": texture, "asset": str(Path(concept_path).resolve()),
+                 "back_fill": back_fill, "palette": palette, "texture_res": texture_res},
                 blender_bin=args.blender_bin, timeout=blender_timeout)
             stills = mani.get("outputs", [])
             checks = mani.get("checks", {})
@@ -72,13 +83,19 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             # Stage D: montage the 4 stills into one contact sheet (in tmp).
             sheet_tmp = tmp / "sheet.png"
             montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
-            # Stage E: render succeeded — route the mesh (outputs/3d) and the sheet (outputs/images).
-            route_output(repo_root, args.brand, glb_src, "agent", seed)
+            # Stage E: render succeeded — route the mesh (textured GLB if present, else raw) + sheet.
+            glb_out = mani.get("textured_glb") or str(glb_src)
+            glb_dest = route_output(repo_root, args.brand, Path(glb_out), "agent", seed)
             sheet = route_output(repo_root, args.brand, sheet_tmp, "agent", seed)
 
-            # Stage F: write the geometry facts next to the sheet for GeometryAwareJudge.
+            # Stage F: geometry-check sidecar (Phase 3) + texture-status sidecar (Phase 4a). The
+            # texture sidecar records the routed GLB name so Phase 4b can find the mesh to finalize.
             cf = Path(sheet).with_name(Path(sheet).stem + RENDER_CHECKS_SUFFIX)
             cf.write_text(json.dumps(checks), encoding="utf-8")
+            if texture:
+                tf = Path(sheet).with_name(Path(sheet).stem + RENDER_TEXTURE_SUFFIX)
+                tf.write_text(json.dumps({"textured": bool(mani.get("textured")),
+                                          "glb": Path(glb_dest).name}), encoding="utf-8")
             return str(sheet)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

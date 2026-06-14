@@ -145,6 +145,14 @@ def main():
                     help="(mesh3d) path to the Blender executable (else $BLENDER_BIN / PATH / default)")
     ap.add_argument("--blender-timeout", dest="blender_timeout", type=int, default=None,
                     help="(mesh3d) max seconds for the Blender render job (default 1800)")
+    ap.add_argument("--texture", action="store_true",
+                    help="(mesh3d) bake a front-projected albedo texture so the loop judges color "
+                         "(Phase 4a: front-faithful, back palette-filled)")
+    ap.add_argument("--back-fill", dest="back_fill", choices=["palette", "mirror"], default="palette",
+                    help="(mesh3d --texture) fill for faces the front concept can't see "
+                         "(palette = flat brand color; mirror = back-project a flipped concept)")
+    ap.add_argument("--texture-res", dest="texture_res", type=int, default=1024,
+                    help="(mesh3d --texture) baked albedo resolution")
     ap.add_argument("--comfy-url", dest="comfy_url", default="http://127.0.0.1:8000")
     ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", required=True,
                     help="ComfyUI output dir: routes renders AND is where the judge drops verdicts")
@@ -156,6 +164,10 @@ def main():
     backend_err = _backend_error(args.backend)
     if backend_err:
         ap.error(backend_err)
+    if args.texture and args.pipeline != "mesh3d":
+        ap.error("--texture applies only to --pipeline mesh3d")
+    if args.back_fill != "palette" and not args.texture:
+        ap.error("--back-fill applies only with --texture (mesh3d albedo bake)")
 
     if args.max_iters is None:
         args.max_iters = 3 if args.pipeline == "mesh3d" else 4
@@ -166,7 +178,7 @@ def main():
     expander = TemplatedExpander()
 
     if args.pipeline == "mesh3d":
-        rubric = build_rubric(m, args.subject, modality="3d")
+        rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture))
         generate = make_render_generate(args, repo_root, m, client)
         judge = GeometryAwareJudge(LocalVLMJudge(client, repo_root, args.comfy_output_dir))
     else:
