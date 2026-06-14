@@ -78,15 +78,18 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   concept → Hunyuan3D mesh → headless Blender contact-sheet render → VLM **form** judge + deterministic
   bmesh geometry checks (watertight / manifold / loose-parts), refine, repeat. **Phase 4a — albedo
   texturing is shipped too** (`--pipeline mesh3d --texture`): a front-projected albedo bake colors the
-  mesh (front-faithful, back palette-filled), restoring the color/palette rubric. Generated all-around
-  texture (Phase 4b) remains **roadmap**.
+  mesh (front-faithful, back palette-filled), restoring the color/palette rubric. **Phase 4b — all-around
+  texture: the multi-view bake engine is shipped too** (`generate.py finalize-texture --from <glb> --views
+  front,right,back,left`): `bake_multiview` projects N corrected views around the mesh and weighted-bakes
+  them into one albedo atlas, so back/sides carry real color. The ComfyUI depth-ControlNet + IPAdapter
+  auto-repaint that *generates* those views from the concept remains **roadmap** (VRAM/model-gated).
 - **FreeCAD is a peer CAD tool, headless too.** Beyond the interactive MCP bridge, **`generate.py cad`**
   drives `FreeCADCmd` headlessly to author **parametric primitives** (box / cylinder / cone / sphere /
   tube) and **convert** CAD/mesh files, exporting **STEP / STL / OBJ** — the BREP (STEP) authoring Blender
   can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
   A FreeCAD self-correction loop (`cad → render → judge`) remains **roadmap**.
 
-**417 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**428 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -119,7 +122,7 @@ is in **[`docs/STACK.md`](docs/STACK.md)**.
 | [`video`](modules/video/) | LTX-2.3 image-to-video + native synced audio · `--upscale` | ✅ |
 | [`audio`](modules/audio/) | ACE-Step (music) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | Hunyuan3D 2.1 image → mesh (GLB / STL / OBJ) | ✅ |
-| [`blender`](modules/blender/) | **MCP bridge** — drive a live Blender (GUI); **`generate.py render`** — headless mesh render, ComfyUI→scene, mesh finish/figurine | ✅ |
+| [`blender`](modules/blender/) | **MCP bridge** — drive a live Blender (GUI); **`generate.py render`** — headless mesh render, ComfyUI→scene, mesh finish/figurine; **`finalize-texture`** — all-around multi-view albedo bake | ✅ |
 | [`cad`](modules/cad/) | **MCP bridge** — drive a live FreeCAD (GUI); **`generate.py cad`** — headless parametric primitives + CAD/mesh convert → STEP/STL/OBJ | ✅ |
 
 ## 🏗️ Architecture / engineering highlights
@@ -142,10 +145,10 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 417 tests run against a mocked ComfyUI client (graph-building,
-  routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render runner, the
-  headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry checks), linted with
-  **ruff** and packaged as an installable
+- **Tested without a GPU, on every push.** 428 tests run against a mocked ComfyUI client (graph-building,
+  routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
+  finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
+  checks), linted with **ruff** and packaged as an installable
   CLI — all verified by **CI on Linux + Windows**.
 
 ## ⚡ Use it — install once, then `chimera`

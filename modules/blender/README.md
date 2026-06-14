@@ -105,10 +105,21 @@ shader-masks front faces vs a flat `back_fill` (`palette` color, or a `mirror` b
 EMIT-bakes a `texture_res` albedo atlas; `mesh_eval` then exports a self-contained **textured GLB** and
 emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipeline mesh3d --texture`.
 
-Phase 3 (self-correction over renders) and Phase 4a (albedo texturing) are **shipped**
-(`auto_generate.py --pipeline mesh3d [--texture]`); see
-[`../agent/self-correction.md`](../agent/self-correction.md). Generated all-around texture is Phase 4b
-(roadmap).
+**Phase 4b — all-around multi-view bake.** Phase 4a colors a mesh from one front projection (faithful
+front, flat back). `generate.py finalize-texture --from <glb> --views front,right,back,left` finalizes a
+**winning** mesh once with real all-around color: the **`mesh_finalize.py`** template calls
+**`_common.bake_multiview()`**, which generalizes `bake_albedo` from 1 → N views — a ring camera per view,
+a per-view `world_to_camera_view` projection UV, a per-view front-facing weight `max(0,dot(N,-dir))²`, a
+weighted blend `Σ(w·c)/max(Σw,ε)`, and a flat `--back-fill` (`palette`/`grey`) for faces no view sees —
+then EMIT-bakes the atlas, exports a textured GLB, and renders orbit verification stills. The corrected
+views are **supplied** today (an artist's paints, or any source); the ComfyUI depth-ControlNet + IPAdapter
+auto-repaint that *generates* them from the concept is roadmap. Runs through the same headless job runner;
+routes the GLB + a contact sheet to `outputs/` with a `kind:"render" mode:"finalize-texture"` sidecar.
+
+Phase 3 (self-correction over renders), Phase 4a (front albedo texturing), and the Phase 4b multi-view
+**bake engine** are **shipped** (`auto_generate.py --pipeline mesh3d [--texture]`; `generate.py
+finalize-texture`); see [`../agent/self-correction.md`](../agent/self-correction.md). The Phase-4b ComfyUI
+auto-repaint that generates the views is roadmap.
 
 ## Security audit (v1.0.0) & per-tool gates
 

@@ -347,8 +347,11 @@ geometry (`generate.py cad`). The FreeCAD self-correction loop remains roadmap.
 - Phase 3 (VLM self-correction over renders) is **shipped for Blender**
   (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
   judge + geometry checks). **Phase 4a** adds albedo texturing (`--texture`: front-projected bake,
-  back palette-filled) restoring the color rubric; generated all-around texture (Phase 4b) and the
-  FreeCAD self-correction equivalent remain roadmap.
+  back palette-filled) restoring the color rubric. **Phase 4b** ships the all-around **multi-view bake
+  engine** (`generate.py finalize-texture` → `_common.bake_multiview`): N corrected views weighted-baked
+  into one atlas so back/sides carry real color — no model, pure bpy/Cycles. The ComfyUI depth-ControlNet
+  + IPAdapter auto-repaint that *generates* those views, and the FreeCAD self-correction loop, remain
+  roadmap.
 
 ---
 
