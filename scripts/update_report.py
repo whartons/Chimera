@@ -20,6 +20,7 @@ GIT_PACKS = [
     ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "229437c"),
     ("ComfyUI-HunyuanVideo-Foley", "phazei", "ComfyUI-HunyuanVideo-Foley", "afd2960"),
     ("ComfyUI-QwenVL", "1038lab", "ComfyUI-QwenVL", "fcd1ada"),
+    ("ComfyUI_IPAdapter_plus", "cubiq", "ComfyUI_IPAdapter_plus", "a0f451a"),
     ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "63acb30"),
 ]
 # blender_mcp lives on Blender's Gitea (not GitHub) — checked via the Gitea compare API.

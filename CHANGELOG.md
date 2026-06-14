@@ -7,6 +7,19 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Phase 4b auto-repaint — all-around 3D texture, end to end** — `generate.py finalize-texture
+  --auto-repaint --concept <img> --subject "..."` now *generates* the corrected views instead of needing
+  them supplied: it renders a per-view **depth map** (`workflows/templates/blender/render_views.py` — an
+  emission depth material, no compositor), then runs an **SDXL depth-ControlNet + IPAdapter** repaint per
+  view (`scripts/brandkit/repaint.py`, `repaint.generate_views`) — the ControlNet locks each view's
+  geometry to its depth while IPAdapter carries the concept's identity — and bakes the N corrected views
+  into one atlas via the shipped `bake_multiview`. Uses the audited **cubiq `ComfyUI_IPAdapter_plus`
+  @ `a0f451a`** + `ip-adapter-plus_sdxl_vit-h` + `CLIP-ViT-H-14` + `xinsir/controlnet-depth-sdxl-1.0`
+  (all pinned; see CATALOG). Tunable `--cn-strength`/`--ip-weight`/`--views-count`; sidecar records the
+  auto-repaint provenance. **Live-validated on the RTX 5090:** an armored-rover mesh textured green/tan
+  **all the way around** (vs Phase-4a's flat palette back). This completes the Phase-4b roadmap item; the
+  manual `--views` mode is unchanged. (Note: a busy concept background can bleed at silhouette edges —
+  use a plain-background concept or lower `--ip-weight`.)
 - **Generative CAD self-correction — `cad --mode script`** — a third `cad` mode that runs an
   **agent/user-authored FreeCAD Python script** headless (`workflows/templates/freecad/script_exec.py`)
   and exports what it builds to STEP/STL/OBJ. The script runs with `App`/`FreeCAD`, `Part`, `Mesh`, and an

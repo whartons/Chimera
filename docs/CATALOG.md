@@ -350,11 +350,20 @@ geometry (`generate.py cad`). The FreeCAD self-correction loop remains roadmap.
 - Phase 3 (VLM self-correction over renders) is **shipped for Blender**
   (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
   judge + geometry checks). **Phase 4a** adds albedo texturing (`--texture`: front-projected bake,
-  back palette-filled) restoring the color rubric. **Phase 4b** ships the all-around **multi-view bake
-  engine** (`generate.py finalize-texture` → `_common.bake_multiview`): N corrected views weighted-baked
-  into one atlas so back/sides carry real color — no model, pure bpy/Cycles. The ComfyUI depth-ControlNet
-  + IPAdapter auto-repaint that *generates* those views, and the FreeCAD self-correction loop, remain
-  roadmap.
+  back palette-filled) restoring the color rubric. **Phase 4b** ships all-around texture: the **multi-view
+  bake** (`generate.py finalize-texture` → `_common.bake_multiview`, no model, pure bpy/Cycles) **plus
+  `--auto-repaint`** which *generates* the views — `render_views` depth + an **SDXL depth-ControlNet +
+  IPAdapter** repaint (`scripts/brandkit/repaint.py`). Pinned/audited pieces for auto-repaint:
+  | Piece | Source / pin | License |
+  |---|---|---|
+  | IPAdapter node pack | `cubiq/ComfyUI_IPAdapter_plus` @ `a0f451a` (audited safe-with-precautions) | MIT |
+  | IPAdapter model | `h94/IP-Adapter` → `ip-adapter-plus_sdxl_vit-h.safetensors` → `models/ipadapter/` | Apache-2.0 |
+  | CLIP-Vision (ViT-H) | `h94/IP-Adapter` image_encoder → `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` → `models/clip_vision/` | MIT |
+  | Depth ControlNet | `xinsir/controlnet-depth-sdxl-1.0` → `models/controlnet/` | Apache-2.0 |
+  | Base | `sd_xl_base_1.0.safetensors` (already present) | CreativeML-OpenRAIL++ |
+
+  Only the **autonomous code-gen backend for the FreeCAD CAD loop** (and Phase-4b cross-view-consistency
+  conditioning) remain roadmap.
 
 ---
 

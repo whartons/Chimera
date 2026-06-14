@@ -112,14 +112,15 @@ front, flat back). `generate.py finalize-texture --from <glb> --views front,righ
 a per-view `world_to_camera_view` projection UV, a per-view front-facing weight `max(0,dot(N,-dir))²`, a
 weighted blend `Σ(w·c)/max(Σw,ε)`, and a flat `--back-fill` (`palette`/`grey`) for faces no view sees —
 then EMIT-bakes the atlas, exports a textured GLB, and renders orbit verification stills. The corrected
-views are **supplied** today (an artist's paints, or any source); the ComfyUI depth-ControlNet + IPAdapter
-auto-repaint that *generates* them from the concept is roadmap. Runs through the same headless job runner;
-routes the GLB + a contact sheet to `outputs/` with a `kind:"render" mode:"finalize-texture"` sidecar.
+views can be **supplied** (`--views`, an artist's paints) **or auto-generated** (`--auto-repaint --concept
+<img> --subject "..."`): `render_views.py` renders a per-view depth map, then an SDXL
+**depth-ControlNet + IPAdapter** repaint (`scripts/brandkit/repaint.py`) generates each view from the
+concept. Runs through the same headless job runner; routes the GLB + a contact sheet to `outputs/` with a
+`kind:"render" mode:"finalize-texture"` sidecar.
 
-Phase 3 (self-correction over renders), Phase 4a (front albedo texturing), and the Phase 4b multi-view
-**bake engine** are **shipped** (`auto_generate.py --pipeline mesh3d [--texture]`; `generate.py
-finalize-texture`); see [`../agent/self-correction.md`](../agent/self-correction.md). The Phase-4b ComfyUI
-auto-repaint that generates the views is roadmap.
+Phase 3 (self-correction over renders), Phase 4a (front albedo texturing), and Phase 4b (the multi-view
+**bake** + **auto-repaint**) are all **shipped** (`auto_generate.py --pipeline mesh3d [--texture]`;
+`generate.py finalize-texture [--auto-repaint]`); see [`../agent/self-correction.md`](../agent/self-correction.md).
 
 ## Security audit (v1.0.0) & per-tool gates
 
