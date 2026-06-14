@@ -112,12 +112,8 @@ def test_from_image_skips_txt2img(monkeypatch, tmp_path):
 
 
 def _texture_args(**kw):
-    import argparse
-    base = dict(brand=None, comfy_output_dir="/comfy/out", from_image=None, octree=256,
-                samples=48, res=[640, 640], variant=None, model=None, blender_bin=None, timeout=None,
-                texture=True, back_fill="palette", texture_res=1024)
-    base.update(kw)
-    return argparse.Namespace(**base)
+    # one source of truth for the baseline namespace: _args() + the texture fields
+    return _args(texture=True, back_fill="palette", texture_res=1024, **kw)
 
 
 class _PaletteManifest:
@@ -145,7 +141,9 @@ def test_texture_threads_concept_and_params_and_routes_textured_glb(monkeypatch,
     assert rp["palette"] == ["#1c1f22", "#2e3338"]
     assert any(p.name.endswith("_textured.glb") for p in calls["routed_src"])
     tf = Path(sheet).with_name(Path(sheet).stem + rg.RENDER_TEXTURE_SUFFIX)
-    assert json.loads(tf.read_text())["textured"] is True
+    meta = json.loads(tf.read_text())
+    assert meta["textured"] is True
+    assert meta["glb"].endswith(".glb")  # routed GLB name recorded for Phase 4b
 
 
 def test_texture_off_routes_raw_glb_and_no_texture_sidecar(monkeypatch, tmp_path):

@@ -29,11 +29,17 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
     # 4 stills) gets its own --blender-timeout so tuning the ComfyUI wait can't starve the render.
     comfy_timeout = args.timeout or 900
     blender_timeout = getattr(args, "blender_timeout", None) or _BLENDER_TIMEOUT
+    # Texture settings are fixed for the whole loop — resolve once (getattr-guarded so lean test
+    # namespaces / partial args still work), not per generate() call.
+    texture = bool(getattr(args, "texture", False))
+    back_fill = getattr(args, "back_fill", "palette")
+    texture_res = int(getattr(args, "texture_res", 1024))
+    palette = list(getattr(manifest, "palette", []) or [])
 
     def _concept(pos, neg, seed):
         """Stage A: produce the concept image; return (uploaded_name, local_path). The uploaded
         name conditions Hunyuan3D; the local path is the texture source for the Phase-4a bake.
-        With --from-image, skip txt2img and use the fixed concept directly."""
+        With --from-image, upload the fixed concept directly and skip txt2img."""
         if args.from_image:
             local = Path(args.from_image)
             return client.upload_image(local), local
@@ -49,10 +55,6 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         # Expensive: one txt2img graph (unless --from-image) + one Hunyuan3D mesh graph + one
         # headless Blender render per call. A single iteration can take minutes — the loop's
         # --max-iters defaults to 3 for mesh3d for this reason.
-        texture = bool(getattr(args, "texture", False))
-        back_fill = getattr(args, "back_fill", "palette")
-        texture_res = int(getattr(args, "texture_res", 1024))
-        palette = list(getattr(manifest, "palette", []) or [])
         uploaded, concept_path = _concept(pos, neg, seed)
 
         # Stage B: Hunyuan3D mesh. Leave the GLB in the ComfyUI output dir; only route it after the
@@ -83,15 +85,17 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
             # Stage E: render succeeded — route the mesh (textured GLB if present, else raw) + sheet.
             glb_out = mani.get("textured_glb") or str(glb_src)
-            route_output(repo_root, args.brand, Path(glb_out), "agent", seed)
+            glb_dest = route_output(repo_root, args.brand, Path(glb_out), "agent", seed)
             sheet = route_output(repo_root, args.brand, sheet_tmp, "agent", seed)
 
-            # Stage F: geometry-check sidecar (Phase 3) + texture-status sidecar (Phase 4a).
+            # Stage F: geometry-check sidecar (Phase 3) + texture-status sidecar (Phase 4a). The
+            # texture sidecar records the routed GLB name so Phase 4b can find the mesh to finalize.
             cf = Path(sheet).with_name(Path(sheet).stem + RENDER_CHECKS_SUFFIX)
             cf.write_text(json.dumps(checks), encoding="utf-8")
             if texture:
                 tf = Path(sheet).with_name(Path(sheet).stem + RENDER_TEXTURE_SUFFIX)
-                tf.write_text(json.dumps({"textured": bool(mani.get("textured"))}), encoding="utf-8")
+                tf.write_text(json.dumps({"textured": bool(mani.get("textured")),
+                                          "glb": Path(glb_dest).name}), encoding="utf-8")
             return str(sheet)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
