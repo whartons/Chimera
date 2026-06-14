@@ -12,7 +12,7 @@ Config (env, with CLI overrides; no hardcoded vendor default):
   CHIMERA_LLM_MODEL     gpt-4o | claude-opus-4-8 | qwen2.5-coder | llava | ...
 """
 from __future__ import annotations
-import os, json, base64, urllib.request
+import os, json, base64, urllib.request, urllib.error
 from pathlib import Path
 
 from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict
@@ -53,7 +53,14 @@ class LLMClient:
         try:
             with _opener(req, timeout=self.timeout) as r:
                 resp = json.loads(r.read())
-        except Exception as e:   # noqa: BLE001 - any transport/parse failure surfaces as LLMError
+        except urllib.error.HTTPError as e:   # surface the response body — providers put the real reason there
+            body = ""
+            try:
+                body = e.read().decode("utf-8", "replace")[:500]
+            except Exception:
+                pass
+            raise LLMError(f"LLM request to {self.base_url} failed: HTTP {e.code} {body}".rstrip()) from e
+        except Exception as e:   # noqa: BLE001 - any other transport/parse failure surfaces as LLMError
             raise LLMError(f"LLM request to {self.base_url} failed: {e}") from e
         try:
             return resp["choices"][0]["message"]["content"]
