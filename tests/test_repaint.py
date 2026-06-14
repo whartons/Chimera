@@ -1,3 +1,4 @@
+from pathlib import Path
 from scripts.brandkit import repaint
 from scripts.brandkit.nodes import find_node_by_title
 
@@ -50,3 +51,33 @@ def test_strengths_and_weight_are_tunable():
     wf = _wf(cn_strength=0.55, ip_weight=0.9)
     assert find_node_by_title(wf, "brand:cnapply")[1]["inputs"]["strength"] == 0.55
     assert find_node_by_title(wf, "brand:ipadapter")[1]["inputs"]["weight"] == 0.9
+
+
+def test_generate_views_orchestration(tmp_path, monkeypatch):
+    calls = {"uploads": [], "queued": 0}
+
+    class FakeClient:
+        def upload_image(self, p):
+            calls["uploads"].append(Path(p).name); return "up_" + Path(p).name
+
+        def queue_prompt(self, wf):
+            calls["queued"] += 1; return f"pid{calls['queued']}"
+
+        def wait(self, pid, max_wait=0):
+            pass
+
+    def fake_runner(tmpl, params, **kw):
+        assert "m.glb" in params["mesh"] and params["azimuths"] == [0.0, 180.0]
+        return {"outputs": [str(tmp_path / "d0.png"), str(tmp_path / "d1.png")]}
+
+    seq = iter([("v0.png", "", ""), ("v1.png", "", "")])
+    monkeypatch.setattr(repaint, "select_output", lambda c, pid, wf: next(seq))
+    views, depths = repaint.generate_views(
+        FakeClient(), mesh=str(tmp_path / "m.glb"), concept_path=str(tmp_path / "c.png"),
+        subject="a rover", azimuths=[0.0, 180.0], comfy_output_dir=str(tmp_path / "out"),
+        out_dir=tmp_path, render_views_template="rv.py", blender_runner=fake_runner, seed=10)
+    assert len(views) == 2 and len(depths) == 2
+    assert views[0].endswith("v0.png") and views[1].endswith("v1.png")
+    assert calls["queued"] == 2                              # one repaint per depth view
+    assert "c.png" in calls["uploads"]                       # concept uploaded for IPAdapter
+    assert sum(1 for u in calls["uploads"] if u.startswith("d")) == 2   # both depths uploaded

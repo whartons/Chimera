@@ -606,9 +606,20 @@ def _finalize_params(args, mesh, view_paths, azimuths, tmp, seed, palette):
 
 
 def _validate_finalize(args, ap):
+    if getattr(args, "auto_repaint", False):
+        # auto-repaint generates the views (ComfyUI SDXL depth-CN + IPAdapter), so --views isn't needed
+        if not args.concept:
+            ap.error("finalize-texture --auto-repaint needs --concept <image> (the identity source)")
+        if not args.subject:
+            ap.error("finalize-texture --auto-repaint needs --subject (the repaint prompt)")
+        if not args.comfy_output_dir:
+            ap.error("finalize-texture --auto-repaint needs --comfy-output-dir (where ComfyUI writes)")
+        if not 1 <= args.views_count <= 7:
+            ap.error("finalize-texture --views-count must be 1..7 (Blender's 8-UV-layer cap minus atlas)")
+        return
     views = _finalize_views(args)
     if not views:
-        ap.error("--views needs at least one image (azimuth order, front first)")
+        ap.error("--views needs at least one image (azimuth order, front first), or use --auto-repaint")
     if len(views) > 7:
         ap.error("--views: at most 7 (Blender caps a mesh at 8 UV layers; one is the bake atlas)")
     if args.azimuths:
@@ -619,6 +630,31 @@ def _validate_finalize(args, ap):
             [float(a) for a in az]
         except ValueError:
             ap.error("--azimuths must be comma-separated numbers (degrees)")
+
+
+def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
+    """Generate the N corrected views for --auto-repaint (render depth per view -> SDXL depth-CN +
+    IPAdapter repaint from the concept). Returns (view_paths, azimuths). Its render-views depth maps
+    go to a temp dir; the repainted views land in the ComfyUI output dir."""
+    from scripts.brandkit import repaint as repaint_filler
+    from scripts.brandkit.comfy import ComfyClient
+    concept = _resolve_asset(brand_dir, args.concept,
+                             ("outputs/images", "outputs", "references", "products"),
+                             ap, "finalize-texture --concept").resolve()
+    azimuths = [360.0 * i / args.views_count for i in range(args.views_count)]
+    client = ComfyClient(args.comfy_url)
+    client.free()
+    rv_tmp = Path(tempfile.mkdtemp(prefix="chimera_rv_"))
+    try:
+        view_paths, _ = repaint_filler.generate_views(
+            client, mesh=mesh, concept_path=concept, subject=args.subject, azimuths=azimuths,
+            comfy_output_dir=args.comfy_output_dir, out_dir=rv_tmp,
+            render_views_template=repo_root / "workflows" / "templates" / "blender" / "render_views.py",
+            blender_runner=blender_runner.run_template, seed=seed, res=args.texture_res,
+            cn_strength=args.cn_strength, ip_weight=args.ip_weight, blender_bin=args.blender_bin)
+    finally:
+        shutil.rmtree(rv_tmp, ignore_errors=True)
+    return [Path(v) for v in view_paths], azimuths
 
 
 def run_finalize_texture(args, repo_root, ap):
@@ -632,9 +668,12 @@ def run_finalize_texture(args, repo_root, ap):
     # absolute paths: the headless Blender process runs with a different cwd.
     mesh = _resolve_asset(brand_dir, args.from_, ("outputs/3d", "outputs", "products", "references"),
                           ap, "finalize-texture --from").resolve()
-    view_paths = [_resolve_asset(brand_dir, v, ("outputs/images", "outputs", "references", "products"),
-                                 ap, "finalize-texture --views").resolve() for v in _finalize_views(args)]
-    azimuths = _finalize_azimuths(args, len(view_paths))
+    if getattr(args, "auto_repaint", False):
+        view_paths, azimuths = _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap)
+    else:
+        view_paths = [_resolve_asset(brand_dir, v, ("outputs/images", "outputs", "references", "products"),
+                                     ap, "finalize-texture --views").resolve() for v in _finalize_views(args)]
+        azimuths = _finalize_azimuths(args, len(view_paths))
     palette = list(getattr(m, "palette", []) or [])
     tmp = Path(tempfile.mkdtemp(prefix="chimera_finalize_"))
     template = repo_root / "workflows" / "templates" / "blender" / _FINALIZE_TEMPLATE
@@ -663,10 +702,13 @@ def run_finalize_texture(args, repo_root, ap):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     outs = [routed_glb] + ([sheet] if sheet else [])
+    params = {"views": [Path(v).name for v in view_paths], "azimuths": azimuths,
+              "elevation": args.elevation, "back_fill": args.back_fill, "texture_res": args.texture_res}
+    if getattr(args, "auto_repaint", False):   # record the auto-repaint provenance
+        params.update(auto_repaint=True, concept=Path(args.concept).name, subject=args.subject,
+                      cn_strength=args.cn_strength, ip_weight=args.ip_weight)
     meta = build_render_meta(mode="finalize-texture", brand=args.brand, seed=seed, template=template.name,
-                             params={"views": [Path(v).name for v in view_paths], "azimuths": azimuths,
-                                     "elevation": args.elevation, "back_fill": args.back_fill,
-                                     "texture_res": args.texture_res},
+                             params=params,
                              outputs=[p.name for p in outs], source=Path(mesh).name,
                              blender_version=manifest.get("blender_version"),
                              timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
@@ -757,9 +799,9 @@ def main():
     ft.add_argument("--seed", type=int, default=None)
     ft.add_argument("--from", dest="from_", required=True,
                     help="mesh to texture (GLB/STL/OBJ; brand asset or path — e.g. a winning mesh3d GLB)")
-    ft.add_argument("--views", required=True,
-                    help="comma-separated corrected view images in azimuth order, front first "
-                         "(4 views = front,right,back,left)")
+    ft.add_argument("--views", default=None,
+                    help="manual mode: comma-separated corrected view images in azimuth order, front first "
+                         "(4 views = front,right,back,left). Omit when using --auto-repaint.")
     ft.add_argument("--azimuths", default=None,
                     help="comma-separated camera azimuths in degrees (default: evenly spaced, front=0)")
     ft.add_argument("--elevation", type=float, default=15.0, help="camera elevation in degrees")
@@ -770,6 +812,22 @@ def main():
     ft.add_argument("--res", type=int, nargs=2, default=[768, 768], metavar=("W", "H"))
     ft.add_argument("--blender-bin", dest="blender_bin", default=None)
     ft.add_argument("--timeout", type=int, default=None)
+    # --auto-repaint: generate the N views via ComfyUI SDXL depth-ControlNet + IPAdapter (Phase 4b auto)
+    ft.add_argument("--auto-repaint", dest="auto_repaint", action="store_true",
+                    help="generate the views automatically: render per-view depth -> SDXL depth-ControlNet "
+                         "+ IPAdapter repaint from --concept (instead of supplying --views)")
+    ft.add_argument("--concept", default=None,
+                    help="(--auto-repaint) identity source image for IPAdapter (brand asset or path)")
+    ft.add_argument("--subject", default=None, help="(--auto-repaint) the repaint prompt, e.g. 'an armored rover'")
+    ft.add_argument("--views-count", dest="views_count", type=int, default=4,
+                    help="(--auto-repaint) number of ring views to generate + bake (1..7; default 4)")
+    ft.add_argument("--cn-strength", dest="cn_strength", type=float, default=0.7,
+                    help="(--auto-repaint) depth-ControlNet strength")
+    ft.add_argument("--ip-weight", dest="ip_weight", type=float, default=0.8,
+                    help="(--auto-repaint) IPAdapter weight (identity strength)")
+    ft.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    ft.add_argument("--comfy-output-dir", default=None,
+                    help="(--auto-repaint) where ComfyUI writes outputs (to collect repainted views)")
     cd = sub.add_parser("cad",
                         help="headless FreeCAD: parametric primitive, CAD/mesh convert, or run an "
                              "agent-authored script (generative CAD)")

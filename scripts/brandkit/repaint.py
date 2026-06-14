@@ -8,6 +8,8 @@ filenames are parameters (the pieces live in the ComfyUI models/ tree; see docs/
 addressed by stable _meta.title so re-saving can't break the filler (same convention as the other
 fillers). Exact cubiq node input names are verified live against get_node_info before first use."""
 from __future__ import annotations
+from pathlib import Path
+from scripts.brandkit.outputs import select_output
 
 DEFAULT_SDXL = "sd_xl_base_1.0.safetensors"
 DEFAULT_IPADAPTER = "ip-adapter-plus_sdxl_vit-h.safetensors"
@@ -66,3 +68,32 @@ def build(*, depth_image, concept_image, positive, negative=DEFAULT_NEG, seed,
         "save": {"class_type": "SaveImage", "inputs": {"images": ["decode", 0], "filename_prefix": "repaint"},
                  "_meta": {"title": "brand:save"}},
     }
+
+
+def generate_views(client, *, mesh, concept_path, subject, azimuths, comfy_output_dir, out_dir,
+                   render_views_template, blender_runner, seed, res=1024, elevation=15.0,
+                   cn_strength=0.7, ip_weight=0.8, blender_bin=None, blender_timeout=600,
+                   comfy_timeout=1200, negative=DEFAULT_NEG):
+    """Generate N corrected views for `mesh` to feed bake_multiview: render per-view depth maps
+    (render_views, headless Blender), then SDXL depth-ControlNet + IPAdapter repaint each from the
+    concept. Returns (view_image_paths, depth_paths). All I/O is injected (client, blender_runner) so
+    it's unit-testable without ComfyUI/Blender. The concept carries identity; each depth locks geometry."""
+    concept_up = client.upload_image(Path(concept_path))
+    rv = blender_runner(render_views_template,
+                        {"mesh": str(Path(mesh).resolve()), "out_dir": str(out_dir), "stem": "rv",
+                         "azimuths": list(azimuths), "elevation": elevation, "res": [res, res], "samples": 1},
+                        blender_bin=blender_bin, timeout=blender_timeout)
+    depths = rv.get("outputs", [])
+    out = Path(comfy_output_dir)
+    views = []
+    for i, dp in enumerate(depths):
+        dup = client.upload_image(Path(dp))
+        wf = build(depth_image=dup, concept_image=concept_up,
+                   positive=f"{subject}, full object, clean studio render, plain solid background",
+                   negative=negative, seed=seed + 1 + i, width=res, height=res,
+                   cn_strength=cn_strength, ip_weight=ip_weight)
+        pid = client.queue_prompt(wf)
+        client.wait(pid, max_wait=comfy_timeout)
+        fname, subfolder, _ = select_output(client, pid, wf)
+        views.append(str(out / subfolder / fname))
+    return views, depths
