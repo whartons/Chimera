@@ -6,7 +6,7 @@ import scripts.generate as G
 def _cad(**kw):
     base = dict(modality="cad", brand=None, seed=5, mode="primitive", shape="box",
                 length=40.0, width=30.0, height=20.0, radius=15.0, radius2=0.0,
-                inner_radius=8.0, from_=None, formats="step,stl",
+                inner_radius=8.0, from_=None, script=None, formats="step,stl",
                 freecad_bin=None, timeout=None)
     base.update(kw); return argparse.Namespace(**base)
 
@@ -38,7 +38,44 @@ def test_cad_sidecar_params_primitive_and_convert():
 
 
 def test_template_map_cad():
-    assert G._TEMPLATE_FOR_CAD == {"primitive": "primitive.py", "convert": "convert.py"}
+    assert G._TEMPLATE_FOR_CAD == {"primitive": "primitive.py", "convert": "convert.py",
+                                   "script": "script_exec.py"}
+
+
+def test_cad_params_script_carries_script_path():
+    p = G._cad_params(_cad(mode="script"), "/abs/model.py", Path("/tmp/w"), 3)
+    assert p["script"] == "/abs/model.py" and "shape" not in p and "source" not in p
+    assert p["formats"] == ["step", "stl"] and p["stem"] == "cad_script_3"
+
+
+def test_validate_cad_script_requires_existing_file(tmp_path):
+    with pytest.raises(SystemExit):   # no --script
+        G._validate_cad(_cad(mode="script", script=None), argparse.ArgumentParser())
+    with pytest.raises(SystemExit):   # --script points at nothing
+        G._validate_cad(_cad(mode="script", script=str(tmp_path / "nope.py")), argparse.ArgumentParser())
+
+
+def test_validate_cad_script_accepts_existing_file(tmp_path):
+    s = tmp_path / "model.py"; s.write_text("pass")
+    G._validate_cad(_cad(mode="script", script=str(s)), argparse.ArgumentParser())
+
+
+def test_run_cad_script_routes_and_sidecars(tmp_path, monkeypatch):
+    repo = tmp_path
+    s = repo / "model.py"; s.write_text("# build a thing")
+    monkeypatch.setattr(G.freecad_runner, "run_template",
+                        lambda t, p, **kw: {"outputs": [str(tmp_path / "m.step")],
+                                            "freecad_version": "1.1.1", "objects": 1})
+    (tmp_path / "m.step").write_text("s")
+    def fake_route(root, brand, src, mode, seed, **kw):
+        dest = repo / "outputs" / "3d" / f"{mode}_{seed}{Path(src).suffix}"
+        dest.parent.mkdir(parents=True, exist_ok=True); dest.write_text("x"); return dest
+    monkeypatch.setattr(G, "route_output", fake_route)
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    G.run_cad(_cad(mode="script", script=str(s), formats="step"), repo, argparse.ArgumentParser())
+    meta = json.loads((repo / "outputs" / "3d" / "script_5.json").read_text())
+    assert meta["kind"] == "cad" and meta["mode"] == "script"
+    assert meta["shape"] is None and meta["source"] == "model.py"
 
 
 def test_primary_cad_output_prefers_step_then_stl():

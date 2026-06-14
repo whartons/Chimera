@@ -50,7 +50,7 @@ FINALIZE_TIMEOUT = 1800
 _FINALIZE_TEMPLATE = "mesh_finalize.py"
 
 CAD_TIMEOUT = 600
-_TEMPLATE_FOR_CAD = {"primitive": "primitive.py", "convert": "convert.py"}
+_TEMPLATE_FOR_CAD = {"primitive": "primitive.py", "convert": "convert.py", "script": "script_exec.py"}
 _CAD_FORMATS = ("step", "stl", "obj")
 _SHAPE_DIMS = {
     "box": ("length", "width", "height"),
@@ -478,6 +478,8 @@ def _cad_params(args, source, tmp, seed):
         p["shape"] = args.shape
         for d in _SHAPE_DIMS[args.shape]:
             p[d] = float(getattr(args, d))
+    elif args.mode == "script":
+        p["script"] = str(source)   # `source` carries the resolved script path in script mode
     else:  # convert
         p["source"] = str(source)
     return p
@@ -520,6 +522,11 @@ def _validate_cad(args, ap):
                 ap.error(f"--{d.replace('_', '-')} must be > 0 for shape {args.shape}")
         if args.shape == "tube" and float(args.inner_radius) >= float(args.radius):
             ap.error("tube --inner-radius must be < --radius")
+    elif args.mode == "script":
+        if not args.script:
+            ap.error("cad --mode script needs --script <file.py>")
+        if not Path(args.script).exists():
+            ap.error(f"cad --mode script: script not found: {args.script}")
     else:  # convert
         ext = Path(args.from_).suffix.lower() if args.from_ else ""
         if ext not in _CONVERT_SRC_EXTS:
@@ -541,6 +548,8 @@ def run_cad(args, repo_root, ap):
         source = _resolve_asset(brand_dir, args.from_,
                                 ("outputs/3d", "outputs", "products", "references"),
                                 ap, "cad convert --from").resolve()
+    elif args.mode == "script":
+        source = Path(args.script).resolve()   # the agent-authored FreeCAD script (abs for headless cwd)
     tmp = Path(tempfile.mkdtemp(prefix="chimera_cad_"))
     template = repo_root / "workflows" / "templates" / "freecad" / _TEMPLATE_FOR_CAD[args.mode]
     try:
@@ -755,9 +764,12 @@ def main():
                         help="headless FreeCAD: author a parametric primitive or convert a CAD/mesh file")
     cd.add_argument("--brand", default=None)
     cd.add_argument("--seed", type=int, default=None)
-    cd.add_argument("--mode", choices=["primitive", "convert"], default="primitive")
+    cd.add_argument("--mode", choices=["primitive", "convert", "script"], default="primitive")
     cd.add_argument("--shape", choices=["box", "cylinder", "cone", "sphere", "tube"], default="box",
                     help="(primitive) solid to build")
+    cd.add_argument("--script", default=None,
+                    help="(script) an agent/user-authored FreeCAD .py that builds geometry in `doc` "
+                         "(or sets RESULT=[objs]); run headless -> STEP/STL/OBJ. For generative CAD.")
     cd.add_argument("--length", type=float, default=40.0, help="(box) mm")
     cd.add_argument("--width", type=float, default=30.0, help="(box) mm")
     cd.add_argument("--height", type=float, default=20.0, help="(box/cylinder/cone/tube) mm")
