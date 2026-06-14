@@ -7,6 +7,21 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Headless FreeCAD `cad` subcommand** — `generate.py cad` drives `FreeCADCmd` (GUI-less) as a normal
+  CLI subprocess to author and convert CAD geometry, completing FreeCAD's headless path (the peer of the
+  Phase-2 Blender render backend; the interactive MCP bridge stays Phase 1). Two modes:
+  - `--mode primitive` *(default)*: build a parametric solid — `--shape box|cylinder|cone|sphere|tube`
+    with mm dimensions (`--length/--width/--height/--radius/--radius2/--inner-radius`);
+  - `--mode convert`: import a CAD/mesh file (`--from` step/stp/iges/igs/brep or stl/obj) and re-export.
+  Exports any subset of **STEP / STL / OBJ** (`--formats`, default `step,stl`) — STEP is the BREP
+  authoring Blender can't do; glTF is GUI-only in FreeCAD, so STL is the bridge into `render --mode mesh`.
+  Job runner `scripts/brandkit/freecad.py` (params via a temp JSON file — `FreeCADCmd` has no `--`
+  separator; mockable `_runner` seam for GPU-free CI), templates in `workflows/templates/freecad/`
+  (`_common`/`primitive`/`convert`), `kind:"cad"` reproducibility sidecar (`sidecar.build_cad_meta`),
+  friendly host-side validation (formats, positive dims, tube bore, cone tip, convert source allowlist,
+  mesh→STEP refusal). STEP/IGES/BREP outputs route to `outputs/3d/`. **Live-validated on FreeCAD 1.1.1**
+  (tube `solids:1` STEP+STL, STEP→STL convert, end-to-end CLI routing + sidecar). The FreeCAD
+  self-correction loop (`cad → render → judge`) remains roadmap.
 - **3D albedo texturing (Phase 4a)** — `auto_generate.py --pipeline mesh3d --texture` restores color to
   the 3D self-correction loop via a headless Blender bake (pure bpy/Cycles — never touches the blocked
   `custom_rasterizer` path). `_common.bake_albedo()` smart-UV-unwraps the mesh, projects the concept
@@ -54,7 +69,8 @@ All notable changes to Chimera are documented here. The format follows
   CLI subprocess — **no per-call MCP approval** (unlike the interactive bridge's gated
   `execute_blender_code`). CI tests mock the subprocess; GPU-free. Requires Blender ≥ 5.1 on PATH
   or `$BLENDER_BIN`; Cycles GPU (OptiX/CUDA); MP4 via Blender's bundled FFmpeg. (Phase 3 — VLM
-  self-correction over these renders — shipped; see above. **FreeCAD headless** remains roadmap.)
+  self-correction over these renders — shipped; see above. **FreeCAD headless `cad`** is now shipped too
+  — see above.)
 - **DCC/CAD bridges (Phase 1)** — assistant-driven MCP bridges to **Blender** (official Blender
   Foundation `lab/blender_mcp` @ `03004fd`, GPL-3.0, loopback :9876) and **FreeCAD**
   (`neka-nat/freecad-mcp` @ `63acb30`, MIT, loopback :9875), repositioning Chimera as a generative +

@@ -5,8 +5,10 @@ create and edit parametric solids, run FEM simulations, export STEP/STL/glTF, an
 introspect the document model — all from an MCP tool call. The scope here is
 **interactive only**: the assistant connects to a running FreeCAD GUI instance over a
 loopback XML-RPC bridge, reads and edits the document, and fires exports into a folder
-you choose. The unattended headless path — `FreeCADCmd` driven by the self-correction
-loop — is a **Phase 2** item (forward-referenced here; it does not exist yet).
+you choose. For unattended geometry authoring there is a **second, headless path** —
+**`generate.py cad`** (see [below](#headless-generatepy-cad-shipped)) — that drives
+`FreeCADCmd` as a normal CLI subprocess; the FreeCAD-driven self-correction loop is still
+roadmap.
 
 ## The MCP bridge
 
@@ -56,16 +58,44 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
    `get_objects` or `list_documents` (Tier 3, read-only) — either should return the
    active FreeCAD document's contents, proving the bridge reached the addon.
 
-## GUI-only caveat — two execution paths
+## Headless `generate.py cad` (shipped)
 
-`neka-nat/freecad-mcp` has no headless mode: all work is marshaled onto FreeCAD's
-Qt GUI thread, and the RPC server is started from a toolbar button in the running
-GUI. There is no background-mode equivalent in this module today. The unattended
-path — used by the self-correction loop — will shell out to `FreeCADCmd script.py`
-instead (Phase 2). Note that `FreeCADCmd` emits **geometry only** (STEP/STL/glTF —
-no headless renderer), so render-for-judge in that path goes through the Blender
-Cycles step; keep a FreeCAD window open and the addon active for any MCP-assisted
-work until Phase 2 lands.
+The MCP bridge is GUI-only (all work is marshaled onto FreeCAD's Qt thread; the RPC
+server starts from a toolbar button). For **unattended geometry authoring**, use the
+headless `cad` subcommand instead — it shells `FreeCADCmd <template> <params.json>` as a
+normal CLI subprocess (no per-call approval), exactly as `generate.py render` does for
+Blender. Runner: [`../../scripts/brandkit/freecad.py`](../../scripts/brandkit/freecad.py);
+templates: [`../../workflows/templates/freecad/`](../../workflows/templates/freecad/).
+
+```bash
+# author a parametric solid -> STEP (BREP) + STL
+python scripts/generate.py cad --shape tube --radius 12 --inner-radius 8 --height 30 --formats step,stl
+
+# box / cylinder / cone / sphere are the other shapes (mm dimensions, sane defaults)
+python scripts/generate.py cad --shape cone --radius 20 --radius2 0 --height 40
+
+# convert an existing CAD/mesh file between formats
+python scripts/generate.py cad --mode convert --from part.step --formats stl,obj
+```
+
+- **Shapes:** `box` (`--length/--width/--height`), `cylinder` (`--radius/--height`),
+  `cone` (`--radius/--radius2/--height`; `radius2 0` = sharp tip), `sphere` (`--radius`),
+  `tube` (`--radius/--inner-radius/--height`; bore must be `< radius`).
+- **Formats** (`--formats`, default `step,stl`): any subset of **`step`, `stl`, `obj`**.
+  `FreeCADCmd` emits **geometry only**; STEP is the BREP/parametric format Blender can't
+  read, so `cad` is how you produce it. **glTF is GUI-only in FreeCAD** — export STL and
+  hand it to `render --mode mesh` for a Cycles render/turntable, or `render --mode finish`
+  for a print-ready figurine. That STL → Blender hop is also the render-for-judge route a
+  future FreeCAD self-correction loop would use.
+- **Binary:** resolved from `--freecad-bin`, `$FREECAD_BIN`, `FreeCADCmd`/`freecadcmd` on
+  PATH, then the default Windows install (`C:\Program Files\FreeCAD *\bin\FreeCADCmd.exe`).
+- Outputs route to `brands/<brand>/outputs/3d/` (or `outputs/3d/` brandless) with a
+  `kind:"cad"` reproducibility sidecar (template, resolved dims/formats, params signature,
+  FreeCAD version, pipeline git sha).
+
+**Still roadmap:** sketch/constraint modeling, FEM headless, assemblies, and the FreeCAD
+**self-correction loop** (`cad → render → judge`). Keep a FreeCAD window open with the addon
+active for live MCP-assisted editing.
 
 ## Security audit (commit `63acb30`) & per-tool gates
 
