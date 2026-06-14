@@ -398,13 +398,43 @@ it → a VLM judges form/printability → the FIX feedback drives the **agent to
 "handle too thin" → bump wall thickness) → re-execute, repeat. No geometry gate is needed (FreeCAD BREP
 output is clean/manifold, unlike Hunyuan3D); `cad` already validates dims host-side.
 
-**Generator = the agent (when present).** Writing/revising parametric code is the part a local model
-can't do, so — exactly like the assistant *judge* backend — the agent is the generator. An **autonomous
-code-gen backend** (a `--backend`/driver calling a code-gen model to author + revise the script) is
-**roadmap**; the enabling capability (`cad --mode script`) ships now.
+**Two ways to drive the generator.** *Assistant-authored* (`cad --mode script`, the agent in Claude Code
+writes/revises the script by hand) **or fully autonomous** via **`auto_generate.py --pipeline cad
+--subject "..."`**, where a provider-agnostic LLM (below) writes + revises the FreeCAD script from the
+loop's FIX feedback — `LLM script → cad --mode script → Blender contact sheet → judge → revise`, reusing
+`run_loop`. `--pipeline cad --backend api` is a pure LLM+FreeCAD+Blender loop (no ComfyUI); with
+`--backend local` the Qwen judge is used (and ComfyUI runs only for judging).
 
-> **Status: shipped + live-validated (2026-06-14).** Authored a parametric mug (hollow body + torus
-> handle), executed it headless via `cad --mode script` → STL, rendered it, judged it, then revised the
-> script (roomier handle + a BREP rim fillet) and re-ran — a real author→exec→render→judge→revise
-> iteration. The script is `exec()`'d unsandboxed in an isolated `FreeCADCmd` process (run only scripts
-> you authored/audited); see [`../cad/README.md`](../cad/README.md#--mode-script--generative-cad-self-correction).
+> ⚠️ The autonomous loop **`exec`s LLM-authored scripts**. They run with a host-side denylist + restricted
+> builtins + an import allowlist (`script_exec.py restrict=True`), which closes the python-level escapes —
+> but it is **not a true sandbox** (FreeCAD's own `Part.export`/`doc.saveAs` can still write files). Point
+> `--pipeline cad` only at an LLM you trust, on a machine you accept it touching.
+
+### Bring your own LLM (`--backend api` / `--pipeline cad`)
+
+Both the AI judge (`--backend api`) and the CAD code-gen are **provider-agnostic** — `scripts/agent/llm.py`
+speaks the OpenAI-compatible `/v1/chat/completions` shape over stdlib HTTP (no vendor SDK), so any compatible
+endpoint works. Configure via env (or `--llm-base-url`/`--llm-model`):
+
+| Provider | `CHIMERA_LLM_BASE_URL` | `CHIMERA_LLM_MODEL` | key |
+|---|---|---|---|
+| **Google Gemini** (OpenAI-compat) | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-pro` | `CHIMERA_LLM_API_KEY` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o` | `CHIMERA_LLM_API_KEY` / `OPENAI_API_KEY` |
+| Anthropic (OpenAI-compat) | `https://api.anthropic.com/v1` | `claude-opus-4-8` | `CHIMERA_LLM_API_KEY` / `ANTHROPIC_API_KEY` |
+| OpenRouter | `https://openrouter.ai/api/v1` | e.g. `google/gemini-2.5-pro` | `CHIMERA_LLM_API_KEY` |
+| Local (Ollama / LM Studio / vLLM) | `http://localhost:11434/v1` | a local model | (omit) |
+
+Any OpenAI-compatible endpoint works — Gemini, OpenAI, Anthropic, OpenRouter, Groq, Together, or a local
+server — because `LLMClient` only speaks `/v1/chat/completions`. For the vision **judge** the model must be
+multimodal (Gemini, GPT-4o, Claude, a local llava/Qwen-VL); for CAD **code-gen** any chat model works.
+
+```
+python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" --backend api \
+    --llm-base-url https://api.anthropic.com/v1 --llm-model claude-opus-4-8   # + CHIMERA_LLM_API_KEY in env
+```
+
+> **Status (2026-06-14):** the assistant-authored path is shipped + live-validated (a parametric mug,
+> author→exec→render→judge→revise with a BREP rim fillet). The **autonomous LLM path** (`--pipeline cad`,
+> `--backend api`) is **built + GPU/network-free mock-tested**; live validation is pending an LLM endpoint
+> (the Qwen judge it can pair with is already available). See
+> [`../cad/README.md`](../cad/README.md#--mode-script--generative-cad-self-correction).

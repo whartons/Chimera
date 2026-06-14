@@ -20,6 +20,32 @@ App.setActiveDocument(doc.Name)
 with open(p["script"], encoding="utf-8") as fh:
     src = fh.read()
 ns = {"App": App, "FreeCAD": App, "Part": Part, "Mesh": Mesh, "doc": doc, "__name__": "__chimera_cad__"}
+
+if p.get("restrict"):
+    # Autonomous (LLM-authored) scripts run with restricted builtins + an import allowlist: no
+    # open/eval/exec/compile/getattr/__import__-of-arbitrary-modules, so the python-level escape hatches
+    # are closed. NOT a full sandbox (FreeCAD's own Part.export/doc.saveAs can still touch the filesystem),
+    # but it raises the bar far past the host-side regex pre-filter. Human `cad --mode script` is trusted
+    # and stays unrestricted.
+    import builtins as _b
+    _ALLOWED = {"FreeCAD", "Part", "Mesh", "math", "Draft", "PartDesign", "BOPTools", "MeshPart"}
+    _real_import = _b.__import__
+
+    def _safe_import(name, *a, **k):
+        if name.split(".")[0] not in _ALLOWED:
+            raise ImportError(f"restricted CAD script may not import {name!r}")
+        return _real_import(name, *a, **k)
+
+    _SAFE = {n: getattr(_b, n) for n in (
+        "abs", "min", "max", "round", "sum", "len", "range", "enumerate", "zip", "map", "filter",
+        "sorted", "reversed", "list", "dict", "tuple", "set", "frozenset", "str", "int", "float",
+        "bool", "complex", "print", "isinstance", "issubclass", "type", "repr", "format", "divmod",
+        "pow", "any", "all", "ord", "chr", "hex", "oct", "bin", "iter", "next", "slice", "hash",
+        "Exception", "ValueError", "TypeError", "RuntimeError", "ZeroDivisionError", "IndexError",
+        "KeyError", "AttributeError", "ImportError") if hasattr(_b, n)}
+    _SAFE["__import__"] = _safe_import
+    ns["__builtins__"] = _SAFE
+
 exec(compile(src, p["script"], "exec"), ns)
 doc.recompute()
 

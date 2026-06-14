@@ -7,6 +7,21 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Provider-agnostic LLM backend — autonomous AI judge + generative CAD loop** — a vendor-neutral
+  `scripts/agent/llm.py` (`LLMClient`) talks the **OpenAI-compatible `/v1/chat/completions`** shape over
+  pure stdlib HTTP (no SDK), so it works with **OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or
+  a local Ollama/vLLM server** — configured by env (`CHIMERA_LLM_BASE_URL` / `_API_KEY` / `_MODEL`) or
+  `--llm-base-url`/`--llm-model`, no hardcoded vendor. Two new autonomous capabilities on `auto_generate.py`:
+  - **`--backend api`** — `LLMJudge` judges a render/contact-sheet against the rubric via the LLM (N-pass
+    consensus reusing `parse_verdict`/`consensus_verdict`), an alternative to the local Qwen judge for any
+    pipeline.
+  - **`--pipeline cad`** — fully autonomous **generative CAD**: an LLM writes/revises a FreeCAD script
+    (`LLMCadGenerator`) → `cad --mode script` → Blender contact-sheet render → judge → fold FIX feedback
+    back → revise, reusing the model-free `run_loop`. `--pipeline cad --backend api` needs no ComfyUI at
+    all. The loop execs LLM-authored scripts, so they run with a **host-side denylist + restricted builtins
+    + an import allowlist** (`script_exec.py restrict=True`) — a best-effort speed bump, **not** a security
+    boundary (FreeCAD's own file I/O is still reachable; point it only at an LLM you trust). No new hard
+    dependency (stdlib HTTP); CI stays GPU/network-free (mocked). Live validation pending an LLM endpoint.
 - **Phase 4b auto-repaint — all-around 3D texture, end to end** — `generate.py finalize-texture
   --auto-repaint --concept <img> --subject "..."` now *generates* the corrected views instead of needing
   them supplied: it renders a per-view **depth map** (`workflows/templates/blender/render_views.py` — an
