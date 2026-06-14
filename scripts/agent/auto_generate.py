@@ -22,8 +22,13 @@ subject + quality (image) or subject + form (mesh3d), and the winner routes into
   python scripts/agent/auto_generate.py --pipeline mesh3d --subject "an armored knight" \
       --comfy-output-dir <comfy_output_dir> [--from-image concept.png] [--octree 256] [--max-iters 3]
 
---comfy-output-dir is required: it both routes renders into the output folder (brand or global) AND
-is where the judge graph drops its verdict .txt. Only the local backend exists (no Claude-API path).
+A third pipeline, `cad`, is fully autonomous generative CAD: a provider-agnostic LLM writes/revises a
+FreeCAD script -> `cad --mode script` -> Blender contact-sheet render -> form judge -> revise.
+
+Judge backends (--backend): `local` (Qwen2.5-VL, default) or `api` (a provider-agnostic, OpenAI-compatible
+LLM judge — point --llm-base-url/--llm-model at OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or
+a local Ollama/vLLM server; see scripts/agent/llm.py). --comfy-output-dir routes ComfyUI renders and is
+where the Qwen judge drops verdicts; it's required except for `--pipeline cad --backend api` (no ComfyUI).
 """
 import argparse, datetime, sys
 from pathlib import Path
@@ -97,7 +102,7 @@ def _write_run_sidecar(result, args, repo_root):
         # `kind` discriminator: this is a run summary, NOT a replayable render sidecar
         # (no inputs/model/negative) — generate.py replay refuses it on this key.
         "schema": 2, "kind": "agent-run",
-        "modality": "3d" if getattr(args, "pipeline", "image") == "mesh3d" else "image",
+        "modality": {"mesh3d": "3d", "cad": "cad"}.get(getattr(args, "pipeline", "image"), "image"),
         "mode": "agent",
         "brand": args.brand, "subject": args.subject, "agent": True,
         "backend": args.backend, "iterations": len(result.history),
@@ -129,12 +134,14 @@ def main():
     ap.add_argument("--subject", required=True)
     ap.add_argument("--max-iters", dest="max_iters", type=int, default=None)
     ap.add_argument("--seeds", default=None, help="comma-separated seeds, one per iteration")
-    ap.add_argument("--backend", choices=["local", "assistant"], default="local",
-                    help="local = autonomous Qwen2.5-VL judge (default); assistant = agent-driven "
-                         "vision consensus (optional, requires the agent in the loop)")
-    ap.add_argument("--pipeline", choices=["image", "mesh3d"], default="image",
+    ap.add_argument("--backend", choices=["local", "api", "assistant"], default="local",
+                    help="local = autonomous Qwen2.5-VL judge (default); api = provider-agnostic LLM judge "
+                         "(OpenAI-compatible, env-configured — see --llm-base-url/--llm-model); "
+                         "assistant = agent-driven vision consensus (requires the agent in the loop)")
+    ap.add_argument("--pipeline", choices=["image", "mesh3d", "cad"], default="image",
                     help="image = txt2img self-correction (default); mesh3d = concept -> Hunyuan3D "
-                         "mesh -> Blender contact-sheet render -> form judge")
+                         "mesh -> Blender contact-sheet render -> form judge; cad = LLM writes a FreeCAD "
+                         "script -> cad -> render -> judge -> revise (autonomous generative CAD)")
     ap.add_argument("--from-image", dest="from_image", default=None,
                     help="(mesh3d) fix the concept image and reroll only the mesh (skips txt2img)")
     ap.add_argument("--octree", type=int, default=None, help="(mesh3d) Hunyuan3D octree_resolution")
@@ -154,8 +161,20 @@ def main():
     ap.add_argument("--texture-res", dest="texture_res", type=int, default=1024,
                     help="(mesh3d --texture) baked albedo resolution")
     ap.add_argument("--comfy-url", dest="comfy_url", default="http://127.0.0.1:8000")
-    ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", required=True,
-                    help="ComfyUI output dir: routes renders AND is where the judge drops verdicts")
+    ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", default=None,
+                    help="ComfyUI output dir: routes renders AND is where the Qwen judge drops verdicts. "
+                         "Required except for `--pipeline cad --backend api` (no ComfyUI in that loop).")
+    ap.add_argument("--freecad-bin", dest="freecad_bin", default=None,
+                    help="(cad) FreeCADCmd path (else $FREECAD_BIN / PATH / default install)")
+    ap.add_argument("--freecad-timeout", dest="freecad_timeout", type=int, default=None,
+                    help="(cad) max seconds for the FreeCAD script job (default 600)")
+    ap.add_argument("--llm-base-url", dest="llm_base_url", default=None,
+                    help="(api/cad) OpenAI-compatible base URL (else $CHIMERA_LLM_BASE_URL); e.g. "
+                         "https://api.openai.com/v1, https://api.anthropic.com/v1, http://localhost:11434/v1")
+    ap.add_argument("--llm-model", dest="llm_model", default=None,
+                    help="(api/cad) model name (else $CHIMERA_LLM_MODEL); e.g. gpt-4o, claude-opus-4-8")
+    ap.add_argument("--judge-passes", dest="judge_passes", type=int, default=1,
+                    help="(--backend api) number of LLM vision passes to consensus-judge (default 1)")
     ap.add_argument("--variant", choices=["base", "turbo"], default=None,
                     help="Z-Image fidelity (turbo=8-step default, base=25-step)")
     ap.add_argument("--model", default=None, help="image model/family override")
@@ -168,23 +187,50 @@ def main():
         ap.error("--texture applies only to --pipeline mesh3d")
     if args.back_fill != "palette" and not args.texture:
         ap.error("--back-fill applies only with --texture (mesh3d albedo bake)")
+    # comfy-output-dir is needed for ComfyUI generation (image/mesh3d) and for the Qwen judge; the only
+    # loop that touches neither is `cad` + the LLM judge.
+    if not args.comfy_output_dir and not (args.pipeline == "cad" and args.backend == "api"):
+        ap.error("--comfy-output-dir is required (ComfyUI render and/or the Qwen judge write there); "
+                 "omit it only for `--pipeline cad --backend api`")
 
     if args.max_iters is None:
-        args.max_iters = 3 if args.pipeline == "mesh3d" else 4
+        args.max_iters = 3 if args.pipeline in ("mesh3d", "cad") else 4
 
     repo_root = Path(__file__).resolve().parents[2]
     m = _resolve_manifest(repo_root, args.brand)
     client = ComfyClient(args.comfy_url)
     expander = TemplatedExpander()
 
-    if args.pipeline == "mesh3d":
+    # A provider-agnostic LLM client is built when the judge is the API backend or the cad pipeline
+    # needs code-gen — shared by both so a `cad --backend api` run makes one client.
+    llm = None
+    if args.backend == "api" or args.pipeline == "cad":
+        from scripts.agent.llm import LLMClient, LLMConfigError
+        try:
+            llm = LLMClient(base_url=args.llm_base_url, model=args.llm_model)
+        except LLMConfigError as e:
+            ap.error(str(e))
+
+    def build_judge():
+        if args.backend == "api":
+            from scripts.agent.llm import LLMJudge
+            return LLMJudge(llm, passes=args.judge_passes)
+        return LocalVLMJudge(client, repo_root, args.comfy_output_dir)
+
+    if args.pipeline == "cad":
+        from scripts.agent.cad_generate import make_cad_generate
+        from scripts.agent.llm import LLMCadGenerator
+        rubric = build_rubric(m, args.subject, modality="3d")   # clean-solid form rubric (BREP is manifold)
+        generate = make_cad_generate(args, repo_root, LLMCadGenerator(llm))
+        judge = build_judge()
+    elif args.pipeline == "mesh3d":
         rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture))
         generate = make_render_generate(args, repo_root, m, client)
-        judge = GeometryAwareJudge(LocalVLMJudge(client, repo_root, args.comfy_output_dir))
+        judge = GeometryAwareJudge(build_judge())
     else:
         rubric = None  # run_loop builds the image rubric
         generate = _make_generate(args, repo_root, m, client)
-        judge = LocalVLMJudge(client, repo_root, args.comfy_output_dir)
+        judge = build_judge()
 
     result = run_loop(expander=expander, judge=judge, generate=generate, manifest=m,
                       subject=args.subject, rubric=rubric, max_iters=args.max_iters,
