@@ -291,9 +291,14 @@ the mesh**. `--from-image` fixes the concept outright and makes the loop a pure 
 
 **What the judge sees.** A single **contact sheet** of 4 orbit views (montaged host-side via
 `scripts/brandkit/montage.py`), so the VLM catches back/side defects a single hero view would hide.
-Geometry facts no render reveals (watertightness, manifoldness, disconnected chunks) are computed
-deterministically in `mesh_eval` and injected as pre-judged NOT-MET issues — **a hollow mesh can never
-PASS**, however good the contact sheet looks.
+`mesh_eval` also computes geometry facts (non-manifold/open edges, loose parts, tri-count, bounds) and
+records them in a `.checks.json` sidecar. `structural_issues` injects only the **gross, VLM-invisible**
+ones as pre-judged NOT-MET issues — an **empty/degenerate mesh** or one that **fragmented into many
+islands** can never PASS, however good the contact sheet looks. It deliberately does **not** fail on
+non-manifold or open edges: a live run showed raw Hunyuan3D output is inherently ~34% non-manifold (even
+at zero weld) with some boundary edges — baseline for surface-net extraction, not a defect — so gating on
+them rejected every real mesh. They stay in the sidecar for provenance (`DEFAULT_MAX_LOOSE_PARTS`, the
+fragmentation threshold, is tunable).
 
 **Backends.** Same `--backend` as the image loop: `local` (autonomous Qwen2.5-VL over the contact
 sheet, default) or the gated `assistant` consensus (the agent judges the contact sheet with M vision
@@ -313,12 +318,15 @@ python scripts/agent/auto_generate.py --pipeline mesh3d --subject "an armored kn
 The winner's mesh lands in `outputs/3d/` (or `brands/<brand>/outputs/3d/`); the judged contact sheet
 and the `agent-run` sidecar (`modality:"3d"`, `winning_seed`) land in the images folder beside it.
 
-> **Status: built + GPU-free CI tested** (mocked ComfyUI client + Blender runner). The `mesh_eval`
-> template — render, 4 orbit stills, the bmesh geometry probe, and the host-side montage — is
-> **live-validated on Blender 5.1.2 / RTX 5090** (the smoke caught and fixed a glTF vertex-split bug
-> that made watertight meshes read as thousands of loose parts). The full concept→mesh→render→judge
-> loop reuses already-live-validated components (Z-Image, Hunyuan3D, `LocalVLMJudge`) and is pending an
-> end-to-end live run (needs ComfyUI + the Hunyuan3D / Qwen2.5-VL models loaded — not a CI step).
+> **Status: built, GPU-free CI tested, and live-validated end-to-end (2026-06-14, Blender 5.1.2 /
+> RTX 5090).** The full **autonomous** loop ran concept (Z-Image) → Hunyuan3D mesh → `mesh_eval`
+> contact sheet → **real Qwen2.5-VL judge** + geometry gate → accept, returning **PASS score 0.95**
+> on a clean armored-rover mesh; the Phase-4a `--texture` path was validated on a knight helmet
+> (front-faithful red/gold albedo, palette back). That first live run is what surfaced the over-strict
+> geometry gate (raw Hunyuan3D is inherently non-manifold, so the old non-manifold/open-edge fail
+> rejected every mesh) — now recalibrated to fail only on empty/degenerate/fragmented meshes. The
+> earlier `mesh_eval` smoke had already caught + fixed a glTF vertex-split bug (watertight meshes read
+> as thousands of loose parts).
 
 ### Phase 4a — front-projected albedo texturing (`--texture`)
 

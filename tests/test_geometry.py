@@ -8,21 +8,32 @@ def test_clean_checks_produce_no_issues():
     assert structural_issues(_CLEAN) == []
 
 
-def test_open_edges_flag_watertight():
-    out = structural_issues({**_CLEAN, "open_edges": 12})
-    assert len(out) == 1 and "watertight" in out[0] and "12" in out[0]
+def test_non_manifold_is_not_a_hard_fail():
+    # raw Hunyuan3D output is inherently ~34% non-manifold (confirmed live, even at zero weld);
+    # gating on it rejected every real mesh, so it must NOT flag.
+    assert structural_issues({**_CLEAN, "non_manifold_edges": 331216}) == []
+
+
+def test_open_edges_are_not_a_hard_fail():
+    # some boundary edges are normal for surface-net meshes; the VLM sees real holes as gaps.
+    assert structural_issues({**_CLEAN, "open_edges": 112}) == []
+
+
+def test_a_few_loose_parts_are_tolerated():
+    # body + antenna etc. is fine; only MANY islands signal fragmentation.
+    assert structural_issues({**_CLEAN, "loose_parts": 2}) == []
+    assert structural_issues({**_CLEAN, "loose_parts": 8}) == []
+
+
+def test_excessive_fragmentation_flags():
+    out = structural_issues({**_CLEAN, "loose_parts": 30})
+    assert len(out) == 1 and "fragmented" in out[0] and "30" in out[0]
     assert out[0].startswith("NOT-MET:")
 
 
-def test_non_manifold_flag():
-    out = structural_issues({**_CLEAN, "non_manifold_edges": 3})
-    assert len(out) == 1 and "not manifold" in out[0] and "3" in out[0]
-
-
-def test_loose_parts_only_flag_above_one():
-    assert structural_issues({**_CLEAN, "loose_parts": 1}) == []
-    out = structural_issues({**_CLEAN, "loose_parts": 4})
-    assert "disconnected parts" in out[0] and "4" in out[0]
+def test_loose_parts_threshold_is_tunable():
+    assert structural_issues({**_CLEAN, "loose_parts": 4}, max_loose_parts=3)
+    assert structural_issues({**_CLEAN, "loose_parts": 4}, max_loose_parts=8) == []
 
 
 def test_empty_and_degenerate():

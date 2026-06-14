@@ -58,15 +58,20 @@ All notable changes to Chimera are documented here. The format follows
   to fix the concept and reroll only the mesh), the concept becomes a Hunyuan3D mesh, the mesh is
   rendered headlessly to a **4-view contact sheet** (new `workflows/templates/blender/mesh_eval.py`),
   and a **form** rubric (`build_rubric(..., modality="3d")`) is judged on the grey-clay render. A new
-  `GeometryAwareJudge` folds **deterministic bmesh geometry checks** (non-manifold edges, open/boundary
-  edges, loose parts, empty/zero-tri, zero-extent bounds) into the verdict — defects a VLM can't see.
-  The model-free loop core,
+  `GeometryAwareJudge` folds **deterministic bmesh geometry checks** into the verdict: `mesh_eval`
+  records non-manifold/open edges, loose parts, tri-count and bounds in a `.checks.json` sidecar, and
+  `structural_issues` force-fails only the gross, VLM-invisible defects — an **empty/degenerate mesh**
+  or one **fragmented into many islands** (`DEFAULT_MAX_LOOSE_PARTS`, tunable). It does **not** fail on
+  non-manifold or open edges: raw Hunyuan3D output is inherently ~34% non-manifold (baseline for
+  surface-net extraction), so gating on those rejected every real mesh. The model-free loop core,
   `parse_verdict`, the expander, and `ConsensusJudge` are reused unchanged; the loop's per-iteration
   seed advance gives an implicit mesh reroll. Host-side contact-sheet montage in
   `scripts/brandkit/montage.py` (Pillow, optional `[images]` extra). GPU-free CI (mocked ComfyUI
-  client + Blender runner); `mesh_eval` (render + 4 orbit stills + bmesh geometry checks + montage) is
-  **live-validated on Blender 5.1.2 / RTX 5090** — that caught and fixed a glTF vertex-split topology
-  bug — with the full ComfyUI→Hunyuan3D→judge loop pending a live run.
+  client + Blender runner). **Live-validated end-to-end on Blender 5.1.2 / RTX 5090 (2026-06-14):** the
+  full autonomous loop (Z-Image → Hunyuan3D → `mesh_eval` → real **Qwen2.5-VL** judge + geometry gate)
+  returned **PASS 0.95** on an armored-rover mesh, and `--texture` produced a front-faithful red/gold
+  knight helmet. That first live run is what exposed the over-strict geometry gate (recalibrated above);
+  an earlier `mesh_eval` smoke had caught + fixed a glTF vertex-split topology bug.
 
   **Roadmap:** Texturing (now shipped as Phase 4a above; all-around generative texture is Phase 4b);
   and FreeCAD headless self-correction.

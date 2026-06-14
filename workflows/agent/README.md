@@ -132,8 +132,9 @@ expander, and loop are unchanged.
    contact-sheet PNG it returns.
 3. **Judge each contact sheet with M independent vision passes** against `r.as_prompt()`, exactly as for
    images — but **also read the sibling `<stem>.checks.json`** the generator wrote and include any
-   `structural_issues(checks)` (non-manifold / not-watertight / disconnected) as **pre-judged NOT-MET
-   lines** in each pass (a VLM can't see those from a render). Parse with `parse_verdict()`.
+   `structural_issues(checks)` (empty / degenerate / over-fragmented — the gross defects a VLM can't read
+   off a render; non-manifold + open edges are recorded but not failed, being baseline for Hunyuan3D) as
+   **pre-judged NOT-MET lines** in each pass. Parse with `parse_verdict()`.
 4. **Consensus + refine** as before — `consensus_verdict(texts)`, then `TemplatedExpander().expand(...)`
    folds the unmet issues into the next **concept** prompt (the lever on an image-conditioned mesh).
    Re-generate with a fresh seed (which also rerolls the mesh lift) and repeat to the cap.

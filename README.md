@@ -75,8 +75,8 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   from the CLI — mesh render + turntable MP4, ComfyUI→scene composite, and mesh
   finish/figurine → print-ready STL/GLB; brand-aware, GPU-free CI tested. Requires Blender ≥ 5.1
   on PATH. **Phase 3 — 3D self-correction is shipped too** (`auto_generate.py --pipeline mesh3d`):
-  concept → Hunyuan3D mesh → headless Blender contact-sheet render → VLM **form** judge + deterministic
-  bmesh geometry checks (watertight / manifold / loose-parts), refine, repeat. **Phase 4a — albedo
+  concept → Hunyuan3D mesh → headless Blender contact-sheet render → VLM **form** judge + a deterministic
+  bmesh geometry gate (fails empty / degenerate / fragmented meshes), refine, repeat. **Phase 4a — albedo
   texturing is shipped too** (`--pipeline mesh3d --texture`): a front-projected albedo bake colors the
   mesh (front-faithful, back palette-filled), restoring the color/palette rubric. **Phase 4b — all-around
   texture: the multi-view bake engine is shipped too** (`generate.py finalize-texture --from <glb> --views

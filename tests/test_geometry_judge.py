@@ -28,33 +28,42 @@ def test_clean_checks_pass_through(tmp_path):
     assert v.passed and v.score == 0.9 and v.issues == []
 
 
-def test_open_edges_force_fail_and_add_issue(tmp_path):
-    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "open_edges": 12})
+def test_fragmentation_forces_fail_and_adds_issue(tmp_path):
+    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "loose_parts": 30})
     j = GeometryAwareJudge(_Stub(Verdict(True, 0.95, ["MET - looks great"])))
     v = j.judge(str(sheet), rubric=None)
     assert v.passed is False
-    assert any("watertight" in i for i in v.issues)
+    assert any("fragmented" in i for i in v.issues)
     assert "MET - looks great" in v.issues  # inner issues preserved, structural unioned in
 
 
-def test_multiple_defects_all_unioned(tmp_path):
-    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "non_manifold_edges": 5, "loose_parts": 3})
+def test_inherent_non_manifold_does_not_force_fail(tmp_path):
+    # the key live-validated behavior: a good Hunyuan3D mesh (hugely non-manifold, a few open edges,
+    # 2 parts) must PASS through to the VLM verdict, not get force-failed on topology.
+    sheet = _sheet_with_checks(tmp_path, {"non_manifold_edges": 331216, "open_edges": 112,
+                                          "loose_parts": 2, "tri_count": 781004, "bounds_ok": True})
+    j = GeometryAwareJudge(_Stub(Verdict(True, 0.9, ["MET - clean rover"])))
+    v = j.judge(str(sheet), rubric=None)
+    assert v.passed is True and v.score == 0.9 and v.issues == ["MET - clean rover"]
+
+
+def test_empty_mesh_forces_fail(tmp_path):
+    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "tri_count": 0})
     j = GeometryAwareJudge(_Stub(Verdict(True, 0.6, ["MET - ok"])))
     v = j.judge(str(sheet), rubric=None)
     assert v.passed is False
-    assert any("not manifold" in i for i in v.issues)
-    assert any("disconnected parts" in i for i in v.issues)
+    assert any("empty" in i for i in v.issues)
     assert "MET - ok" in v.issues
     assert len(v.issues) == len(set(v.issues))  # no duplicates
 
 
 def test_already_failed_inner_stays_failed_and_unions(tmp_path):
-    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "open_edges": 3})
+    sheet = _sheet_with_checks(tmp_path, {**_CLEAN, "bounds_ok": False})
     j = GeometryAwareJudge(_Stub(Verdict(False, 0.4, ["NOT-MET - wrong shape"])))
     v = j.judge(str(sheet), rubric=None)
     assert v.passed is False and v.score == 0.4
     assert "NOT-MET - wrong shape" in v.issues
-    assert any("watertight" in i for i in v.issues)
+    assert any("degenerate" in i for i in v.issues)
 
 
 def test_no_checks_file_is_passthrough(tmp_path):
