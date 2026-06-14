@@ -24,6 +24,11 @@ C.frame_object(scn, obj)
 # --- geometry checks (bmesh on the imported mesh data) ---
 bm = bmesh.new()
 bm.from_mesh(obj.data)
+# glTF/GLB (incl. Hunyuan3D output) splits vertices along UV seams / normals, so the imported
+# mesh is a triangle-soup of coincident-but-separate verts — every edge reads as a boundary and
+# every vert as its own component. Weld the exact-coincident duplicates first so the topology
+# checks reflect the real surface (same reason mesh_finish runs remove_doubles).
+bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-4)
 non_manifold = sum(1 for e in bm.edges if len(e.link_faces) > 2)   # >2 faces = non-manifold junction
 open_edges = sum(1 for e in bm.edges if len(e.link_faces) < 2)     # <2 faces = boundary/hole
 
