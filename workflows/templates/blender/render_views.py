@@ -18,6 +18,12 @@ scn.render.resolution_x, scn.render.resolution_y = int(res[0]), int(res[1])
 scn.world = bpy.data.worlds.new("W")
 scn.world.use_nodes = True
 scn.world.node_tree.nodes["Background"].inputs[1].default_value = 0.0   # black background = far
+# write the depth ramp display-referred (sRGB), NOT through Blender's default AgX tone curve —
+# AgX would warp the linear MapRange ramp into a low-contrast image and weaken the depth ControlNet.
+try:
+    scn.view_settings.view_transform = 'Standard'
+except Exception:
+    pass
 
 obj = C.import_mesh(p["mesh"])
 bpy.ops.object.select_all(action='DESELECT')

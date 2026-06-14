@@ -66,7 +66,10 @@ def test_generate_views_orchestration(tmp_path, monkeypatch):
         def wait(self, pid, max_wait=0):
             pass
 
+    seen = {}
+
     def fake_runner(tmpl, params, **kw):
+        seen["params"] = params
         assert "m.glb" in params["mesh"] and params["azimuths"] == [0.0, 180.0]
         return {"outputs": [str(tmp_path / "d0.png"), str(tmp_path / "d1.png")]}
 
@@ -75,7 +78,9 @@ def test_generate_views_orchestration(tmp_path, monkeypatch):
     views, depths = repaint.generate_views(
         FakeClient(), mesh=str(tmp_path / "m.glb"), concept_path=str(tmp_path / "c.png"),
         subject="a rover", azimuths=[0.0, 180.0], comfy_output_dir=str(tmp_path / "out"),
-        out_dir=tmp_path, render_views_template="rv.py", blender_runner=fake_runner, seed=10)
+        out_dir=tmp_path, render_views_template="rv.py", blender_runner=fake_runner, seed=10,
+        elevation=30.0)
+    assert seen["params"]["elevation"] == 30.0   # elevation forwarded to the depth render
     assert len(views) == 2 and len(depths) == 2
     assert views[0].endswith("v0.png") and views[1].endswith("v1.png")
     assert calls["queued"] == 2                              # one repaint per depth view

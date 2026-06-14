@@ -616,6 +616,14 @@ def _validate_finalize(args, ap):
             ap.error("finalize-texture --auto-repaint needs --comfy-output-dir (where ComfyUI writes)")
         if not 1 <= args.views_count <= 7:
             ap.error("finalize-texture --views-count must be 1..7 (Blender's 8-UV-layer cap minus atlas)")
+        if args.azimuths:
+            az = [a for a in args.azimuths.split(",") if a.strip()]
+            if len(az) != args.views_count:
+                ap.error(f"--azimuths count ({len(az)}) must match --views-count ({args.views_count})")
+            try:
+                [float(a) for a in az]
+            except ValueError:
+                ap.error("--azimuths must be comma-separated numbers (degrees)")
         return
     views = _finalize_views(args)
     if not views:
@@ -637,23 +645,25 @@ def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
     IPAdapter repaint from the concept). Returns (view_paths, azimuths). Its render-views depth maps
     go to a temp dir; the repainted views land in the ComfyUI output dir."""
     from scripts.brandkit import repaint as repaint_filler
-    from scripts.brandkit.comfy import ComfyClient
     concept = _resolve_asset(brand_dir, args.concept,
                              ("outputs/images", "outputs", "references", "products"),
                              ap, "finalize-texture --concept").resolve()
-    azimuths = [360.0 * i / args.views_count for i in range(args.views_count)]
+    azimuths = _finalize_azimuths(args, args.views_count)   # honors --azimuths, else even spacing
     client = ComfyClient(args.comfy_url)
     client.free()
     rv_tmp = Path(tempfile.mkdtemp(prefix="chimera_rv_"))
     try:
         view_paths, _ = repaint_filler.generate_views(
             client, mesh=mesh, concept_path=concept, subject=args.subject, azimuths=azimuths,
-            comfy_output_dir=args.comfy_output_dir, out_dir=rv_tmp,
+            comfy_output_dir=args.comfy_output_dir, out_dir=rv_tmp, elevation=args.elevation,
             render_views_template=repo_root / "workflows" / "templates" / "blender" / "render_views.py",
             blender_runner=blender_runner.run_template, seed=seed, res=args.texture_res,
             cn_strength=args.cn_strength, ip_weight=args.ip_weight, blender_bin=args.blender_bin)
     finally:
         shutil.rmtree(rv_tmp, ignore_errors=True)
+    if len(view_paths) != len(azimuths):
+        print(f"auto-repaint: expected {len(azimuths)} views but got {len(view_paths)} "
+              "(render_views/repaint under-produced)", file=sys.stderr); sys.exit(1)
     return [Path(v) for v in view_paths], azimuths
 
 
