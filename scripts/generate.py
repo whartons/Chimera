@@ -36,6 +36,7 @@ import tempfile, shutil
 from scripts.brandkit import blender as blender_runner
 from scripts.brandkit import freecad as freecad_runner
 from scripts.brandkit.sidecar import build_render_meta, build_cad_meta
+from scripts.brandkit import finalize as finalize_core
 
 FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
            "3d": threed_filler.build}
@@ -46,8 +47,8 @@ RENDER_TIMEOUT = 1800
 _TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
                       "finish": "mesh_finish.py"}
 
-FINALIZE_TIMEOUT = 1800
-_FINALIZE_TEMPLATE = "mesh_finalize.py"
+FINALIZE_TIMEOUT = finalize_core.FINALIZE_TIMEOUT
+_FINALIZE_TEMPLATE = finalize_core.FINALIZE_TEMPLATE
 
 CAD_TIMEOUT = 600
 _TEMPLATE_FOR_CAD = {"primitive": "primitive.py", "convert": "convert.py", "script": "script_exec.py"}
@@ -599,10 +600,10 @@ def _finalize_azimuths(args, n):
 
 
 def _finalize_params(args, mesh, view_paths, azimuths, tmp, seed, palette):
-    return {"mesh": str(mesh), "out_dir": str(tmp), "stem": f"{args.brand or 'finalize'}_{seed}",
-            "view_images": [str(v) for v in view_paths], "azimuths": azimuths,
-            "elevation": args.elevation, "back_fill": args.back_fill, "palette": palette,
-            "texture_res": args.texture_res, "samples": args.samples, "res": list(args.res), "seed": seed}
+    return finalize_core.finalize_params(
+        mesh=mesh, view_paths=view_paths, azimuths=azimuths, brand=args.brand, seed=seed,
+        elevation=args.elevation, back_fill=args.back_fill, palette=palette,
+        texture_res=args.texture_res, samples=args.samples, res=list(args.res), out_dir=str(tmp))
 
 
 def _validate_finalize(args, ap):
@@ -641,30 +642,24 @@ def _validate_finalize(args, ap):
 
 
 def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
-    """Generate the N corrected views for --auto-repaint (render depth per view -> SDXL depth-CN +
-    IPAdapter repaint from the concept). Returns (view_paths, azimuths). Its render-views depth maps
-    go to a temp dir; the repainted views land in the ComfyUI output dir."""
-    from scripts.brandkit import repaint as repaint_filler
+    """Resolve the concept + azimuths, then delegate to brandkit.finalize.repaint_views (shared with
+    the in-loop finalize). Returns (view_paths, azimuths)."""
     concept = _resolve_asset(brand_dir, args.concept,
                              ("outputs/images", "outputs", "references", "products"),
                              ap, "finalize-texture --concept").resolve()
     azimuths = _finalize_azimuths(args, args.views_count)   # honors --azimuths, else even spacing
     client = ComfyClient(args.comfy_url)
     client.free()
-    rv_tmp = Path(tempfile.mkdtemp(prefix="chimera_rv_"))
     try:
-        view_paths, _ = repaint_filler.generate_views(
-            client, mesh=mesh, concept_path=concept, subject=args.subject, azimuths=azimuths,
-            comfy_output_dir=args.comfy_output_dir, out_dir=rv_tmp, elevation=args.elevation,
-            render_views_template=repo_root / "workflows" / "templates" / "blender" / "render_views.py",
+        return finalize_core.repaint_views(
+            client, mesh=mesh, concept=concept, subject=args.subject, azimuths=azimuths,
+            comfy_output_dir=args.comfy_output_dir, repo_root=repo_root,
             blender_runner=blender_runner.run_template, seed=seed, res=args.texture_res,
-            cn_strength=args.cn_strength, ip_weight=args.ip_weight, blender_bin=args.blender_bin)
-    finally:
-        shutil.rmtree(rv_tmp, ignore_errors=True)
-    if len(view_paths) != len(azimuths):
-        print(f"auto-repaint: expected {len(azimuths)} views but got {len(view_paths)} "
-              "(render_views/repaint under-produced)", file=sys.stderr); sys.exit(1)
-    return [Path(v) for v in view_paths], azimuths
+            elevation=args.elevation, cn_strength=args.cn_strength, ip_weight=args.ip_weight,
+            blender_bin=args.blender_bin)
+    except finalize_core.FinalizeError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
 
 
 def run_finalize_texture(args, repo_root, ap):
