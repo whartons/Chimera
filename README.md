@@ -1,9 +1,9 @@
 # Chimera
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
-[![tests](https://github.com/whartons/ComfyUI-Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/ComfyUI-Chimera/actions/workflows/ci.yml)
+[![tests](https://github.com/whartons/Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/Chimera/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![codecov](https://codecov.io/gh/whartons/ComfyUI-Chimera/branch/main/graph/badge.svg)](https://codecov.io/gh/whartons/ComfyUI-Chimera)
+[![codecov](https://codecov.io/gh/whartons/Chimera/branch/main/graph/badge.svg)](https://codecov.io/gh/whartons/Chimera)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-%E2%89%A50.24-orange)
 ![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Built on RTX 5090 · cu130](https://img.shields.io/badge/built%20on-RTX%205090%20%C2%B7%20cu130-76B900?logo=nvidia&logoColor=white)
@@ -286,7 +286,7 @@ See **[`docs/CATALOG.md`](docs/CATALOG.md)** for the best free, locally-runnable
 2. **5090 owner?** Run the [tuning guide](docs/BLACKWELL-TUNING.md) — it pays for itself.
 3. Install Chimera + download a module's models (e.g. [`modules/image/models.md`](modules/image/models.md)):
    ```bash
-   git clone https://github.com/whartons/ComfyUI-Chimera && cd ComfyUI-Chimera
+   git clone https://github.com/whartons/Chimera && cd Chimera
    pip install -e ".[dev]"          # the `chimera` CLI + test/lint tooling
    chimera doctor --brand example-brand   # confirm ComfyUI + models are ready
    ```

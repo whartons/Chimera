@@ -113,7 +113,7 @@ def gather():
     return rows
 
 
-def build(rows, repo="whartons/ComfyUI-Chimera"):
+def build(rows, repo="whartons/Chimera"):
     """Render the rows into the issue markdown (pure — unit-tested)."""
     base = f"https://github.com/{repo}/blob/main"
     warns = sum(1 for lvl, _ in rows if lvl == "warn")
@@ -140,4 +140,4 @@ def build(rows, repo="whartons/ComfyUI-Chimera"):
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")   # the report has emoji; issue body is UTF-8
-    print(build(gather(), repo=os.environ.get("GITHUB_REPOSITORY", "whartons/ComfyUI-Chimera")))
+    print(build(gather(), repo=os.environ.get("GITHUB_REPOSITORY", "whartons/Chimera")))

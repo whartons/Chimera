@@ -259,8 +259,8 @@ All notable changes to Chimera are documented here. The format follows
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.3...HEAD
-[0.1.3]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/whartons/ComfyUI-Chimera/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/whartons/ComfyUI-Chimera/releases/tag/v0.1.0
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/whartons/Chimera/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/whartons/Chimera/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/whartons/Chimera/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/whartons/Chimera/releases/tag/v0.1.0

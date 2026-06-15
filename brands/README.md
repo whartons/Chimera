@@ -61,7 +61,7 @@ picks the right workflow, queues it to ComfyUI, and routes the result into
 python scripts/generate.py image --brand example-brand \
     --subject "a heavy combat support rig, articulated legs" \
     --mode txt2img --seed 7 \
-    --comfy-output-dir "C:/Users/<you>/.../ComfyUI-Chimera/outputs"
+    --comfy-output-dir "C:/Users/<you>/.../Chimera/outputs"
     # (add --watermark to stamp the brand logo)
 
 # 2) logo watermark (stamps logos/primary.png as an alpha-correct corner mark)
