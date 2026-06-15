@@ -77,9 +77,11 @@ textures, materials, or vertex colors — the mesh will appear as an untextured
 grey solid in most viewers.
 
 This is a limitation of the current native ComfyUI path, not of Hunyuan3D in
-general. PBR texturing (Hunyuan3D-Paint) would require a separate custom node
-pack that is not yet part of this module. Downstream texturing in Blender,
-Substance Painter, or similar tools works fine on the exported geometry.
+general. In-ComfyUI PBR texturing (Hunyuan3D-Paint) would require a separate
+custom node pack that is wheel-blocked on this stack (see below) — but the
+self-correction loop **does** texture its winning mesh automatically via a
+Blender multi-view bake (`--finalize`, described below), and downstream texturing
+in Blender, Substance Painter, or similar tools works fine on the exported geometry.
 
 ### Why in-pipeline PBR texturing is deferred on this stack
 

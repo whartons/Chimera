@@ -6,6 +6,14 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Docs
+- Corrected four post-v0.2.0 staleness spots that still described shipped features as roadmap/unbuilt:
+  `modules/cad/README.md` dropped **in-loop finalize** from "Still roadmap" (it ships as `--finalize`);
+  `modules/agent/self-correction.md` now states the **LLM-driven expander** (`LLMExpander`,
+  `--rewrite-prompts`) ships alongside `TemplatedExpander` and that the Phase-4b auto-repaint
+  view-generator is shipped (not deferred); `modules/threed/README.md` scopes "not part of this module"
+  to **in-ComfyUI** Hunyuan3D-Paint and points to the shipped Blender multi-view bake.
+
 ## [0.2.0] - 2026-06-15
 
 The **DCC/CAD hub** release: Chimera grows from a ComfyUI-only pipeline into an agentic generative +

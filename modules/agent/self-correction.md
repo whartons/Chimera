@@ -34,8 +34,9 @@ a failed candidate can never win.
 The two pluggable seams are the **`Judge`** interface (how a candidate is scored) and
 the **`PromptExpander`** interface (how a subject + prior issues become a prompt).
 Everything else — the rubric, the loop, the generate path — is shared by both backends
-below. `TemplatedExpander` is the V1 expander; an LLM-driven expander is a documented
-future extension, not built.
+below. `TemplatedExpander` is the default expander; an LLM-driven expander (`LLMExpander`,
+opt-in via `--rewrite-prompts`) now ships alongside it — it rewrites prompts from the judge's
+FIX feedback and falls back to `TemplatedExpander` when no LLM is configured.
 
 ## The three judge backends
 
@@ -357,8 +358,8 @@ a ComfyUI run.
 ### Phase 4b — all-around texture: multi-view bake engine + auto-repaint (both shipped)
 
 Phase 4a's back is approximate because one front image has no back data. **Phase 4b** finalizes the
-**winning** mesh once (not per iteration) with real all-around color. It splits into a shipped engine and
-a deferred view-generator:
+**winning** mesh once (not per iteration) with real all-around color. It splits into a multi-view bake
+engine and a ComfyUI auto-repaint view-generator — both shipped:
 
 **Shipped — the multi-view bake engine.** `generate.py finalize-texture --from <glb> --views
 front,right,back,left` runs the `mesh_finalize.py` template, which calls **`_common.bake_multiview()`** —

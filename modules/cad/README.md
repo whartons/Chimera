@@ -144,9 +144,8 @@ from the FreeCAD error it feeds back, so a decent coder recovers in a couple of 
 > reachable), so point it only at an LLM you trust. This is a first-party CLI capability, *not* an MCP
 > tool, so the per-tool gates below don't apply; the gated MCP `execute_code` is the separate GUI path.
 
-**Still roadmap:** sketch/constraint modeling, FEM headless, assemblies, and an **in-loop finalize**
-(auto-texture the winning mesh). Keep a FreeCAD window open with the addon active for live MCP-assisted
-editing.
+**Still roadmap:** sketch/constraint modeling, FEM headless, and assemblies. Keep a FreeCAD window open
+with the addon active for live MCP-assisted editing.
 
 ## Security audit (commit `63acb30`) & per-tool gates
 
