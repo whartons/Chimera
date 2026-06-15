@@ -17,6 +17,7 @@ import os, json, base64, urllib.request, urllib.error
 from pathlib import Path
 
 from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict
+from scripts.agent.expander import PromptExpander, TemplatedExpander
 
 
 class LLMConfigError(RuntimeError):
@@ -77,6 +78,25 @@ class LLMClient:
         """One vision turn: a text prompt + an inlined image (OpenAI image_url shape)."""
         return self.chat([{"role": "user",
                            "content": [{"type": "text", "text": prompt}, self._image_part(image_path)]}], **kw)
+
+
+def client_for_role(role, *, cli_base=None, cli_model=None,
+                    shared_cli_base=None, shared_cli_model=None, timeout=180) -> LLMClient:
+    """Build an LLMClient for `role` in {'codegen','judge','rewriter'}. SPECIFIC-WINS precedence for each
+    of base_url/model:  role CLI > role env (CHIMERA_<ROLE>_*) > shared CLI (--llm-*) > shared env
+    (CHIMERA_LLM_*).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY > OPENAI_API_KEY > ANTHROPIC_API_KEY.
+    Raises a role-tagged LLMConfigError (with an 'or run interactively' hint) when base_url/model can't be
+    resolved, so the user knows which endpoint is missing and that an interactive agent is the alternative."""
+    pre = "CHIMERA_" + role.upper()
+    base = cli_base or os.environ.get(pre + "_BASE_URL") or shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL")
+    model = cli_model or os.environ.get(pre + "_MODEL") or shared_cli_model or os.environ.get("CHIMERA_LLM_MODEL")
+    key = (os.environ.get(pre + "_API_KEY") or os.environ.get("CHIMERA_LLM_API_KEY")
+           or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        return LLMClient(base_url=base, api_key=key, model=model, timeout=timeout)
+    except LLMConfigError as e:
+        raise LLMConfigError("[" + role + "] " + str(e)
+                             + "  (or drive the loop interactively with an AI agent, which supersedes this)") from e
 
 
 class LLMJudge(Judge):
@@ -143,3 +163,60 @@ class LLMCadGenerator:
             max_tokens=2048, temperature=self.temperature))
         self.prev = code
         return code
+
+
+_REWRITE_SYSTEM = {
+    "image": ("You are a prompt engineer for text-to-image generation. Rewrite the positive and negative "
+              "prompts so the render better matches the subject and brand voice and fixes the critic's "
+              "directives. Preserve the brand style and palette. Output ONLY JSON: "
+              '{"positive": "...", "negative": "..."}'),
+    "3d": ("You are a prompt engineer for image-to-3D / CAD concept generation. Rewrite the positive and "
+           "negative prompts describing the object's FORM (one clean subject, neutral background, no text) "
+           "so it better matches the subject and fixes the critic's directives. Output ONLY JSON: "
+           '{"positive": "...", "negative": "..."}'),
+}
+
+
+def _rewrite_user(subject, seed_pos, seed_neg, prior_issues):
+    fixes = "\n".join("- " + str(i) for i in (prior_issues or [])) or "(none — this is the first attempt)"
+    return ("SUBJECT: " + subject + "\nCURRENT POSITIVE: " + seed_pos + "\nCURRENT NEGATIVE: " + seed_neg
+            + "\nCRITIC FIX DIRECTIVES:\n" + fixes + "\n\nReturn improved JSON.")
+
+
+def _extract_json(text):
+    """Pull the first {...} object from the LLM output (tolerating a ```json fence). Raises on none."""
+    s = text
+    if "```" in s:
+        parts = s.split("```", 2)
+        if len(parts) >= 2:
+            s = parts[1]
+            if s.lower().startswith("json"):
+                s = s[4:]
+    a, b = s.find("{"), s.rfind("}")
+    if a == -1 or b == -1 or b < a:
+        raise ValueError("no JSON object in LLM rewrite output")
+    return json.loads(s[a:b + 1])
+
+
+class LLMExpander(PromptExpander):
+    """Rewrite (positive, negative) with an LLM from subject + brand voice + the judge's prior FIX
+    directives. The templated expander SEEDS the rewrite AND is the fallback, so output never degrades
+    below today's behavior and any LLM/parse failure is non-fatal. Text-only (no vision)."""
+
+    def __init__(self, client, *, modality="image", fallback=None, temperature=0.5):
+        self.client = client
+        self.modality = "3d" if modality == "3d" else "image"
+        self.fallback = fallback or TemplatedExpander()
+        self.temperature = temperature
+
+    def expand(self, subject, manifest, prior_issues=None):
+        seed_pos, seed_neg = self.fallback.expand(subject, manifest, prior_issues)
+        try:
+            out = self.client.chat(
+                [{"role": "system", "content": _REWRITE_SYSTEM[self.modality]},
+                 {"role": "user", "content": _rewrite_user(subject, seed_pos, seed_neg, prior_issues)}],
+                temperature=self.temperature)
+            data = _extract_json(out)
+            return (str(data["positive"]).strip() or seed_pos), (str(data.get("negative", seed_neg)).strip() or seed_neg)
+        except Exception:   # noqa: BLE001 — rewriting is best-effort; never break the loop
+            return seed_pos, seed_neg

@@ -122,6 +122,20 @@ repeat. It runs two ways:
   for the provider table. (Built + **live-validated** against a local Ollama endpoint — `qwen2.5-coder`
   drove a full FreeCAD→render→judge→revise→PASS loop; `qwen2.5vl` confirmed the vision judge.)
 
+**Per-role endpoints (autonomous runs only; an interactive AI agent needs none of this).** Codegen
+(`--codegen-*` / `CHIMERA_CODEGEN_*`) and the judge (`--judge-*` / `CHIMERA_JUDGE_*`) each take their own
+OpenAI-compatible endpoint, falling back to the shared `--llm-*` / `CHIMERA_LLM_*`. Model & hardware tiers:
+
+| Setup | Codegen | Judge | GPU |
+|-------|---------|-------|-----|
+| Interactive (IDE agent) | the agent | the agent | none (FreeCAD/Blender local) |
+| No GPU, hosted API | `--backend api` hosted multimodal (Gemini free tier / GPT-4o / Claude) | same model | none |
+| Mixed | `--codegen-model` strong hosted coder | `--backend local` Qwen-VL (~16 GB) | judge GPU only |
+| Fully local | `--codegen-model qwen2.5-coder:7b/14b/32b` (Ollama) | `--backend local` Qwen-VL | per model |
+
+Codegen quality drives success: a 7B *coder* works, a 7B *vision* model does not. The loop self-corrects
+from the FreeCAD error it feeds back, so a decent coder recovers in a couple of iterations.
+
 > ⚠️ **`--mode script` `exec()`s the script unsandboxed** in the `FreeCADCmd` process (no network,
 > isolated process, but full Python — same trust as running a FreeCAD macro you wrote). **Run only
 > scripts you authored or audited.** The **autonomous** `--pipeline cad` path runs LLM-authored scripts

@@ -141,3 +141,68 @@ def test_cad_generator_first_then_revise():
     assert s2 == "box = 2  # revised"
     revise_msg = fc.seen[1][1][1]["content"]
     assert "Revise this FreeCAD script" in revise_msg and "handle too thin" in revise_msg and "box = 1" in revise_msg
+
+
+from scripts.agent.llm import client_for_role
+
+
+def test_client_for_role_role_cli_wins(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("CHIMERA_CODEGEN_MODEL", "envRole")
+    monkeypatch.setenv("CHIMERA_LLM_MODEL", "envShared")
+    c = client_for_role("codegen", cli_base="http://role/v1", cli_model="cliRole",
+                        shared_cli_base="http://shared/v1", shared_cli_model="cliShared")
+    assert c.base_url == "http://role/v1" and c.model == "cliRole"
+
+
+def test_client_for_role_role_env_beats_shared_cli(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("CHIMERA_CODEGEN_BASE_URL", "http://roleenv/v1")
+    monkeypatch.setenv("CHIMERA_CODEGEN_MODEL", "roleEnvModel")
+    c = client_for_role("codegen", shared_cli_base="http://shared/v1", shared_cli_model="cliShared")
+    assert c.base_url == "http://roleenv/v1" and c.model == "roleEnvModel"   # specific-wins
+
+
+def test_client_for_role_falls_back_to_shared(monkeypatch):
+    _clear_env(monkeypatch)
+    c = client_for_role("judge", shared_cli_base="http://shared/v1", shared_cli_model="shared-model")
+    assert c.base_url == "http://shared/v1" and c.model == "shared-model"
+
+
+def test_client_for_role_key_role_beats_generic(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "ok"
+    monkeypatch.setenv("CHIMERA_JUDGE_API_KEY", "jk")
+    assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "jk"
+
+
+def test_client_for_role_tagged_error_with_hint(monkeypatch):
+    _clear_env(monkeypatch)
+    with pytest.raises(LLMConfigError, match=r"\[codegen\].*interactively"):
+        client_for_role("codegen")
+
+
+from scripts.agent.llm import LLMExpander
+from scripts.brandkit.manifest import default_manifest
+
+
+def test_llmexpander_parses_json():
+    fc = _FakeClient(['{"positive": "a heroic knight, dramatic light", "negative": "blurry, toy"}'])
+    pos, neg = LLMExpander(fc, modality="image").expand("a knight", default_manifest(), ["FIX: add light"])
+    assert pos == "a heroic knight, dramatic light" and neg == "blurry, toy"
+    assert fc.seen[0][0] == "chat"   # text chat, not vision
+
+
+def test_llmexpander_falls_back_when_llm_raises():
+    class _Boom:
+        def chat(self, *a, **k):
+            raise RuntimeError("llm down")
+    pos, neg = LLMExpander(_Boom()).expand("a knight", default_manifest(), None)
+    assert isinstance(pos, str) and pos          # templated fallback, non-empty
+    assert isinstance(neg, str)
+
+
+def test_llmexpander_falls_back_on_bad_json():
+    pos, neg = LLMExpander(_FakeClient(["not json at all"])).expand("a knight", default_manifest(), None)
+    assert isinstance(pos, str) and pos

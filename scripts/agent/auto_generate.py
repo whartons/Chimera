@@ -178,7 +178,23 @@ def main():
                     help="(api/cad) OpenAI-compatible base URL (else $CHIMERA_LLM_BASE_URL); e.g. "
                          "https://api.openai.com/v1, https://api.anthropic.com/v1, http://localhost:11434/v1")
     ap.add_argument("--llm-model", dest="llm_model", default=None,
-                    help="(api/cad) model name (else $CHIMERA_LLM_MODEL); e.g. gpt-4o, claude-opus-4-8")
+                    help="(api/cad) shared fallback model for all roles (else $CHIMERA_LLM_MODEL); "
+                         "e.g. gpt-4o, claude-opus-4-8")
+    ap.add_argument("--codegen-base-url", dest="codegen_base_url", default=None,
+                    help="(cad) codegen LLM base URL — overrides --llm-base-url for codegen (else $CHIMERA_CODEGEN_BASE_URL)")
+    ap.add_argument("--codegen-model", dest="codegen_model", default=None,
+                    help="(cad) codegen model — overrides --llm-model for codegen (else $CHIMERA_CODEGEN_MODEL)")
+    ap.add_argument("--judge-base-url", dest="judge_base_url", default=None,
+                    help="(--backend api) judge LLM base URL — overrides --llm-base-url for the judge (else $CHIMERA_JUDGE_BASE_URL)")
+    ap.add_argument("--judge-model", dest="judge_model", default=None,
+                    help="(--backend api) judge model — overrides --llm-model for the judge (else $CHIMERA_JUDGE_MODEL)")
+    ap.add_argument("--rewriter-base-url", dest="rewriter_base_url", default=None,
+                    help="(--rewrite-prompts) rewriter LLM base URL — overrides --llm-base-url (else $CHIMERA_REWRITER_BASE_URL)")
+    ap.add_argument("--rewriter-model", dest="rewriter_model", default=None,
+                    help="(--rewrite-prompts) rewriter model — overrides --llm-model (else $CHIMERA_REWRITER_MODEL)")
+    ap.add_argument("--rewrite-prompts", dest="rewrite_prompts", action="store_true",
+                    help="(image/mesh3d) use an LLM to rewrite prompts from the judge's FIX feedback instead "
+                         "of the templated expander; falls back to templated on any LLM error")
     ap.add_argument("--judge-passes", dest="judge_passes", type=int, default=1,
                     help="(--backend api) number of LLM vision passes to consensus-judge (default 1)")
     ap.add_argument("--variant", choices=["base", "turbo"], default=None,
@@ -212,29 +228,41 @@ def main():
     repo_root = Path(__file__).resolve().parents[2]
     m = _resolve_manifest(repo_root, args.brand)
     client = ComfyClient(args.comfy_url)
-    expander = TemplatedExpander()
+    # Per-role LLM clients (codegen / judge / rewriter), each independently configurable and falling
+    # back to the shared --llm-* / CHIMERA_LLM_*. Built only for the roles a run uses. An AI agent
+    # driving interactively supersedes all of this (see the role-tagged LLMConfigError hint).
+    from scripts.agent.llm import LLMConfigError, client_for_role
+    codegen_llm = judge_llm = rewriter_llm = None
+    try:
+        if args.pipeline == "cad":
+            codegen_llm = client_for_role("codegen", cli_base=args.codegen_base_url, cli_model=args.codegen_model,
+                                          shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model)
+        if args.backend == "api":
+            judge_llm = client_for_role("judge", cli_base=args.judge_base_url, cli_model=args.judge_model,
+                                        shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model)
+        if args.rewrite_prompts:
+            rewriter_llm = client_for_role("rewriter", cli_base=args.rewriter_base_url, cli_model=args.rewriter_model,
+                                           shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model)
+    except LLMConfigError as e:
+        ap.error(str(e))
 
-    # A provider-agnostic LLM client is built when the judge is the API backend or the cad pipeline
-    # needs code-gen — shared by both so a `cad --backend api` run makes one client.
-    llm = None
-    if args.backend == "api" or args.pipeline == "cad":
-        from scripts.agent.llm import LLMClient, LLMConfigError
-        try:
-            llm = LLMClient(base_url=args.llm_base_url, model=args.llm_model)
-        except LLMConfigError as e:
-            ap.error(str(e))
+    if rewriter_llm is not None:
+        from scripts.agent.llm import LLMExpander
+        expander = LLMExpander(rewriter_llm, modality=("3d" if args.pipeline in ("mesh3d", "cad") else "image"))
+    else:
+        expander = TemplatedExpander()
 
     def build_judge():
         if args.backend == "api":
             from scripts.agent.llm import LLMJudge
-            return LLMJudge(llm, passes=args.judge_passes)
+            return LLMJudge(judge_llm, passes=args.judge_passes)
         return LocalVLMJudge(client, repo_root, args.comfy_output_dir)
 
     if args.pipeline == "cad":
         from scripts.agent.cad_generate import make_cad_generate
         from scripts.agent.llm import LLMCadGenerator
         rubric = build_rubric(m, args.subject, modality="3d")   # clean-solid form rubric (BREP is manifold)
-        generate = make_cad_generate(args, repo_root, LLMCadGenerator(llm))
+        generate = make_cad_generate(args, repo_root, LLMCadGenerator(codegen_llm))
         judge = build_judge()
     elif args.pipeline == "mesh3d":
         rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture))

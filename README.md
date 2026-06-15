@@ -99,7 +99,7 @@ it, take what's useful. Developed on an RTX 5090 but written to help anyone on C
   **`auto_generate.py --pipeline cad`** is **fully-autonomous generative CAD** — an LLM writes + revises the
   script → `cad` → render → judge → revise (built + **live-validated** against a local Ollama endpoint).
 
-**490 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**503 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -122,6 +122,37 @@ flowchart LR
 
 The full dependency/stack inventory (Python · ComfyUI · pinned node packs · MCP · models · CI · host)
 is in **[`docs/STACK.md`](docs/STACK.md)**.
+
+### How the AI roles work
+The self-correction loop has up to three AI roles — **codegen**, **judge**, **rewriter** — and how they're
+filled depends on *how you run it*:
+
+- **With an AI agent in your IDE (Claude Code, etc.) — the default while you work.** The agent *is* the
+  codegen/judge/rewriter: it authors scripts, scores renders, and rewrites prompts itself via MCP + its own
+  reasoning. **No `CHIMERA_*` endpoint settings or API keys are used** (it's billed to your agent plan) — the
+  settings below have *no effect* in this mode.
+- **Autonomous / unattended (`auto_generate.py`).** With no agent, each role is filled by a configured LLM:
+  - `--backend local` — the **judge** is the local Qwen2.5-VL via ComfyUI (no external API); codegen/rewriter use their endpoints.
+  - `--backend api` — every active role uses an OpenAI-compatible endpoint (Gemini / OpenAI / Anthropic / OpenRouter / Ollama).
+
+**Per-role endpoints (autonomous only)** — each role uses its own model/endpoint or falls back to a shared default:
+
+| Role | Active when | Flags | Env |
+|------|-------------|-------|-----|
+| codegen | `--pipeline cad` | `--codegen-base-url` / `--codegen-model` | `CHIMERA_CODEGEN_*` |
+| judge | `--backend api` | `--judge-base-url` / `--judge-model` | `CHIMERA_JUDGE_*` |
+| rewriter | `--rewrite-prompts` | `--rewriter-base-url` / `--rewriter-model` | `CHIMERA_REWRITER_*` |
+| shared default | — | `--llm-base-url` / `--llm-model` | `CHIMERA_LLM_*` |
+
+Set only the shared `--llm-*` / `CHIMERA_LLM_*` and every role uses it (original behavior); a role-specific
+value overrides the shared one for that role. Example — strong hosted coder + local vision judge:
+```
+auto_generate.py --pipeline cad --backend api \
+  --codegen-base-url https://openrouter.ai/api/v1 --codegen-model qwen/qwen2.5-coder-32b-instruct \
+  --judge-base-url http://localhost:11434/v1   --judge-model qwen2.5vl:7b
+```
+**No GPU?** Point all roles at a hosted multimodal model (e.g. Gemini free tier) with `--backend api` —
+codegen + judge run via the API; FreeCAD/Blender run on CPU.
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -155,7 +186,7 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 490 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 503 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
   finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
   checks), linted with **ruff** and packaged as an installable

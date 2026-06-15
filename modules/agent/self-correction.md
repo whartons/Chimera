@@ -437,6 +437,18 @@ Any OpenAI-compatible endpoint works — Gemini, OpenAI, Anthropic, OpenRouter, 
 server — because `LLMClient` only speaks `/v1/chat/completions`. For the vision **judge** the model must be
 multimodal (Gemini, GPT-4o, Claude, a local llava/Qwen-VL); for CAD **code-gen** any chat model works.
 
+**Per-role endpoints.** Each loop role takes its own endpoint/model, falling back to the shared `--llm-*`
+above (precedence: role-CLI > role-env > shared-CLI > shared-env, resolved by `client_for_role`):
+**codegen** (`--codegen-base-url`/`--codegen-model`, `CHIMERA_CODEGEN_*`; `--pipeline cad`), **judge**
+(`--judge-*`, `CHIMERA_JUDGE_*`; any `--backend api`), **rewriter** (`--rewriter-*`, `CHIMERA_REWRITER_*`;
+`--rewrite-prompts` swaps the templated expander for `LLMExpander`, which rewrites prompts from the judge's
+FIX feedback and falls back to the template on any LLM error). This lets a strong code model do codegen
+while a separate vision model judges — e.g. `--codegen-model qwen/qwen2.5-coder-32b-instruct` +
+`--judge-base-url http://localhost:11434/v1 --judge-model qwen2.5vl:7b`. **An AI agent driving
+interactively supersedes all of this** — when Claude Code (or any IDE agent) is in the loop it *is* the
+codegen/judge/rewriter, and none of these endpoint settings or keys are read (Tier 0). These settings only
+affect unattended `auto_generate.py` runs.
+
 ```
 python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" --backend api \
     --llm-base-url https://api.anthropic.com/v1 --llm-model claude-opus-4-8   # + CHIMERA_LLM_API_KEY in env
