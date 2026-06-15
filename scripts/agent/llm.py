@@ -79,6 +79,25 @@ class LLMClient:
                            "content": [{"type": "text", "text": prompt}, self._image_part(image_path)]}], **kw)
 
 
+def client_for_role(role, *, cli_base=None, cli_model=None,
+                    shared_cli_base=None, shared_cli_model=None, timeout=180) -> "LLMClient":
+    """Build an LLMClient for `role` in {'codegen','judge','rewriter'}. SPECIFIC-WINS precedence for each
+    of base_url/model:  role CLI > role env (CHIMERA_<ROLE>_*) > shared CLI (--llm-*) > shared env
+    (CHIMERA_LLM_*).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY > OPENAI_API_KEY > ANTHROPIC_API_KEY.
+    Raises a role-tagged LLMConfigError (with an 'or run interactively' hint) when base_url/model can't be
+    resolved, so the user knows which endpoint is missing and that an interactive agent is the alternative."""
+    pre = "CHIMERA_" + role.upper()
+    base = cli_base or os.environ.get(pre + "_BASE_URL") or shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL")
+    model = cli_model or os.environ.get(pre + "_MODEL") or shared_cli_model or os.environ.get("CHIMERA_LLM_MODEL")
+    key = (os.environ.get(pre + "_API_KEY") or os.environ.get("CHIMERA_LLM_API_KEY")
+           or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        return LLMClient(base_url=base, api_key=key, model=model, timeout=timeout)
+    except LLMConfigError as e:
+        raise LLMConfigError("[" + role + "] " + str(e)
+                             + "  (or drive the loop interactively with an AI agent, which supersedes this)") from e
+
+
 class LLMJudge(Judge):
     """Autonomous AI judge (#2): N vision passes over the rubric, combined via the existing
     consensus machinery. Drop-in `Judge` for run_loop — `--backend api` selects it over the local Qwen."""
