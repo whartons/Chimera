@@ -55,8 +55,13 @@ def run_template(template_path, params: dict, *, freecad_bin=None, timeout=600,
                 except json.JSONDecodeError as e:
                     raise FreeCADJobError(
                         f"FreeCAD manifest line was not valid JSON ({e}): {payload[:500]}") from e
-        raise FreeCADJobError("FreeCAD job printed no manifest line (template error?):\n"
-                              + (proc.stdout or "")[-2000:])
+        # Surface BOTH streams: a script-level exception (e.g. a bad FreeCAD API call) is printed to
+        # stderr while FreeCADCmd still exits 0, so the loop's revise feedback needs stderr to be able
+        # to self-correct (e.g. "module 'Part' has no attribute 'Vector'").
+        raise FreeCADJobError(
+            "FreeCAD job printed no manifest line (script error?):\n"
+            + ("--- stderr ---\n" + (proc.stderr or "")[-1800:] + "\n" if proc.stderr else "")
+            + "--- stdout ---\n" + (proc.stdout or "")[-800:])
     finally:
         try:
             os.unlink(pfile)

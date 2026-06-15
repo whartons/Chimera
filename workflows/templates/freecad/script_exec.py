@@ -1,8 +1,9 @@
 """script_exec: run an agent/user-authored FreeCAD Python script headless and export the geometry it
 builds. The script runs in a namespace with `App`/`FreeCAD`, `Part`, `Mesh`, and an active `doc`; it
 should build geometry as objects in `doc` (e.g. `o = doc.addObject('Part::Feature','X'); o.Shape = ...`)
-or set a module global `RESULT = [objs]`. The runner exports those to step/stl/obj and emits the manifest,
-so the script only owns the modelling. Params: {script, out_dir, stem, formats}.
+or set a module global `RESULT = [objs]` (the entries may be raw Part shapes / Mesh objects — the runner
+wraps those into doc objects). The runner exports those to step/stl/obj and emits the manifest, so the
+script only owns the modelling. Params: {script, out_dir, stem, formats}.
 
 This powers generative CAD self-correction (text -> agent-authored parametric script -> solid -> render ->
 judge -> revise). The script is first-party/local/headless (no network) in an isolated FreeCADCmd process."""
@@ -57,6 +58,25 @@ if not objs:
 if not objs:
     raise ValueError("script produced no exportable geometry — add Part/Mesh objects to `doc` "
                      "or set RESULT=[objs]")
+
+# RESULT may hold raw Part shapes / Mesh objects (LLMs commonly write `RESULT = [shape]`); wrap them
+# into doc objects so Part.export / Mesh.export (which take document objects) accept them.
+_wrapped = []
+for _o in objs:
+    # Check raw shapes/meshes FIRST: a raw Part.Shape ALSO has isDerivedFrom, so testing that first
+    # would mis-classify a bare shape as a doc object (and later o.Name would blow up).
+    if isinstance(_o, Part.Shape):            # raw BREP shape -> wrap in a Part::Feature
+        _f = doc.addObject("Part::Feature", "ChimeraShape"); _f.Shape = _o
+        _wrapped.append(_f)
+    elif isinstance(_o, Mesh.Mesh):           # raw mesh -> wrap in a Mesh::Feature
+        _f = doc.addObject("Mesh::Feature", "ChimeraMesh"); _f.Mesh = _o
+        _wrapped.append(_f)
+    elif hasattr(_o, "isDerivedFrom"):        # already a DocumentObject (Part::/Mesh::Feature)
+        _wrapped.append(_o)
+    else:
+        raise ValueError(f"RESULT entry {_o!r} is neither a doc object nor a Part/Mesh shape")
+objs = _wrapped
+doc.recompute()
 
 # STEP is a BREP format: Part.export needs real Part shapes. A Mesh::Feature would fail (or emit
 # garbage) inside Part.export, so reject the combo up front with a legible message (convert mode has

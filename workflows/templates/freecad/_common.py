@@ -22,9 +22,10 @@ def emit(manifest: dict):
 
 
 def export_shapes(objs, out_dir, stem, formats) -> list:
-    """Export the given FreeCAD objects to each requested format. step/stp -> Part.export (BREP);
-    stl/obj -> Mesh.export (extension-driven tessellation of a Part::Feature, or a Mesh::Feature
-    passed straight through). Returns absolute output paths. Unknown format -> ValueError."""
+    """Export the given FreeCAD document objects to each requested format. step/stp -> Part.export
+    (BREP). stl/obj -> tessellate each Part shape via MeshPart (headless `Mesh.export` does NOT mesh a
+    Part::Feature — it raises "None of the objects can be exported to a mesh file"), pass Mesh::Feature
+    meshes through, merge into one mesh and write by extension. Returns absolute paths; unknown -> ValueError."""
     paths = []
     for fmt in formats:
         f = fmt.lower()
@@ -32,8 +33,18 @@ def export_shapes(objs, out_dir, stem, formats) -> list:
             path = os.path.join(out_dir, stem + ".step")
             Part.export(objs, path)
         elif f in ("stl", "obj"):
+            import MeshPart
             path = os.path.join(out_dir, stem + "." + f)
-            Mesh.export(objs, path)
+            combined = Mesh.Mesh()
+            for o in objs:
+                if o.isDerivedFrom("Mesh::Feature"):
+                    combined.addMesh(o.Mesh)
+                elif getattr(o, "Shape", None) is not None:
+                    combined.addMesh(MeshPart.meshFromShape(
+                        Shape=o.Shape, LinearDeflection=0.1, AngularDeflection=0.5))
+                else:
+                    raise ValueError("object %s has no Shape/Mesh to export to %s" % (o.Name, f))
+            combined.write(path)
         else:
             raise ValueError("unsupported export format: " + str(fmt))
         paths.append(os.path.abspath(path))
