@@ -6,6 +6,12 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-15
+
+The **DCC/CAD hub** release: Chimera grows from a ComfyUI-only pipeline into an agentic generative +
+Digital Content Creation / CAD hub — ComfyUI, Blender, and FreeCAD under one self-correcting, MCP-driven
+agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `ComfyUI-Chimera` → `Chimera`.
+
 ### Added
 - **Per-role LLM endpoints + LLM prompt rewriter** — the self-correction loop's three roles (codegen /
   judge / rewriter) can each use their own OpenAI-compatible endpoint/model, falling back to the shared
@@ -259,7 +265,8 @@ All notable changes to Chimera are documented here. The format follows
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/whartons/Chimera/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/whartons/Chimera/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/whartons/Chimera/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/whartons/Chimera/compare/v0.1.0...v0.1.1
