@@ -115,8 +115,9 @@ wheel-blocked). For a one-off on any GLB, `generate.py finalize-texture --auto-r
    visualbruno's `ComfyUI-Hunyuan3d-2-1` (with their prebuilt rasterizer wheels)
    in a separate, matching ComfyUI, and texture the GLB there.
 3. **Revisit when wheels catch up** — once a `custom_rasterizer` wheel ships for
-   cu130 / torch 2.10 / `sm_120`, an in-pipeline `--texture` flag becomes a clean
-   addition (the shape path here already produces a valid glTF-v2 mesh to paint).
+   cu130 / torch 2.10 / `sm_120`, an in-ComfyUI **Hunyuan3D-Paint** PBR path becomes a
+   clean addition (distinct from the already-shipped Blender-bake `--texture`/`--finalize`
+   above; the shape path here already produces a valid glTF-v2 mesh to paint).
 
 ## `--octree` — geometry detail vs file size
 

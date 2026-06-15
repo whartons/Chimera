@@ -73,24 +73,15 @@ it, take what's useful. Developed on an RTX 5090 but written to help anyone on C
   injection + alpha-exact logo overlay + product re-render + optional LoRA), routed to a per-brand
   folder. Entirely opt-in — the tool generates fine without it. The *pattern* is public; your brand
   data stays gitignored. See [`modules/image/brand-kits.md`](modules/image/brand-kits.md).
-- **🧩 Drive Blender & FreeCAD too** — assistant-driven, **pinned/audited/per-tool-gated** GUI
-  bridges: official Blender Foundation [`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp)
-  and [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), both interactive/GUI.
-  See [`modules/blender/`](modules/blender/) and [`modules/cad/`](modules/cad/).
-  **Blender headless rendering is also shipped** (`generate.py render`): drive Blender headlessly
-  from the CLI — mesh render + turntable MP4, ComfyUI→scene composite, and mesh
-  finish/figurine → print-ready STL/GLB; brand-aware, GPU-free CI tested. Requires Blender ≥ 5.1
-  on PATH. **Phase 3 — 3D self-correction is shipped too** (`auto_generate.py --pipeline mesh3d`):
-  concept → Hunyuan3D mesh → headless Blender contact-sheet render → VLM **form** judge + a deterministic
-  bmesh geometry gate (fails empty / degenerate / fragmented meshes), refine, repeat. **Phase 4a — albedo
-  texturing is shipped too** (`--pipeline mesh3d --texture`): a front-projected albedo bake colors the
-  mesh (front-faithful, back palette-filled), restoring the color/palette rubric. **Phase 4b — all-around
-  texture: the multi-view bake engine is shipped too** (`generate.py finalize-texture --from <glb> --views
-  front,right,back,left`): `bake_multiview` projects N corrected views around the mesh and weighted-bakes
-  them into one albedo atlas, so back/sides carry real color. **Auto-repaint is shipped too**
-  (`finalize-texture --auto-repaint --concept <img>`): it renders per-view depth and runs an SDXL
-  **depth-ControlNet + IPAdapter** repaint to *generate* the views from the concept — live-validated
-  texturing an armored rover green/tan all the way around.
+- **🧩 Drive Blender & FreeCAD too** — assistant-driven, **pinned/audited/per-tool-gated** GUI bridges
+  ([`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp),
+  [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp)) **plus shipped headless paths**:
+  `generate.py render` (mesh / turntable MP4 / ComfyUI→scene / print-ready figurine) and the full **3D
+  self-correction loop** (`auto_generate.py --pipeline mesh3d`) — concept → Hunyuan3D mesh → headless
+  Blender contact-sheet render → VLM **form** judge + a deterministic bmesh geometry gate → refine — with
+  albedo texturing (`--texture`) and an all-around multi-view + SDXL auto-repaint texture of the winner
+  (`--finalize`). Requires Blender ≥ 5.1. See [`modules/blender/`](modules/blender/) and
+  [`modules/threed/`](modules/threed/).
 - **FreeCAD is a peer CAD tool, headless too.** Beyond the interactive MCP bridge, **`generate.py cad`**
   drives `FreeCADCmd` headlessly to author **parametric primitives** (box / cylinder / cone / sphere /
   tube) and **convert** CAD/mesh files, exporting **STEP / STL / OBJ** — the BREP (STEP) authoring Blender
@@ -186,11 +177,10 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 503 tests run against a mocked ComfyUI client (graph-building,
-  routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
-  finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
-  checks), linted with **ruff** and packaged as an installable
-  CLI — all verified by **CI on Linux + Windows**.
+- **Tested without a GPU.** A mocked ComfyUI client lets the suite cover graph-building, routing, sidecar,
+  replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view finalize runners,
+  the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry checks — linted with
+  **ruff**, packaged as an installable CLI, and run on every push (count + CI matrix above).
 
 ## ⚡ Use it — install once, then `chimera`
 

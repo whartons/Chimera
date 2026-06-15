@@ -42,7 +42,7 @@ The `chimera` package (**v0.1.3**, MIT) is pure Python with one required runtime
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
 | **pytest** | `>=8` | dev | the GPU-free test suite (503 tests) |
-| **ruff** | `>=0.10` | dev | lint — correctness rules (`select=["F"]`) |
+| **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
 | **av** (PyAV) | `>=12` | optional `[video]` | foley fps/duration auto-probe (`generate._probe_video`) — degrades to explicit `--fps/--duration` if absent |

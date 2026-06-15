@@ -64,9 +64,11 @@ The `modules/agent/` layer drives ComfyUI through an existing MCP server — see
 instance: ComfyUI **Desktop defaults to `127.0.0.1:8000`**; a manual `python main.py`
 install uses `8188`.
 
-## DCC / CAD bridges (Blender + FreeCAD) — optional, Phase 1
-These add an assistant-driven bridge to a **live** Blender and FreeCAD. Both run 100%
-locally over a loopback socket. (Headless automation is a later phase.) Full details:
+## DCC / CAD bridges (Blender + FreeCAD)
+These add an assistant-driven bridge to a **live** Blender and FreeCAD (interactive, Phase 1). Both run
+100% locally over a loopback socket. **Headless automation also ships** — `generate.py render` (Blender)
+and `generate.py cad` (FreeCAD), plus the `auto_generate.py --pipeline mesh3d` / `--pipeline cad`
+self-correction loops. Full details:
 [../modules/blender/README.md](../modules/blender/README.md) · [../modules/cad/README.md](../modules/cad/README.md).
 
 ### Prerequisite: `uv`
