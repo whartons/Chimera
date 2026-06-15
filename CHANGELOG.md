@@ -7,6 +7,15 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Per-role LLM endpoints + LLM prompt rewriter** — the self-correction loop's three roles (codegen /
+  judge / rewriter) can each use their own OpenAI-compatible endpoint/model, falling back to the shared
+  `--llm-*` / `CHIMERA_LLM_*`. New flags `--codegen-*`, `--judge-*`, `--rewriter-*`, `--rewrite-prompts`
+  (+ `CHIMERA_CODEGEN_*` / `_JUDGE_*` / `_REWRITER_*`), resolved **specific-wins** by `client_for_role`.
+  New `LLMExpander` rewrites prompts from the judge's FIX feedback (seeded by, and falling back to, the
+  templated expander — non-fatal). Lets a strong code-specialist pair with a separate vision judge (no
+  single multimodal model required; no GPU needed if hosted). **An AI agent driving interactively
+  supersedes all of this** — these endpoint settings only affect unattended runs (see the README
+  "How the AI roles work" section).
 - **Phase 4b in-loop finalize — `auto_generate.py --pipeline mesh3d --finalize`** — the
   self-correction loop now textures its *winning* mesh automatically: after `run_loop` picks the winner,
   it runs the multi-view **auto-repaint bake** (`scripts/agent/finalize.py:finalize_winner`), re-judges
