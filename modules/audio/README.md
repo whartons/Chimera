@@ -161,47 +161,16 @@ has a non-standard container or when you want to generate foley for a sub-clip).
 
 ## Security — foley node pack
 
-The node pack `phazei/ComfyUI-HunyuanVideo-Foley` was security-scanned before
-adoption. **Verdict: safe-with-precautions, pinned at audited commit `afd2960`.**
+The foley node pack `phazei/ComfyUI-HunyuanVideo-Foley` is **safe-with-precautions, pinned at audited
+commit `afd2960`**. Chimera's graph uses **only three of its nodes** (`HunyuanModelLoader`,
+`HunyuanDependenciesLoader`, `HunyuanFoleySampler`; the rest of the graph — `LoadVideo`,
+`GetVideoComponents`, `CreateVideo`, `SaveVideo` — is ComfyUI core) plus the `.safetensors` weights. The
+pack's bundled CLI scripts (`cli.py`, `infer.py`, `gradio_app.py`) carry a `torch.load(weights_only=False)`
+pickle-RCE and are **never executed** by the workflow — don't run them.
 
-Chimera's foley graph uses **only the pack's registered ComfyUI nodes** — and
-just three of them: `HunyuanModelLoader`, `HunyuanDependenciesLoader`, and
-`HunyuanFoleySampler` (the remaining nodes in the graph — `LoadVideo`,
-`GetVideoComponents`, `CreateVideo`, `SaveVideo` — are ComfyUI core) — plus the
-`.safetensors` weights. The pack also ships bundled CLI scripts (`cli.py`,
-`infer.py`, `gradio_app.py`); these are **never executed** by the Chimera
-workflow — they carry a `torch.load(weights_only=False)` call that can execute
-arbitrary Python from a pickled model file (pickle-RCE risk). Do not run those
-scripts.
-
-**First-run auto-downloads (foley only)**
-
-The `HunyuanDependenciesLoader` node auto-fetches two models on its first run:
-
-- `google/siglip2-base-patch16-512` (SigLIP2 vision encoder)
-- `laion/larger_clap_general` (CLAP audio encoder)
-
-Both are **ungated** (no Hugging Face token required). The download is
-one-time; subsequent runs load from the local HF cache. To run fully offline
-after that first pass, pre-stage the cache and set `HF_HUB_OFFLINE=1`.
-
-**Install the node pack:**
-
-```bash
-cd ComfyUI/custom_nodes
-git clone https://github.com/phazei/ComfyUI-HunyuanVideo-Foley
-cd ComfyUI-HunyuanVideo-Foley
-git checkout afd2960
-```
-
-Then install **only the requirements that are not already present** in the
-ComfyUI environment — do **not** run a blanket `pip install -r requirements.txt`,
-which can upgrade `transformers`/`diffusers` and break other modules. On the
-reference setup only three packages were missing (`accelerate`, `omegaconf`,
-`loguru`); `torch`/`comfy`/`av` are provided by ComfyUI. Restart ComfyUI and
-confirm the foley nodes register with no startup network egress.
-
-Re-scan the pack before advancing the pin to a newer commit.
+The **install steps, the `afd2960` pin + no-blanket-`pip` caution, and the first-run auto-downloads**
+(SigLIP2 + CLAP, both ungated) are single-sourced in
+**[`models.md`](models.md#required-node-pack--hunyuanvideo-foley)** — re-scan before advancing the pin.
 
 ## Local-only & security (music)
 

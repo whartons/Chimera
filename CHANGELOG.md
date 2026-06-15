@@ -67,7 +67,8 @@ All notable changes to Chimera are documented here. The format follows
   script name + a content hash so the params signature varies across in-place revisions. This is the lever
   for a **CAD self-correction loop**: brief → agent-authored parametric script → `cad --mode script` →
   `render --mode mesh` → VLM form/printability judge → FIX → agent revises the script → repeat. The
-  agent is the script generator when present (an autonomous code-gen backend is roadmap). **Live-validated:**
+  agent is the script generator when present; a **fully autonomous** code-gen backend ships in the
+  "Provider-agnostic LLM backend" entry above (`auto_generate.py --pipeline cad`). **Live-validated:**
   authored a parametric mug, executed it headless, rendered + judged it, then revised the script (roomier
   handle + a BREP rim fillet) and re-ran — a real author→exec→render→judge→revise iteration. The script is
   `exec()`'d unsandboxed in an isolated `FreeCADCmd` process (first-party CLI capability, no network, not
@@ -84,10 +85,9 @@ All notable changes to Chimera are documented here. The format follows
   azimuths). Pure bpy/Cycles — never touches the blocked `custom_rasterizer` path. **Live-validated on
   Blender 5.1.2 / RTX 5090**: a 4-distinct-colour-view bake of a sphere put all four colours in the baked
   atlas (R 13% · G 14% · B 12% · Y 22%), end-to-end CLI routed + sidecared, partial-view back-fill
-  confirmed. Views are supplied today (artist/manual). **Roadmap:** the **ComfyUI depth-ControlNet +
-  IPAdapter auto-repaint** that *generates* the N views from the concept (+ its `render_views` per-view
-  depth/normal pass renderer) — pure inference, NOT wheel-blocked, but new models (~2–3 GB) + ~32 GB VRAM
-  peak, so deferred to a VRAM-free, attended run.
+  confirmed. Views can be supplied manually (artist) — and the **ComfyUI depth-ControlNet + IPAdapter
+  auto-repaint** that *generates* the N views from the concept (+ its `render_views` per-view depth pass)
+  **now ships**: see the "Phase 4b auto-repaint — all-around 3D texture, end to end" entry above.
 - **Headless FreeCAD `cad` subcommand** — `generate.py cad` drives `FreeCADCmd` (GUI-less) as a normal
   CLI subprocess to author and convert CAD geometry, completing FreeCAD's headless path (the peer of the
   Phase-2 Blender render backend; the interactive MCP bridge stays Phase 1). Two modes:
@@ -101,8 +101,9 @@ All notable changes to Chimera are documented here. The format follows
   (`_common`/`primitive`/`convert`), `kind:"cad"` reproducibility sidecar (`sidecar.build_cad_meta`),
   friendly host-side validation (formats, positive dims, tube bore, cone tip, convert source allowlist,
   mesh→STEP refusal). STEP/IGES/BREP outputs route to `outputs/3d/`. **Live-validated on FreeCAD 1.1.1**
-  (tube `solids:1` STEP+STL, STEP→STL convert, end-to-end CLI routing + sidecar). The FreeCAD
-  self-correction loop (`cad → render → judge`) remains roadmap.
+  (tube `solids:1` STEP+STL, STEP→STL convert, end-to-end CLI routing + sidecar). The autonomous FreeCAD
+  self-correction loop (`cad → render → judge → revise`) ships as `auto_generate.py --pipeline cad` — see
+  the "Provider-agnostic LLM backend" entry above.
 - **3D albedo texturing (Phase 4a)** — `auto_generate.py --pipeline mesh3d --texture` restores color to
   the 3D self-correction loop via a headless Blender bake (pure bpy/Cycles — never touches the blocked
   `custom_rasterizer` path). `_common.bake_albedo()` smart-UV-unwraps the mesh, projects the concept
@@ -116,8 +117,9 @@ All notable changes to Chimera are documented here. The format follows
   `<stem>.texture.json` sidecar records the textured status + GLB name. **Live-validated on Blender
   5.1.2 / RTX 5090** (front-faithful projection, palette + mirror back-fills, embedded GLB — the smoke
   caught and fixed the headless `project_from_view` bug); the full `--texture` loop end-to-end is
-  pending a ComfyUI run. **Roadmap:** generated all-around texture (Phase 4b — depth-ControlNet
-  multi-view repaint on the winning mesh; in-ComfyUI Hunyuan3D-Paint stays wheel-blocked).
+  pending a ComfyUI run. Generated all-around texture (Phase 4b — depth-ControlNet multi-view repaint on
+  the winning mesh) **now ships** (see the Phase-4b entries above); in-ComfyUI Hunyuan3D-Paint stays
+  wheel-blocked.
 - **3D self-correction over Blender renders (Phase 3)** — `auto_generate.py --pipeline mesh3d`
   extends the self-correction loop to 3D: a brief becomes a concept image (txt2img, or `--from-image`
   to fix the concept and reroll only the mesh), the concept becomes a Hunyuan3D mesh, the mesh is

@@ -88,8 +88,9 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   subject + quality bar when brandless) → generate → a VLM judges the output against the rubric →
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
-  GPU); two backends slot in — a headless local **Qwen2.5-VL** judge and an assistant
-  multi-judge-consensus pass. `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
+  GPU); three backends slot in — a headless local **Qwen2.5-VL** judge, a provider-agnostic
+  OpenAI-compatible **LLMJudge** (`--backend api`), and an assistant multi-judge-consensus pass.
+  `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
 - **An MCP bridge**: a pinned, security-audited ComfyUI MCP server exposes pipeline actions
   so an assistant can drive ComfyUI. Build on an **existing** server (e.g. `comfyui-mcp`)
   rather than reinventing the transport; the repo's original surface is the modules +
@@ -109,7 +110,12 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   and **autonomous** (`auto_generate.py --pipeline cad`, where a **provider-agnostic LLM** writes/revises
   the script — `scripts/agent/llm.py`, OpenAI-compatible/no-SDK, env-configured for
   OpenAI/Anthropic/OpenRouter/local). The same backend gives an **`--backend api`** AI judge for any loop
-  (local Qwen stays the default). **Phase-4b in-loop finalize is shipped:** `auto_generate.py --pipeline
+  (local Qwen stays the default). Each loop role — **codegen / judge / rewriter** — can take its own
+  per-role endpoint (`--codegen-*`/`--judge-*`/`--rewriter-*` + `CHIMERA_{CODEGEN,JUDGE,REWRITER}_*`,
+  specific-wins over the shared `--llm-*`/`CHIMERA_LLM_*` via `client_for_role`); **`--rewrite-prompts`**
+  swaps in an `LLMExpander` that rewrites prompts from the judge's FIX feedback (falling back to the
+  template). An **interactive AI agent in the IDE supersedes all of this** — the endpoint config/keys are
+  read only by headless `auto_generate.py` runs. **Phase-4b in-loop finalize is shipped:** `auto_generate.py --pipeline
   mesh3d --finalize` textures the winning mesh (multi-view auto-repaint bake) + re-judges it
   (informational, non-gating); cross-view-consistency conditioning shipped with the auto-repaint polish.
 
