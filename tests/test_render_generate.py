@@ -146,7 +146,9 @@ def test_texture_threads_concept_and_params_and_routes_textured_glb(monkeypatch,
     assert meta["glb"].endswith(".glb")  # routed GLB name recorded for Phase 4b
 
 
-def test_texture_off_routes_raw_glb_and_no_texture_sidecar(monkeypatch, tmp_path):
+def test_texture_off_still_writes_winner_sidecar(monkeypatch, tmp_path):
+    # Phase 4b: the .texture.json sidecar is ALWAYS written (not just under --texture) so in-loop
+    # finalize can recover the winner mesh + concept. Without --texture: textured=False, raw GLB.
     client = _FakeClient()
     calls, fake_runner = _wire(monkeypatch, tmp_path, client)
     gen = rg.make_render_generate(_args(), tmp_path, manifest=object(), client=client,
@@ -156,4 +158,9 @@ def test_texture_off_routes_raw_glb_and_no_texture_sidecar(monkeypatch, tmp_path
     assert rp["texture"] is False
     assert any(p.name == "mesh.glb" for p in calls["routed_src"])
     tf = Path(sheet).with_name(Path(sheet).stem + rg.RENDER_TEXTURE_SUFFIX)
-    assert not tf.exists()
+    meta = json.loads(tf.read_text())
+    assert meta["textured"] is False
+    assert meta["glb"].endswith(".glb")            # routed GLB name recorded
+    assert meta["concept"].endswith(".png")        # routed concept copy recorded
+    assert meta["seed"] == 7                        # winning seed recorded
+    assert any(p.name == "concept.png" for p in calls["routed_src"])   # a concept copy was routed
