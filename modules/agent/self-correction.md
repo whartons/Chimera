@@ -37,18 +37,17 @@ Everything else — the rubric, the loop, the generate path — is shared by bot
 below. `TemplatedExpander` is the V1 expander; an LLM-driven expander is a documented
 future extension, not built.
 
-## The two backends
+## The three judge backends
 
-Both drive the *same* core; they differ only in **who plays the `Judge`**.
+All drive the *same* core; they differ only in **who plays the `Judge`**.
 
-| | **Assistant Workflow** | **Local standalone** |
-|---|---|---|
-| Judge | The assistant's own vision — **M independent passes, majority-PASS consensus** | A single **Qwen2.5-VL-7B** judge node |
-| Driver | Claude Code's Workflow/subagent tooling (assistant in the loop) | Headless CLI: `scripts/agent/auto_generate.py --backend local` |
-| Quality | **Highest** — multi-judge consensus catches subtle failure modes | Good — one strong VLM pass per candidate |
-| Cost / deps | No API key, no extra model | ~15 GB VRAM VLM, fully **offline/unattended** |
-| Status | **Built + proven** (live fail→pass captured below) | **Built + validated** (full loop ran live) |
-| Recipe | [`../../workflows/agent/README.md`](../../workflows/agent/README.md) | `scripts/agent/auto_generate.py` |
+| | **Local standalone** | **API (provider-agnostic)** | **Assistant Workflow** |
+|---|---|---|---|
+| Judge | A single **Qwen2.5-VL-7B** node | **Any OpenAI-compatible LLM** (`LLMJudge`, N-pass consensus via `--judge-passes`) | The assistant's own vision — M passes, majority-PASS consensus |
+| Driver | `auto_generate.py --backend local` (default) | `auto_generate.py --backend api` (+ `CHIMERA_LLM_*` / `--llm-*`) | Claude Code Workflow tooling (assistant in the loop) |
+| Cost / deps | ~15 GB VRAM VLM, **offline/unattended** | API or **local** endpoint (Gemini/OpenAI/Anthropic/Ollama) — no SDK | No API key, no extra model |
+| Status | **Built + validated** (full loop ran live) | **Built + mock-tested** (live endpoint validation pending) | **Built + proven** (live fail→pass below) |
+| Recipe | `scripts/agent/auto_generate.py` | §[Bring your own LLM](#bring-your-own-llm---backend-api----pipeline-cad) | [`../../workflows/agent/README.md`](../../workflows/agent/README.md) |
 
 **When to use which:**
 
@@ -312,7 +311,7 @@ passes — see [`../../workflows/agent/README.md`](../../workflows/agent/README.
 ```
 python scripts/agent/auto_generate.py --pipeline mesh3d --subject "an armored knight on horseback" \
     --comfy-output-dir <ComfyUI output dir> [--brand <brand>] [--from-image concept.png] \
-    [--octree 256] [--samples 48] [--res 640 640] [--max-iters 3] [--backend local|assistant]
+    [--octree 256] [--samples 48] [--res 640 640] [--max-iters 3] [--backend local|api|assistant]
 ```
 
 The winner's mesh lands in `outputs/3d/` (or `brands/<brand>/outputs/3d/`); the judged contact sheet
@@ -435,6 +434,10 @@ multimodal (Gemini, GPT-4o, Claude, a local llava/Qwen-VL); for CAD **code-gen**
 python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" --backend api \
     --llm-base-url https://api.anthropic.com/v1 --llm-model claude-opus-4-8   # + CHIMERA_LLM_API_KEY in env
 ```
+
+`--backend api` also works on `--pipeline image`/`mesh3d`; `--judge-passes N` runs N LLM vision passes and
+majority-consensuses them (default 1). Config can come from env (`CHIMERA_LLM_BASE_URL`/`_MODEL`/`_API_KEY`,
+e.g. via `.env`) instead of the flags.
 
 > **Status (2026-06-14):** the assistant-authored path is shipped + live-validated (a parametric mug,
 > author→exec→render→judge→revise with a BREP rim fillet). The **autonomous LLM path** (`--pipeline cad`,

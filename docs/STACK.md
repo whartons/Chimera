@@ -13,7 +13,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
         comfy["ComfyUI 0.24.1 (engine + models)"]
-        packs["pinned node packs: LTXVideo · Foley · QwenVL"]
+        packs["pinned node packs: LTXVideo · Foley · QwenVL · IPAdapter"]
         comfy --- packs
     end
     subgraph chimera["chimera (this repo) — Python 3.12, pyyaml"]
@@ -41,7 +41,7 @@ The `chimera` package (**v0.1.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (467 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (471 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness rules (`select=["F"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -86,7 +86,8 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > `workflows/templates/blender/`. Requires Blender ≥ 5.1 on PATH or `$BLENDER_BIN`; CI tests mock
 > the subprocess (GPU-free). **Phase 4b** adds `generate.py finalize-texture` (same runner) — an
 > all-around multi-view albedo bake (`_common.bake_multiview` + `mesh_finalize.py`) of a winning mesh
-> from N supplied views; the ComfyUI auto-repaint that generates those views is roadmap.
+> from N supplied views OR **auto-generated** (`--auto-repaint`: render_views depth + SDXL depth-ControlNet
+> + IPAdapter via `scripts/brandkit/repaint.py`, with silhouette masking + cross-view consistency).
 >
 > **Headless FreeCAD `cad` (shipped):** `generate.py cad` shells `FreeCADCmd <template> <params.json>`
 > (job runner `scripts/brandkit/freecad.py`, templates in `workflows/templates/freecad/`) to author
@@ -94,8 +95,9 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > (headless exec of an agent-authored FreeCAD `.py` for generative CAD self-correction) → STEP/STL/OBJ.
 > Also a normal CLI subprocess, no per-call approval. Requires FreeCAD ≥ 1.0 (`FreeCADCmd`) on PATH,
 > `$FREECAD_BIN`, or the default install; CI mocks the subprocess (GPU-free). glTF export is GUI-only
-> (use STL for the Blender bridge). The CAD self-correction loop is assistant-driven (agent authors the
-> script); an autonomous code-gen backend is roadmap.
+> (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
+> script`) and **fully autonomous** (`auto_generate.py --pipeline cad` — a provider-agnostic LLM writes +
+> revises the script; `scripts/agent/llm.py`, built + mock-tested, live LLM-endpoint validation pending).
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
@@ -118,7 +120,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (467 tests local; ~461 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
+py3.12 (471 tests local; ~465 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

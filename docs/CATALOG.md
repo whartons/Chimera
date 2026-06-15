@@ -320,9 +320,10 @@ third-party dependency for this backend.
 
 Peer tools to ComfyUI under the agent layer — driven by an assistant over **pinned,
 audited, loopback-only** MCP servers (same standard as the `comfyui-mcp` bridge).
-The MCP bridges are interactive (Phase 1); Blender headless rendering (Phase 2) and 3D
-self-correction over Blender renders (Phase 3) are shipped, as is headless FreeCAD
-geometry (`generate.py cad`). The FreeCAD self-correction loop remains roadmap.
+The MCP bridges are interactive (Phase 1); Blender headless rendering (Phase 2), 3D
+self-correction over Blender renders (Phase 3), headless FreeCAD geometry (`generate.py cad`),
+and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto_generate.py
+--pipeline cad`) are all shipped.
 
 | Tool | Server | Pin | License | Socket |
 |------|--------|-----|---------|--------|
@@ -344,8 +345,9 @@ geometry (`generate.py cad`). The FreeCAD self-correction loop remains roadmap.
   run an agent-authored FreeCAD script (generative CAD) → STEP/STL/OBJ (templates in
   `workflows/templates/freecad/`, runner `scripts/brandkit/freecad.py`). STEP is the BREP authoring
   Blender lacks; glTF stays GUI-only (use STL → Blender). No model — deterministic geometry. The
-  **CAD self-correction loop** (brief → agent-authored script → `cad` → `render` → judge → revise) is
-  assistant-driven; an autonomous code-gen backend is roadmap. The interactive MCP bridge stays the
+  **CAD self-correction loop** (brief → script → `cad` → `render` → judge → revise) runs both
+  assistant-driven (`--mode script`) and **fully autonomous** (`auto_generate.py --pipeline cad`, a
+  provider-agnostic LLM writes the script — see the agent module). The interactive MCP bridge stays the
   route for live edits.
 - Phase 3 (VLM self-correction over renders) is **shipped for Blender**
   (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
@@ -362,8 +364,10 @@ geometry (`generate.py cad`). The FreeCAD self-correction loop remains roadmap.
   | Depth ControlNet | `xinsir/controlnet-depth-sdxl-1.0` → `models/controlnet/` | Apache-2.0 |
   | Base | `sd_xl_base_1.0.safetensors` (already present) | CreativeML-OpenRAIL++ |
 
-  Only the **autonomous code-gen backend for the FreeCAD CAD loop** (and Phase-4b cross-view-consistency
-  conditioning) remain roadmap.
+  Auto-repaint masks each view to its depth silhouette + adds cross-view consistency (a 2nd IPAdapter pass
+  on the previous painted view). The **autonomous CAD loop** uses the provider-agnostic LLM backend
+  (`scripts/agent/llm.py` — OpenAI-compatible: Gemini / OpenAI / Anthropic / OpenRouter / local). Only an
+  **in-loop finalize** on the mesh3d winner remains roadmap.
 
 ---
 

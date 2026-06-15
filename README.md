@@ -8,22 +8,25 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Built on RTX 5090 · cu130](https://img.shields.io/badge/built%20on-RTX%205090%20%C2%B7%20cu130-76B900?logo=nvidia&logoColor=white)
 
-> An **agentic toolkit for ComfyUI** — now reaching **Blender and FreeCAD** too: a **self-correction
-> loop** that judges its own **ComfyUI renders** with a VLM and **iterates until they pass**, plus
-> hardened, pinned **MCP bridges** to drive **ComfyUI, Blender, and FreeCAD** from an AI assistant —
-> over a **brand-aware, multimodal** core
-> (image · video · audio · 3D) that also runs **fully standalone** from one CLI. Built and run
-> end-to-end on an RTX 5090.
+> An **agentic generative + DCC/CAD hub** built on **ComfyUI, Blender, and FreeCAD**: a **self-correction
+> loop** that judges its own output with a VLM and **iterates until it passes** — now across **2D images,
+> 3D meshes, and parametric CAD** (where an LLM even *writes and revises FreeCAD scripts* until the render
+> passes). The judge + code-gen backend is **provider-agnostic** — any OpenAI-compatible LLM (Gemini,
+> OpenAI, Anthropic, or a **local** model), or a headless local Qwen2.5-VL. Plus hardened, pinned **MCP
+> bridges** to drive ComfyUI/Blender/FreeCAD from an assistant, and **headless** image·video·audio·3D,
+> Blender-render, and FreeCAD-CAD pipelines — all from one **`chimera`** CLI, fully standalone. Built and
+> run end-to-end on an RTX 5090.
 
 ![An ember-winged chimera — lion, goat, and serpent-headed tail — over an erupting volcano, generated with this repo's Z-Image workflow on an RTX 5090](docs/images/chimera-zimage-sample.png)
 <sub>↑ A proper chimera — lion body, a goat head from the back, a serpent-headed tail, and ember-lit dragon wings — over an erupting volcano. Generated with the included [Z-Image workflow](workflows/templates/brand-zimage-txt2img.json) (`--variant base`) on an RTX 5090, straight out of ComfyUI.</sub>
 
-Chimera wraps ComfyUI in an **agent layer**: it can **drive ComfyUI from an AI assistant** (a pinned,
-audited MCP bridge) and **close the quality loop itself** — generate → VLM-judge → refine — so
-generation isn't one-shot, it *iterates to a passing result*. It also runs **fully standalone**: a
-pip-installable **`chimera`** CLI over a brand-aware, multimodal core, no assistant required. Public
-and reusable — fork it, take what's useful. Developed on an RTX 5090 but written to help anyone on
-ComfyUI, especially **Blackwell (RTX 50-series)**.
+Chimera wraps ComfyUI, Blender, and FreeCAD in an **agent layer**: it can **drive them from an AI
+assistant** (pinned, audited MCP bridges) and **close the quality loop itself** — generate → VLM-judge →
+refine — so generation isn't one-shot, it *iterates to a passing result*, whether the artifact is a 2D
+render, a 3D mesh, or a parametric CAD solid. It also runs **fully standalone**: a pip-installable
+**`chimera`** CLI over a brand-aware, multimodal core, no assistant required. Public and reusable — fork
+it, take what's useful. Developed on an RTX 5090 but written to help anyone on ComfyUI, especially
+**Blackwell (RTX 50-series)**.
 
 **The headline, in motion — the loop correcting itself:**
 
@@ -92,9 +95,11 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   drives `FreeCADCmd` headlessly to author **parametric primitives** (box / cylinder / cone / sphere /
   tube) and **convert** CAD/mesh files, exporting **STEP / STL / OBJ** — the BREP (STEP) authoring Blender
   can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
-  A FreeCAD self-correction loop (`cad → render → judge`) remains **roadmap**.
+  And it closes the loop: **`cad --mode script`** runs an agent-authored FreeCAD script, while
+  **`auto_generate.py --pipeline cad`** is **fully-autonomous generative CAD** — an LLM writes + revises the
+  script → `cad` → render → judge → revise (built + mock-tested; live LLM-endpoint validation pending).
 
-**467 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**471 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -150,7 +155,7 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 467 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 471 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
   finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
   checks), linted with **ruff** and packaged as an installable

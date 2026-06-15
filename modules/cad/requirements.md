@@ -66,9 +66,11 @@ C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe  <template.py>  <params.json>
 
 `FreeCADCmd` emits **geometry only** (STEP / STL / OBJ — **no headless renderer, and
 glTF is GUI-only**). The `cad` subcommand authors parametric primitives and converts
-CAD/mesh files; render-for-judge goes through the Blender Cycles step (export STL →
-`render --mode mesh`). See the module [README](README.md#headless-generatepy-cad-shipped)
-for usage. The FreeCAD-driven **self-correction loop** is still a forward reference.
+CAD/mesh files (`--mode script` runs an agent- or LLM-authored script); render-for-judge
+goes through the Blender Cycles step (export STL → `render --mode mesh`). See the module
+[README](README.md#--mode-script--generative-cad-self-correction) for usage. The FreeCAD-driven
+**self-correction loop** is shipped — assistant-authored and fully autonomous (`auto_generate.py
+--pipeline cad`, a provider-agnostic LLM writes the script).
 
 ---
 

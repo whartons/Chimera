@@ -7,8 +7,8 @@ introspect the document model — all from an MCP tool call. The scope here is
 loopback XML-RPC bridge, reads and edits the document, and fires exports into a folder
 you choose. For unattended geometry authoring there is a **second, headless path** —
 **`generate.py cad`** (see [below](#headless-generatepy-cad-shipped)) — that drives
-`FreeCADCmd` as a normal CLI subprocess; the FreeCAD-driven self-correction loop is still
-roadmap.
+`FreeCADCmd` as a normal CLI subprocess, and a **FreeCAD-driven self-correction loop**
+(`cad → render → judge → revise`, both assistant-authored and fully autonomous via an LLM).
 
 ## The MCP bridge
 
@@ -105,22 +105,33 @@ export/emit. STEP export needs **Part (BREP)** objects — a `Mesh::Feature` exp
 (the runner rejects mesh→STEP with a clear message). The sidecar records the script name + a content
 hash, so the `params_signature` varies across in-place revisions.
 
-This is the lever for a **CAD self-correction loop**: a brief → an agent-authored parametric script →
-`cad --mode script` → `render --mode mesh` → a VLM judges the form/printability → FIX feedback → the
-agent **revises the script** → repeat. When an agent is present it is the script generator (same idea as
-the assistant judge backend); an autonomous code-gen backend is roadmap. Live-validated by authoring a
-parametric mug, executing it headless, rendering + judging it, then revising the script (roomier handle
-+ a BREP rim fillet) and re-running — a real author→exec→render→judge→revise iteration.
+This is the lever for a **CAD self-correction loop**: a brief → a parametric script → `cad --mode script`
+→ `render --mode mesh` → a VLM judges the form/printability → FIX feedback → **revise the script** →
+repeat. It runs two ways:
+
+- **Assistant-authored** — when an agent (e.g. Claude Code) is present it writes/revises the script by
+  hand. Live-validated by authoring a parametric mug, executing it headless, rendering + judging it, then
+  revising (roomier handle + a BREP rim fillet) and re-running — a real author→exec→render→judge→revise
+  iteration.
+- **Fully autonomous** — **`auto_generate.py --pipeline cad --subject "..."`**: a **provider-agnostic
+  LLM** (`scripts/agent/llm.py` — any OpenAI-compatible endpoint: **Gemini / OpenAI / Anthropic /
+  OpenRouter / local Ollama**, env-configured via `CHIMERA_LLM_*`) writes + revises the script across
+  iterations. The judge is the local Qwen2.5-VL (default) or the same LLM (`--backend api`). With
+  `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
+  [`../agent/self-correction.md`](../agent/self-correction.md#bring-your-own-llm---backend-api----pipeline-cad)
+  for the provider table. (Built + GPU/network-free mock-tested; live LLM-endpoint validation pending.)
 
 > ⚠️ **`--mode script` `exec()`s the script unsandboxed** in the `FreeCADCmd` process (no network,
 > isolated process, but full Python — same trust as running a FreeCAD macro you wrote). **Run only
-> scripts you authored or audited.** This is a deliberate first-party CLI capability; it is *not* exposed
-> as an MCP tool, so the per-tool gates below (which govern the interactive bridge) do not apply to it.
-> The gated MCP `execute_code` remains the separate, approval-per-call GUI path.
+> scripts you authored or audited.** The **autonomous** `--pipeline cad` path runs LLM-authored scripts
+> with a host-side denylist **plus** restricted builtins + an import allowlist (`script_exec.py
+> restrict=True`) — a best-effort speed bump, still **not** a true sandbox (FreeCAD's own file I/O is
+> reachable), so point it only at an LLM you trust. This is a first-party CLI capability, *not* an MCP
+> tool, so the per-tool gates below don't apply; the gated MCP `execute_code` is the separate GUI path.
 
-**Still roadmap:** sketch/constraint modeling, FEM headless, assemblies, and the **autonomous** code-gen
-backend for the CAD self-correction loop (the assistant-driven loop above is shipped). Keep a FreeCAD
-window open with the addon active for live MCP-assisted editing.
+**Still roadmap:** sketch/constraint modeling, FEM headless, assemblies, and an **in-loop finalize**
+(auto-texture the winning mesh). Keep a FreeCAD window open with the addon active for live MCP-assisted
+editing.
 
 ## Security audit (commit `63acb30`) & per-tool gates
 

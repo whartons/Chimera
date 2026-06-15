@@ -107,8 +107,10 @@ Both are **pinned to exact commits, audited, and per-tool-gated** via
 ComfyUI bridge. **Phase 1 (the MCP bridges) is GUI-only and interactive.** The headless Blender
 backend (Phase 2), 3D self-correction over Blender renders (Phase 3,
 [`self-correction.md`](self-correction.md) §3D), front-projected albedo texturing (Phase 4a,
-`--texture`), and headless FreeCAD geometry (`generate.py cad`) are **shipped**. Generated all-around
-texture (Phase 4b) and the FreeCAD-driven CAD self-correction loop remain **roadmap**.
+`--texture`), all-around multi-view texture (Phase 4b — `finalize-texture`, manual views **and**
+`--auto-repaint`), headless FreeCAD geometry (`generate.py cad`), and the **FreeCAD-driven CAD
+self-correction loop** (`cad --mode script` + autonomous `auto_generate.py --pipeline cad` via a
+provider-agnostic LLM) are all **shipped**. A `--backend api` LLM judge works on every pipeline.
 
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**
