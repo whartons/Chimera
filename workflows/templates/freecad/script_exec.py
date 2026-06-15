@@ -29,7 +29,7 @@ if p.get("restrict"):
     # but it raises the bar far past the host-side regex pre-filter. Human `cad --mode script` is trusted
     # and stays unrestricted.
     import builtins as _b
-    _ALLOWED = {"FreeCAD", "Part", "Mesh", "math", "Draft", "PartDesign", "BOPTools", "MeshPart"}
+    _ALLOWED = {"App", "FreeCAD", "Part", "Mesh", "math", "Draft", "PartDesign", "BOPTools", "MeshPart"}
     _real_import = _b.__import__
 
     def _safe_import(name, *a, **k):
