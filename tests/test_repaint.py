@@ -73,7 +73,8 @@ def test_build_without_prev_view_has_no_second_ipadapter():
 
 
 def test_mask_background_greys_out_far_pixels(tmp_path):
-    from PIL import Image
+    import pytest
+    Image = pytest.importorskip("PIL.Image")   # [images] extra; skips in CI where pillow isn't installed
     from scripts.brandkit.repaint import _mask_background
     # view = solid red; depth = left half white (object), right half black (background)
     Image.new("RGB", (4, 2), (200, 30, 30)).save(tmp_path / "view.png")
