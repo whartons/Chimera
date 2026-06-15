@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write   # OIDC: lets codecov-action do a tokenless upload (no CODECOV_TOKEN needed)
 
 jobs:
   test:
@@ -37,7 +38,8 @@ jobs:
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
-        continue-on-error: true   # don't fail CI before the Codecov app is authorized
+          use_oidc: true          # tokenless upload via GitHub OIDC (needs id-token: write above)
+        continue-on-error: true   # advisory — never gate the merge on the coverage upload
       - name: Audit dependencies for known advisories (pip-audit)
         if: matrix.os == 'ubuntu-latest'
         continue-on-error: true   # advisory: surface CVEs in the dep tree without gating the merge
