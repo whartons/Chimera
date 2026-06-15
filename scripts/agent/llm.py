@@ -17,6 +17,7 @@ import os, json, base64, urllib.request, urllib.error
 from pathlib import Path
 
 from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict
+from scripts.agent.expander import PromptExpander, TemplatedExpander
 
 
 class LLMConfigError(RuntimeError):
@@ -162,3 +163,60 @@ class LLMCadGenerator:
             max_tokens=2048, temperature=self.temperature))
         self.prev = code
         return code
+
+
+_REWRITE_SYSTEM = {
+    "image": ("You are a prompt engineer for text-to-image generation. Rewrite the positive and negative "
+              "prompts so the render better matches the subject and brand voice and fixes the critic's "
+              "directives. Preserve the brand style and palette. Output ONLY JSON: "
+              '{"positive": "...", "negative": "..."}'),
+    "3d": ("You are a prompt engineer for image-to-3D / CAD concept generation. Rewrite the positive and "
+           "negative prompts describing the object's FORM (one clean subject, neutral background, no text) "
+           "so it better matches the subject and fixes the critic's directives. Output ONLY JSON: "
+           '{"positive": "...", "negative": "..."}'),
+}
+
+
+def _rewrite_user(subject, seed_pos, seed_neg, prior_issues):
+    fixes = "\n".join("- " + str(i) for i in (prior_issues or [])) or "(none — this is the first attempt)"
+    return ("SUBJECT: " + subject + "\nCURRENT POSITIVE: " + seed_pos + "\nCURRENT NEGATIVE: " + seed_neg
+            + "\nCRITIC FIX DIRECTIVES:\n" + fixes + "\n\nReturn improved JSON.")
+
+
+def _extract_json(text):
+    """Pull the first {...} object from the LLM output (tolerating a ```json fence). Raises on none."""
+    s = text
+    if "```" in s:
+        parts = s.split("```", 2)
+        if len(parts) >= 2:
+            s = parts[1]
+            if s.lower().startswith("json"):
+                s = s[4:]
+    a, b = s.find("{"), s.rfind("}")
+    if a == -1 or b == -1 or b < a:
+        raise ValueError("no JSON object in LLM rewrite output")
+    return json.loads(s[a:b + 1])
+
+
+class LLMExpander(PromptExpander):
+    """Rewrite (positive, negative) with an LLM from subject + brand voice + the judge's prior FIX
+    directives. The templated expander SEEDS the rewrite AND is the fallback, so output never degrades
+    below today's behavior and any LLM/parse failure is non-fatal. Text-only (no vision)."""
+
+    def __init__(self, client, *, modality="image", fallback=None, temperature=0.5):
+        self.client = client
+        self.modality = "3d" if modality == "3d" else "image"
+        self.fallback = fallback or TemplatedExpander()
+        self.temperature = temperature
+
+    def expand(self, subject, manifest, prior_issues=None):
+        seed_pos, seed_neg = self.fallback.expand(subject, manifest, prior_issues)
+        try:
+            out = self.client.chat(
+                [{"role": "system", "content": _REWRITE_SYSTEM[self.modality]},
+                 {"role": "user", "content": _rewrite_user(subject, seed_pos, seed_neg, prior_issues)}],
+                temperature=self.temperature)
+            data = _extract_json(out)
+            return (str(data["positive"]).strip() or seed_pos), (str(data.get("negative", seed_neg)).strip() or seed_neg)
+        except Exception:   # noqa: BLE001 — rewriting is best-effort; never break the loop
+            return seed_pos, seed_neg

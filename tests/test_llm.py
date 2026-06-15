@@ -181,3 +181,28 @@ def test_client_for_role_tagged_error_with_hint(monkeypatch):
     _clear_env(monkeypatch)
     with pytest.raises(LLMConfigError, match=r"\[codegen\].*interactively"):
         client_for_role("codegen")
+
+
+from scripts.agent.llm import LLMExpander
+from scripts.brandkit.manifest import default_manifest
+
+
+def test_llmexpander_parses_json():
+    fc = _FakeClient(['{"positive": "a heroic knight, dramatic light", "negative": "blurry, toy"}'])
+    pos, neg = LLMExpander(fc, modality="image").expand("a knight", default_manifest(), ["FIX: add light"])
+    assert pos == "a heroic knight, dramatic light" and neg == "blurry, toy"
+    assert fc.seen[0][0] == "chat"   # text chat, not vision
+
+
+def test_llmexpander_falls_back_when_llm_raises():
+    class _Boom:
+        def chat(self, *a, **k):
+            raise RuntimeError("llm down")
+    pos, neg = LLMExpander(_Boom()).expand("a knight", default_manifest(), None)
+    assert isinstance(pos, str) and pos          # templated fallback, non-empty
+    assert isinstance(neg, str)
+
+
+def test_llmexpander_falls_back_on_bad_json():
+    pos, neg = LLMExpander(_FakeClient(["not json at all"])).expand("a knight", default_manifest(), None)
+    assert isinstance(pos, str) and pos
