@@ -66,3 +66,61 @@ def test_finalize_winner_happy_branded(monkeypatch, tmp_path):
     meta = json.loads(side.read_text())
     assert meta["mode"] == "finalize" and meta["params"]["texture_score"] == 0.88
     assert meta["params"]["seed"] == 7 and meta["source"] == "agent_7.glb"
+
+
+def test_finalize_winner_brandless_routes_global_and_omits_brand_in_retry(monkeypatch, tmp_path, capsys):
+    sheet = _winner(tmp_path)
+    _wire(monkeypatch, tmp_path)
+    fake_repaint = lambda client, **kw: ([Path(tmp_path / "rp0.png")], list(kw["azimuths"]))
+
+    def fake_bl(template, params, **kw):
+        tglb = Path(params["out_dir"]) / "t.glb"; tglb.write_text("g")
+        return {"textured_glb": str(tglb), "outputs": [], "blender_version": "5.1.2"}
+
+    res = LoopResult(best_image=str(sheet), best_verdict=None, passed=True, history=[])
+    out = FIN.finalize_winner(res, _args(brand=None, finalize_views=1), repo_root=tmp_path,
+                              manifest=default_manifest(),
+                              judge=_Judge(Verdict(passed=True, score=0.7, issues=[])),
+                              client=object(), blender_runner=fake_bl, repaint=fake_repaint)
+    assert out is not None
+    printed = capsys.readouterr().out
+    assert "--brand" not in printed                       # brandless retry command
+    assert "finalize-texture --auto-repaint" in printed
+
+
+def test_finalize_winner_missing_sidecar_returns_none(monkeypatch, tmp_path):
+    out = tmp_path / "outputs" / "3d"; out.mkdir(parents=True)
+    sheet = out / "agent_7.png"; sheet.write_text("sheet")     # no .texture.json beside it
+    _wire(monkeypatch, tmp_path)
+    res = LoopResult(best_image=str(sheet), best_verdict=None, passed=False, history=[])
+    assert FIN.finalize_winner(res, _args(), repo_root=tmp_path, manifest=default_manifest(),
+                               judge=_Judge(Verdict(True, 1.0, [])), client=object(),
+                               blender_runner=lambda *a, **k: {}, repaint=lambda *a, **k: ([], [])) is None
+
+
+def test_finalize_winner_repaint_failure_is_nonfatal(monkeypatch, tmp_path):
+    sheet = _winner(tmp_path)
+    _wire(monkeypatch, tmp_path)
+
+    def boom(client, **kw):
+        raise RuntimeError("comfy down")
+
+    res = LoopResult(best_image=str(sheet), best_verdict=None, passed=True, history=[])
+    assert FIN.finalize_winner(res, _args(), repo_root=tmp_path, manifest=default_manifest(),
+                               judge=_Judge(Verdict(True, 1.0, [])), client=object(),
+                               blender_runner=lambda *a, **k: {}, repaint=boom) is None
+
+
+def test_finalize_winner_no_winner_skips(monkeypatch, tmp_path):
+    _wire(monkeypatch, tmp_path)
+    res = LoopResult(best_image=None, best_verdict=None, passed=False, history=[])
+    assert FIN.finalize_winner(res, _args(), repo_root=tmp_path, manifest=default_manifest(),
+                               judge=_Judge(Verdict(False, 0.0, [])), client=object(),
+                               blender_runner=lambda *a, **k: {}, repaint=lambda *a, **k: ([], [])) is None
+
+
+def test_finalize_winner_skips_when_flag_off(tmp_path):
+    res = LoopResult(best_image="x.png", best_verdict=None, passed=True, history=[])
+    assert FIN.finalize_winner(res, _args(finalize=False), repo_root=tmp_path,
+                               manifest=default_manifest(), judge=_Judge(Verdict(True, 1.0, [])),
+                               client=object()) is None
