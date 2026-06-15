@@ -119,7 +119,8 @@ repeat. It runs two ways:
   iterations. The judge is the local Qwen2.5-VL (default) or the same LLM (`--backend api`). With
   `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
   [`../agent/self-correction.md`](../agent/self-correction.md#bring-your-own-llm---backend-api----pipeline-cad)
-  for the provider table. (Built + GPU/network-free mock-tested; live LLM-endpoint validation pending.)
+  for the provider table. (Built + **live-validated** against a local Ollama endpoint — `qwen2.5-coder`
+  drove a full FreeCAD→render→judge→revise→PASS loop; `qwen2.5vl` confirmed the vision judge.)
 
 > ⚠️ **`--mode script` `exec()`s the script unsandboxed** in the `FreeCADCmd` process (no network,
 > isolated process, but full Python — same trust as running a FreeCAD macro you wrote). **Run only

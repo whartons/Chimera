@@ -46,7 +46,7 @@ All drive the *same* core; they differ only in **who plays the `Judge`**.
 | Judge | A single **Qwen2.5-VL-7B** node | **Any OpenAI-compatible LLM** (`LLMJudge`, N-pass consensus via `--judge-passes`) | The assistant's own vision — M passes, majority-PASS consensus |
 | Driver | `auto_generate.py --backend local` (default) | `auto_generate.py --backend api` (+ `CHIMERA_LLM_*` / `--llm-*`) | Claude Code Workflow tooling (assistant in the loop) |
 | Cost / deps | ~15 GB VRAM VLM, **offline/unattended** | API or **local** endpoint (Gemini/OpenAI/Anthropic/Ollama) — no SDK | No API key, no extra model |
-| Status | **Built + validated** (full loop ran live) | **Built + mock-tested** (live endpoint validation pending) | **Built + proven** (live fail→pass below) |
+| Status | **Built + validated** (full loop ran live) | **Built + validated** (live Ollama: `qwen2.5vl` vision judge) | **Built + proven** (live fail→pass below) |
 | Recipe | `scripts/agent/auto_generate.py` | §[Bring your own LLM](#bring-your-own-llm---backend-api----pipeline-cad) | [`../../workflows/agent/README.md`](../../workflows/agent/README.md) |
 
 **When to use which:**
@@ -446,8 +446,9 @@ python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" --
 majority-consensuses them (default 1). Config can come from env (`CHIMERA_LLM_BASE_URL`/`_MODEL`/`_API_KEY`,
 e.g. via `.env`) instead of the flags.
 
-> **Status (2026-06-14):** the assistant-authored path is shipped + live-validated (a parametric mug,
-> author→exec→render→judge→revise with a BREP rim fillet). The **autonomous LLM path** (`--pipeline cad`,
-> `--backend api`) is **built + GPU/network-free mock-tested**; live validation is pending an LLM endpoint
-> (the Qwen judge it can pair with is already available). See
+> **Status (2026-06-15):** the assistant-authored path is shipped + live-validated (a parametric mug,
+> author→exec→render→judge→revise with a BREP rim fillet). The **autonomous LLM path** (`--pipeline cad`)
+> is now **live-validated** too: `--backend local` + `qwen2.5-coder` drove a mounting bracket
+> FreeCAD→render→judge→**fail→revise→PASS**, and the `--backend api` `LLMJudge` vision path was confirmed
+> against `qwen2.5vl`. (Live validation surfaced + fixed five real CAD-loop bugs.) See
 > [`../cad/README.md`](../cad/README.md#--mode-script--generative-cad-self-correction).

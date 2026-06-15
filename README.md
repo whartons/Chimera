@@ -97,7 +97,7 @@ it, take what's useful. Developed on an RTX 5090 but written to help anyone on C
   can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
   And it closes the loop: **`cad --mode script`** runs an agent-authored FreeCAD script, while
   **`auto_generate.py --pipeline cad`** is **fully-autonomous generative CAD** — an LLM writes + revises the
-  script → `cad` → render → judge → revise (built + mock-tested; live LLM-endpoint validation pending).
+  script → `cad` → render → judge → revise (built + **live-validated** against a local Ollama endpoint).
 
 **490 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).

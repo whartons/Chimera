@@ -32,7 +32,10 @@ All notable changes to Chimera are documented here. The format follows
     all. The loop execs LLM-authored scripts, so they run with a **host-side denylist + restricted builtins
     + an import allowlist** (`script_exec.py restrict=True`) — a best-effort speed bump, **not** a security
     boundary (FreeCAD's own file I/O is still reachable; point it only at an LLM you trust). No new hard
-    dependency (stdlib HTTP); CI stays GPU/network-free (mocked). Live validation pending an LLM endpoint.
+    dependency (stdlib HTTP); CI stays GPU/network-free (mocked). **Live-validated 2026-06-15** against a
+    local Ollama endpoint: `--backend local` + `qwen2.5-coder` drove a mounting-bracket loop FreeCAD STL →
+    Blender render → Qwen-VL judge → fail → revise → PASS; the `LLMJudge` vision path was confirmed against
+    `qwen2.5vl`. (Validation also surfaced + fixed five real CAD-loop bugs — see the CAD-loop fix entry.)
 - **Phase 4b auto-repaint — all-around 3D texture, end to end** — `generate.py finalize-texture
   --auto-repaint --concept <img> --subject "..."` now *generates* the corrected views instead of needing
   them supplied: it renders a per-view **depth map** (`workflows/templates/blender/render_views.py` — an
@@ -154,6 +157,21 @@ All notable changes to Chimera are documented here. The format follows
   (`check_gitea_pack`) and FreeCAD's GitHub repo (existing `check_git_pack`) in
   `scripts/update_report.py`. **Interactive only** — headless automation + 3D/CAD self-correction
   are roadmap (Phase 2–3).
+
+### Fixed
+- **Autonomous CAD loop now works end-to-end with a real LLM** (`auto_generate.py --pipeline cad`). The
+  first live runs (Ollama `qwen2.5-coder` / `qwen2.5vl`) surfaced five real defects the GPU/network-free
+  mocked tests could not catch: (1) `script_exec.py` now wraps raw `Part.Shape`/`Mesh` entries from
+  `RESULT` into doc objects (LLMs naturally write `RESULT = [shape]`), checking `isinstance(Part.Shape)`
+  **before** `isDerivedFrom` (raw shapes also expose `isDerivedFrom`); (2) `_common.export_shapes`
+  tessellates Part shapes via **`MeshPart`** for STL/OBJ — headless `Mesh.export` does not mesh a
+  `Part::Feature`; (3) `freecad.run_template` surfaces **stderr** in the no-manifest error so the loop's
+  revise step can self-correct (FreeCAD prints script errors to stderr while exiting 0); (4) `App` added
+  to the restricted-exec import allowlist (FreeCAD's universal alias, which `script_exec` injects); (5) the
+  codegen prompt now pins the FreeCAD API (`App.Vector`, never `Part.Vector`; `Part.makeBox`…). Validated
+  live: `--backend local` + `qwen2.5-coder` drove a mounting-bracket loop FreeCAD STL → Blender render →
+  Qwen-VL judge → **fail → revise → PASS**; the `--backend api` `LLMJudge` vision path was confirmed
+  against `qwen2.5vl`.
 
 ### Changed
 - **3D self-correction geometry gate recalibrated for real Hunyuan3D output.** The first end-to-end live

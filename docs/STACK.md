@@ -97,7 +97,8 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > `$FREECAD_BIN`, or the default install; CI mocks the subprocess (GPU-free). glTF export is GUI-only
 > (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
 > script`) and **fully autonomous** (`auto_generate.py --pipeline cad` — a provider-agnostic LLM writes +
-> revises the script; `scripts/agent/llm.py`, built + mock-tested, live LLM-endpoint validation pending).
+> revises the script; `scripts/agent/llm.py`, built + **live-validated** (local Ollama: `qwen2.5-coder`
+> full loop to PASS, `qwen2.5vl` vision judge)).
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
