@@ -160,6 +160,12 @@ def main():
                          "(palette = flat brand color; mirror = back-project a flipped concept)")
     ap.add_argument("--texture-res", dest="texture_res", type=int, default=1024,
                     help="(mesh3d --texture) baked albedo resolution")
+    ap.add_argument("--finalize", action="store_true",
+                    help="(mesh3d) after the loop, texture the winning mesh via the multi-view "
+                         "auto-repaint bake and re-judge it (informational). Emits a textured GLB "
+                         "and prints a copy-paste retry command. Mutually exclusive with --texture.")
+    ap.add_argument("--finalize-views", dest="finalize_views", type=int, default=4,
+                    help="(mesh3d --finalize) ring views to generate + bake (1..7; default 4)")
     ap.add_argument("--comfy-url", dest="comfy_url", default="http://127.0.0.1:8000")
     ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", default=None,
                     help="ComfyUI output dir: routes renders AND is where the Qwen judge drops verdicts. "
@@ -187,6 +193,13 @@ def main():
         ap.error("--texture applies only to --pipeline mesh3d")
     if args.back_fill != "palette" and not args.texture:
         ap.error("--back-fill applies only with --texture (mesh3d albedo bake)")
+    if args.finalize and args.pipeline != "mesh3d":
+        ap.error("--finalize applies only to --pipeline mesh3d")
+    if args.finalize and args.texture:
+        ap.error("--finalize and --texture are mutually exclusive (both target color; --finalize is "
+                 "the all-around multi-view bake on the winner, --texture is per-iteration front-albedo)")
+    if args.finalize and not 1 <= args.finalize_views <= 7:
+        ap.error("--finalize-views must be 1..7 (Blender's 8-UV-layer cap minus the bake atlas)")
     # comfy-output-dir is needed for ComfyUI generation (image/mesh3d) and for the Qwen judge; the only
     # loop that touches neither is `cad` + the LLM judge.
     if not args.comfy_output_dir and not (args.pipeline == "cad" and args.backend == "api"):
@@ -238,6 +251,13 @@ def main():
 
     _print_summary(result)
     _write_run_sidecar(result, args, repo_root)
+
+    if args.finalize and args.pipeline == "mesh3d":
+        from scripts.agent.finalize import finalize_winner
+        # build_judge() here is the UN-wrapped judge (the loop wrapped it in GeometryAwareJudge for
+        # shape; texture quality is color/material, not geometry).
+        finalize_winner(result, args, repo_root=repo_root, manifest=m,
+                        judge=build_judge(), client=client)
 
 
 if __name__ == "__main__":

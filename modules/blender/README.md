@@ -119,8 +119,10 @@ concept. Runs through the same headless job runner; routes the GLB + a contact s
 `kind:"render" mode:"finalize-texture"` sidecar.
 
 Phase 3 (self-correction over renders), Phase 4a (front albedo texturing), and Phase 4b (the multi-view
-**bake** + **auto-repaint**) are all **shipped** (`auto_generate.py --pipeline mesh3d [--texture]`;
+**bake** + **auto-repaint**) are all **shipped** (`auto_generate.py --pipeline mesh3d [--texture|--finalize]`;
 `generate.py finalize-texture [--auto-repaint]`); see [`../agent/self-correction.md`](../agent/self-correction.md).
+`--finalize` is the in-loop driver: it auto-runs this `finalize-texture --auto-repaint` bake on the
+self-correction loop's winning mesh and re-judges the textured result.
 
 ## Security audit (v1.0.0) & per-tool gates
 

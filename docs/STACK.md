@@ -41,7 +41,7 @@ The `chimera` package (**v0.1.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (471 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (490 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness rules (`select=["F"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -120,7 +120,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (471 tests local; ~465 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
+py3.12 (490 tests local; ~484 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

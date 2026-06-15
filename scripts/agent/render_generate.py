@@ -92,10 +92,17 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             # texture sidecar records the routed GLB name so Phase 4b can find the mesh to finalize.
             cf = Path(sheet).with_name(Path(sheet).stem + RENDER_CHECKS_SUFFIX)
             cf.write_text(json.dumps(checks), encoding="utf-8")
-            if texture:
-                tf = Path(sheet).with_name(Path(sheet).stem + RENDER_TEXTURE_SUFFIX)
-                tf.write_text(json.dumps({"textured": bool(mani.get("textured")),
-                                          "glb": Path(glb_dest).name}), encoding="utf-8")
+            # Always record the winner's mesh + concept (+ seed) so Phase 4b in-loop finalize can
+            # recover them — not just under --texture. Record ABSOLUTE paths: the sheet routes to
+            # outputs/images/ but the GLB to outputs/3d/, so a bare name can't locate the mesh. The
+            # concept is recorded IN PLACE — never routed: route_output MOVES its source, which would
+            # destroy a user-supplied --from-image file. The concept still exists when the in-loop
+            # finalize runs moments later in the same process.
+            tf = Path(sheet).with_name(Path(sheet).stem + RENDER_TEXTURE_SUFFIX)
+            tf.write_text(json.dumps({"textured": bool(mani.get("textured")),
+                                      "glb": str(Path(glb_dest).resolve()),
+                                      "concept": str(Path(concept_path).resolve()),
+                                      "seed": seed}), encoding="utf-8")
             return str(sheet)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

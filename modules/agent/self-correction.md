@@ -386,8 +386,15 @@ all the way around. **Polish (shipped):** each repainted view is masked to its d
 baking (the concept's background no longer bleeds onto edges), and views after the first add a second
 IPAdapter pass on the previous painted view (`prev_weight`, default 0.4) for **cross-view consistency**.
 A busy concept background still helps less than a plain one — lower `--ip-weight` if identity over-imposes.
-**Roadmap:** an autonomous **in-loop finalize** (auto-run `--auto-repaint` on the mesh3d loop's winning
-mesh, reusing its concept) — today, run `finalize-texture --auto-repaint` on the winning GLB manually.
+**In-loop finalize (shipped).** `auto_generate.py --pipeline mesh3d --finalize` auto-runs the
+`--auto-repaint` bake on the loop's winning mesh (recovered from the always-written `.texture.json`
+sidecar, reusing its concept), re-judges the textured result against the `textured=True` rubric
+(**informational, non-gating** — the shape already passed; texture is a finishing step), emits a
+textured GLB + sidecar, and prints a copy-paste retry command so you decide whether to re-roll the
+texture with a fresh seed. `--finalize-views` (1..7) tunes the ring; **mutually exclusive** with
+`--texture` (the per-iteration front-albedo). Brand-optional. Non-fatal: a texturing/judge failure
+leaves the untextured winner intact. The bake engine is shared with the CLI via
+`scripts/brandkit/finalize.py` (`finalize_params` + `repaint_views`).
 
 ## CAD self-correction (FreeCAD, agent-authored script)
 
