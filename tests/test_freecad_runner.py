@@ -69,6 +69,16 @@ def test_run_template_raises_when_no_manifest(tmp_path):
         F.run_template(tmpl, {}, freecad_bin="fc", _runner=runner)
 
 
+def test_run_template_no_manifest_surfaces_stderr(tmp_path):
+    # a script-level FreeCAD error (returncode 0, message on stderr) must reach the raised error so
+    # the autonomous CAD loop can feed it back and self-correct
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    runner = lambda argv, **kw: _fake_proc(
+        stdout="banner", stderr="Exception while processing file [module 'Part' has no attribute 'Vector']")
+    with pytest.raises(F.FreeCADJobError, match="Part.*Vector"):
+        F.run_template(tmpl, {}, freecad_bin="fc", _runner=runner)
+
+
 def test_run_template_last_manifest_line_wins(tmp_path):
     tmpl = tmp_path / "t.py"; tmpl.write_text("x")
     runner = lambda argv, **kw: _fake_proc(

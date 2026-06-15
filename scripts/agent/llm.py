@@ -99,9 +99,14 @@ _CAD_SYSTEM = (
     "You are an expert FreeCAD modeller. Write a single self-contained FreeCAD Python script that builds "
     "the requested object as clean parametric BREP solids. The script runs headless with `App` (FreeCAD), "
     "`Part`, `Mesh`, and an active document `doc` already in scope — do NOT import or create a document. "
+    "FreeCAD API: vectors are `App.Vector(x, y, z)` — NEVER `Part.Vector`; make solids with "
+    "`Part.makeBox/makeCylinder/makeSphere/makeCone`; combine via `.fuse(o)`, `.cut(o)`, `.common(o)`; "
+    "move via `shape.translate(App.Vector(dx, dy, dz))`. "
     "Build geometry as Part objects added to `doc` (e.g. `o = doc.addObject('Part::Feature','X'); "
-    "o.Shape = <shape>`), or set a module global `RESULT = [objs]`. Use millimetres. Prefer booleans/"
-    "fillets for a manufacturable single solid. Output ONLY one ```python code block``` and no prose."
+    "o.Shape = <shape>`), OR set a module global `RESULT` to the list of shapes to export "
+    "(e.g. `RESULT = [my_solid]` where my_solid is a Part shape from makeBox/cut/fuse). Use millimetres. "
+    "Prefer booleans/fillets for a manufacturable single solid. Output ONLY one ```python code block``` "
+    "and no prose."
 )
 
 
