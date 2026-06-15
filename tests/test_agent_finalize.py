@@ -18,14 +18,17 @@ def _args(**kw):
 
 
 def _winner(tmp_path, *, textured=False, seed=7):
-    """Create a routed sheet + its .texture.json sidecar + the referenced glb/concept siblings."""
-    out = tmp_path / "outputs" / "3d"; out.mkdir(parents=True, exist_ok=True)
-    sheet = out / "agent_7.png"; sheet.write_text("sheet")
-    (out / "agent_7.glb").write_text("mesh")
-    (out / "concept_7.png").write_text("img")
+    """Mirror the real render_generate layout: sheet+concept route to outputs/images/, the GLB to
+    outputs/3d/ (a DIFFERENT dir), and the sidecar (next to the sheet) records ABSOLUTE glb/concept
+    paths. This cross-dir layout guards the bug where the GLB was sought beside the sheet."""
+    img = tmp_path / "outputs" / "images"; img.mkdir(parents=True, exist_ok=True)
+    td = tmp_path / "outputs" / "3d"; td.mkdir(parents=True, exist_ok=True)
+    sheet = img / "agent_7.png"; sheet.write_text("sheet")
+    glb = td / "agent_7.glb"; glb.write_text("mesh")
+    concept = img / "concept_7.png"; concept.write_text("img")
     side = sheet.with_name(sheet.stem + FIN.RENDER_TEXTURE_SUFFIX)
-    side.write_text(json.dumps({"textured": textured, "glb": "agent_7.glb",
-                                "concept": "concept_7.png", "seed": seed}))
+    side.write_text(json.dumps({"textured": textured, "glb": str(glb),
+                                "concept": str(concept), "seed": seed}))
     return sheet
 
 

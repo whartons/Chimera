@@ -53,8 +53,9 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
               file=sys.stderr)
         return None
     info = json.loads(side.read_text(encoding="utf-8"))
-    glb = (sheet.parent / info["glb"]).resolve()
-    concept = (sheet.parent / info["concept"]).resolve()
+    # glb/concept are absolute paths (the GLB routes to outputs/3d/, the sheet to outputs/images/).
+    glb = Path(info["glb"]).resolve()
+    concept = Path(info["concept"]).resolve()
     seed = int(info.get("seed", 0))
     palette = list(getattr(manifest, "palette", []) or [])
     views = max(1, min(7, int(getattr(args, "finalize_views", 4))))
