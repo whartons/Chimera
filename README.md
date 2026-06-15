@@ -1,7 +1,7 @@
 # Chimera
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
-[![tests](https://github.com/whartons/Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/Chimera/actions/workflows/ci.yml)
+[![lint · test · audit](https://github.com/whartons/Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/Chimera/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![codecov](https://codecov.io/gh/whartons/Chimera/branch/main/graph/badge.svg)](https://codecov.io/gh/whartons/Chimera)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-%E2%89%A50.24-orange)

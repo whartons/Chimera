@@ -1,4 +1,4 @@
-name: tests
+name: lint · test · audit
 
 # Run on pushes to main and on every pull request. The GPU-free suite mocks ComfyUI, so it runs
 # on a clean runner with no models, no GPU, no server.
