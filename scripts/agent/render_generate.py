@@ -93,15 +93,15 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             cf = Path(sheet).with_name(Path(sheet).stem + RENDER_CHECKS_SUFFIX)
             cf.write_text(json.dumps(checks), encoding="utf-8")
             # Always record the winner's mesh + concept (+ seed) so Phase 4b in-loop finalize can
-            # recover them — not just under --texture. Route a concept copy so the sidecar is
-            # self-contained (the txt2img/from-image source can otherwise be cleaned away).
-            concept_dest = route_output(repo_root, args.brand, Path(concept_path), "concept", seed)
-            # Record ABSOLUTE paths: the sheet routes to outputs/images/ but the GLB routes to
-            # outputs/3d/, so a bare name (joined against the sheet's dir) can't locate the mesh.
+            # recover them — not just under --texture. Record ABSOLUTE paths: the sheet routes to
+            # outputs/images/ but the GLB to outputs/3d/, so a bare name can't locate the mesh. The
+            # concept is recorded IN PLACE — never routed: route_output MOVES its source, which would
+            # destroy a user-supplied --from-image file. The concept still exists when the in-loop
+            # finalize runs moments later in the same process.
             tf = Path(sheet).with_name(Path(sheet).stem + RENDER_TEXTURE_SUFFIX)
             tf.write_text(json.dumps({"textured": bool(mani.get("textured")),
                                       "glb": str(Path(glb_dest).resolve()),
-                                      "concept": str(Path(concept_dest).resolve()),
+                                      "concept": str(Path(concept_path).resolve()),
                                       "seed": seed}), encoding="utf-8")
             return str(sheet)
         finally:

@@ -52,11 +52,16 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
         print(f"[finalize] winner sidecar {side.name} missing; emitting untextured winner",
               file=sys.stderr)
         return None
-    info = json.loads(side.read_text(encoding="utf-8"))
-    # glb/concept are absolute paths (the GLB routes to outputs/3d/, the sheet to outputs/images/).
-    glb = Path(info["glb"]).resolve()
-    concept = Path(info["concept"]).resolve()
-    seed = int(info.get("seed", 0))
+    try:
+        info = json.loads(side.read_text(encoding="utf-8"))
+        # glb/concept are absolute paths (GLB routes to outputs/3d/, sheet to outputs/images/).
+        glb = Path(info["glb"]).resolve()
+        concept = Path(info["concept"]).resolve()
+        seed = int(info.get("seed", 0))
+    except (OSError, ValueError, KeyError) as e:   # corrupt/partial/stale sidecar -> non-fatal
+        print(f"[finalize] winner sidecar {side.name} unreadable ({e}); emitting untextured winner",
+              file=sys.stderr)
+        return None
     palette = list(getattr(manifest, "palette", []) or [])
     views = max(1, min(7, int(getattr(args, "finalize_views", 4))))
     azimuths = [360.0 * i / views for i in range(views)]

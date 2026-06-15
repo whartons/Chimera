@@ -15,8 +15,8 @@ All notable changes to Chimera are documented here. The format follows
   whether to re-roll the texture with a fresh seed). Brand-optional; **mutually exclusive** with
   `--texture` (per-iteration front-albedo). New shared engine `scripts/brandkit/finalize.py`
   (`finalize_params`, `repaint_views`) is used by **both** the `finalize-texture` CLI and the loop;
-  `render_generate.py` now **always** writes the winner `.texture.json` (routed GLB + concept copy +
-  seed) so the tail can recover the winner. Non-fatal: a texturing/judge hiccup never loses the
+  `render_generate.py` now **always** writes the winner `.texture.json` (absolute GLB + concept paths
+  + seed; the concept is recorded in place, never moved) so the tail can recover the winner. Non-fatal: a texturing/judge hiccup never loses the
   already-good shape. GPU/network-free tests (mocked). Completes the Phase-4b roadmap.
 - **Provider-agnostic LLM backend — autonomous AI judge + generative CAD loop** — a vendor-neutral
   `scripts/agent/llm.py` (`LLMClient`) talks the **OpenAI-compatible `/v1/chat/completions`** shape over

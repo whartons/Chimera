@@ -160,7 +160,8 @@ def test_texture_off_still_writes_winner_sidecar(monkeypatch, tmp_path):
     tf = Path(sheet).with_name(Path(sheet).stem + rg.RENDER_TEXTURE_SUFFIX)
     meta = json.loads(tf.read_text())
     assert meta["textured"] is False
-    assert meta["glb"].endswith(".glb")            # routed GLB name recorded
-    assert meta["concept"].endswith(".png")        # routed concept copy recorded
-    assert meta["seed"] == 7                        # winning seed recorded
-    assert any(p.name == "concept.png" for p in calls["routed_src"])   # a concept copy was routed
+    assert meta["glb"].endswith(".glb")             # absolute GLB path recorded
+    assert meta["concept"].endswith("concept.png")  # concept recorded IN PLACE
+    assert meta["seed"] == 7                         # winning seed recorded
+    # the concept is NOT routed — route_output MOVES, which would destroy a --from-image source
+    assert not any(p.name == "concept.png" for p in calls["routed_src"])

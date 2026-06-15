@@ -33,16 +33,17 @@ def _winner(tmp_path, *, textured=False, seed=7):
 
 
 def _wire(monkeypatch, tmp_path):
-    """Stub the module-level seams (route/montage/provenance). Returns a `calls` dict."""
-    calls = {"routed": []}
+    """Stub the module-level seams (route/montage/provenance). Brand-aware. Returns a `calls` dict."""
+    calls = {"routed": [], "brands": []}
     monkeypatch.setattr(FIN.montage, "contact_sheet",
                         lambda paths, out, **k: Path(out).write_text("ts") or Path(out))
     monkeypatch.setattr(FIN, "git_provenance", lambda r: "deadbee")
 
     def fake_route(root, brand, src, mode, seed, **kw):
-        d = Path(root) / "outputs" / "3d" / f"{mode}_{seed}{Path(src).suffix}"
+        sub = Path("brands") / brand / "outputs" / "3d" if brand else Path("outputs") / "3d"
+        d = Path(root) / sub / f"{mode}_{seed}{Path(src).suffix}"
         d.parent.mkdir(parents=True, exist_ok=True); d.write_text("x")
-        calls["routed"].append(d); return d
+        calls["routed"].append(d); calls["brands"].append(brand); return d
 
     monkeypatch.setattr(FIN, "route_output", fake_route)
     return calls
@@ -129,3 +130,52 @@ def test_finalize_winner_skips_when_flag_off(tmp_path):
     assert FIN.finalize_winner(res, _args(finalize=False), repo_root=tmp_path,
                                manifest=default_manifest(), judge=_Judge(Verdict(True, 1.0, [])),
                                client=object()) is None
+
+
+def _ok_bl(template, params, **kw):
+    tglb = Path(params["out_dir"]) / "t.glb"; tglb.write_text("g")
+    return {"textured_glb": str(tglb), "outputs": [], "blender_version": "5.1.2"}
+
+
+def test_finalize_winner_branded_routes_and_retry(monkeypatch, tmp_path, capsys):
+    sheet = _winner(tmp_path)
+    calls = _wire(monkeypatch, tmp_path)
+    fake_repaint = lambda client, **kw: ([Path(tmp_path / "rp0.png")], list(kw["azimuths"]))
+    res = LoopResult(best_image=str(sheet), best_verdict=None, passed=True, history=[])
+    out = FIN.finalize_winner(res, _args(brand="acme", finalize_views=1), repo_root=tmp_path,
+                              manifest=default_manifest(),
+                              judge=_Judge(Verdict(passed=True, score=0.9, issues=[])),
+                              client=object(), blender_runner=_ok_bl, repaint=fake_repaint)
+    assert out is not None
+    assert "acme" in calls["brands"]                       # brand reached route_output
+    assert "brands" in str(out).replace("\\", "/")         # routed under brands/acme/...
+    assert "--brand acme" in capsys.readouterr().out       # branded retry command
+
+
+def test_finalize_winner_rejudge_failure_still_emits_glb(monkeypatch, tmp_path):
+    sheet = _winner(tmp_path)
+    _wire(monkeypatch, tmp_path)
+    fake_repaint = lambda client, **kw: ([Path(tmp_path / "rp0.png")], list(kw["azimuths"]))
+
+    class _BoomJudge:
+        def judge(self, image, rubric): raise RuntimeError("judge OOM")
+
+    res = LoopResult(best_image=str(sheet), best_verdict=None, passed=True, history=[])
+    out = FIN.finalize_winner(res, _args(), repo_root=tmp_path, manifest=default_manifest(),
+                              judge=_BoomJudge(), client=object(),
+                              blender_runner=_ok_bl, repaint=fake_repaint)
+    assert out is not None and out.suffix == ".glb"        # textured GLB still emitted
+    meta = json.loads(out.with_suffix(".json").read_text())
+    assert meta["params"]["texture_score"] is None         # null verdict recorded
+    assert meta["params"]["texture_passed"] is None
+    assert meta["outputs"] == ["finalize_7.glb"]           # GLB only; verification sheet skipped
+
+
+def test_finalize_winner_corrupt_sidecar_is_nonfatal(monkeypatch, tmp_path):
+    sheet = _winner(tmp_path)
+    sheet.with_name(sheet.stem + FIN.RENDER_TEXTURE_SUFFIX).write_text("{ not json")  # clobber
+    _wire(monkeypatch, tmp_path)
+    res = LoopResult(best_image=str(sheet), best_verdict=None, passed=True, history=[])
+    assert FIN.finalize_winner(res, _args(), repo_root=tmp_path, manifest=default_manifest(),
+                               judge=_Judge(Verdict(True, 1.0, [])), client=object(),
+                               blender_runner=lambda *a, **k: {}, repaint=lambda *a, **k: ([], [])) is None

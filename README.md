@@ -99,7 +99,7 @@ it, take what's useful. Developed on an RTX 5090 but written to help anyone on C
   **`auto_generate.py --pipeline cad`** is **fully-autonomous generative CAD** — an LLM writes + revises the
   script → `cad` → render → judge → revise (built + mock-tested; live LLM-endpoint validation pending).
 
-**487 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**490 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -155,7 +155,7 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 487 tests run against a mocked ComfyUI client (graph-building,
+- **Tested without a GPU, on every push.** 490 tests run against a mocked ComfyUI client (graph-building,
   routing, sidecar, replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view
   finalize runners, the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry
   checks), linted with **ruff** and packaged as an installable
