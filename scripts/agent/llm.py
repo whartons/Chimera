@@ -81,7 +81,7 @@ class LLMClient:
 
 
 def client_for_role(role, *, cli_base=None, cli_model=None,
-                    shared_cli_base=None, shared_cli_model=None, timeout=180) -> "LLMClient":
+                    shared_cli_base=None, shared_cli_model=None, timeout=180) -> LLMClient:
     """Build an LLMClient for `role` in {'codegen','judge','rewriter'}. SPECIFIC-WINS precedence for each
     of base_url/model:  role CLI > role env (CHIMERA_<ROLE>_*) > shared CLI (--llm-*) > shared env
     (CHIMERA_LLM_*).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY > OPENAI_API_KEY > ANTHROPIC_API_KEY.
