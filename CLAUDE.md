@@ -109,8 +109,9 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   and **autonomous** (`auto_generate.py --pipeline cad`, where a **provider-agnostic LLM** writes/revises
   the script — `scripts/agent/llm.py`, OpenAI-compatible/no-SDK, env-configured for
   OpenAI/Anthropic/OpenRouter/local). The same backend gives an **`--backend api`** AI judge for any loop
-  (local Qwen stays the default). **Roadmap:** Phase-4b cross-view-consistency conditioning + an in-loop
-  finalize on the mesh3d winner.
+  (local Qwen stays the default). **Phase-4b in-loop finalize is shipped:** `auto_generate.py --pipeline
+  mesh3d --finalize` textures the winning mesh (multi-view auto-repaint bake) + re-judges it
+  (informational, non-gating); cross-view-consistency conditioning shipped with the auto-repaint polish.
 
 ## Hardware
 Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (32 GB VRAM).

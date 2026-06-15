@@ -366,8 +366,9 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
 
   Auto-repaint masks each view to its depth silhouette + adds cross-view consistency (a 2nd IPAdapter pass
   on the previous painted view). The **autonomous CAD loop** uses the provider-agnostic LLM backend
-  (`scripts/agent/llm.py` — OpenAI-compatible: Gemini / OpenAI / Anthropic / OpenRouter / local). Only an
-  **in-loop finalize** on the mesh3d winner remains roadmap.
+  (`scripts/agent/llm.py` — OpenAI-compatible: Gemini / OpenAI / Anthropic / OpenRouter / local). The
+  **in-loop finalize** on the mesh3d winner is now **shipped** (`auto_generate.py --pipeline mesh3d
+  --finalize` — auto-runs the auto-repaint bake on the winner + re-judges, informational).
 
 ---
 
