@@ -89,6 +89,8 @@ def test_finalize_winner_brandless_routes_global_and_omits_brand_in_retry(monkey
     printed = capsys.readouterr().out
     assert "--brand" not in printed                       # brandless retry command
     assert "finalize-texture --auto-repaint" in printed
+    assert "agent_7.glb" in printed                       # retry re-bakes from the RAW winner mesh
+    assert "finalize_7.glb" not in printed.split("--from", 1)[-1].split("--concept", 1)[0]  # not the textured output
 
 
 def test_finalize_winner_missing_sidecar_returns_none(monkeypatch, tmp_path):

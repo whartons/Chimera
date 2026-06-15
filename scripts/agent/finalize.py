@@ -116,8 +116,10 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
     score = getattr(verdict, "score", None)
     print(f"[finalize] textured winner -> {routed_glb}  (texture score={score})")
     brand_flag = f"--brand {args.brand} " if args.brand else ""
+    # Retry re-bakes from the RAW winner mesh (glb), not the textured output — re-texturing an
+    # already-textured GLB would stack UV layers.
     print("[finalize] not happy with the texture? retry by hand with a new seed:\n"
           f"  python scripts/generate.py finalize-texture --auto-repaint {brand_flag}"
-          f"--from {routed_glb} --concept {concept} --subject \"{args.subject}\" "
+          f"--from {glb} --concept {concept} --subject \"{args.subject}\" "
           f"--seed {seed + 1} --comfy-output-dir {args.comfy_output_dir}")
     return routed_glb
