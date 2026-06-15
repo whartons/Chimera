@@ -92,6 +92,26 @@ ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
   of the diff (runbook: [`../../docs/UPDATING.md`](../../docs/UPDATING.md)) — so a version bump is
   always reviewed and deliberate, never silent.
 
+## Sibling DCC/CAD bridges
+
+The agent layer doesn't stop at ComfyUI. The same pin + audit + per-tool-gate model also covers
+two DCC/CAD applications:
+
+| Bridge | Module | Phase 1 scope |
+|--------|--------|---------------|
+| **Blender** (`lab/blender_mcp`, Blender Foundation) | [`../blender/`](../blender/README.md) | Interactive/GUI only — assistant drives a live Blender session |
+| **FreeCAD** (`neka-nat/freecad-mcp`) | [`../cad/`](../cad/README.md) | Interactive/GUI only — assistant drives a live FreeCAD session |
+
+Both are **pinned to exact commits, audited, and per-tool-gated** via
+[`../../.claude/settings.json`](../../.claude/settings.json) — the same security model as the
+ComfyUI bridge. **Phase 1 (the MCP bridges) is GUI-only and interactive.** The headless Blender
+backend (Phase 2), 3D self-correction over Blender renders (Phase 3,
+[`self-correction.md`](self-correction.md) §3D), front-projected albedo texturing (Phase 4a,
+`--texture`), all-around multi-view texture (Phase 4b — `finalize-texture`, manual views **and**
+`--auto-repaint`), headless FreeCAD geometry (`generate.py cad`), and the **FreeCAD-driven CAD
+self-correction loop** (`cad --mode script` + autonomous `auto_generate.py --pipeline cad` via a
+provider-agnostic LLM) are all **shipped**. A `--backend api` LLM judge works on every pipeline.
+
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**
 format, *not* the canvas `workflow.json` (or the graph embedded in a PNG). To get

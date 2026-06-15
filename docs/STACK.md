@@ -13,7 +13,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
         comfy["ComfyUI 0.24.1 (engine + models)"]
-        packs["pinned node packs: LTXVideo · Foley · QwenVL"]
+        packs["pinned node packs: LTXVideo · Foley · QwenVL · IPAdapter"]
         comfy --- packs
     end
     subgraph chimera["chimera (this repo) — Python 3.12, pyyaml"]
@@ -25,6 +25,10 @@ flowchart TD
     agent --> cli
     mcp -->|drives| comfy
     assistant["AI assistant (Claude Code)"] -->|MCP| mcp
+    blender["blender_mcp (stdio, loopback)"]
+    freecad["freecad-mcp (stdio, loopback)"]
+    assistant -->|MCP| blender
+    assistant -->|MCP| freecad
     assistant -->|"optional: --backend assistant"| agent
 ```
 
@@ -37,8 +41,8 @@ The `chimera` package (**v0.1.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (317 tests) |
-| **ruff** | `>=0.10` | dev | lint — correctness rules (`select=["F"]`) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (503 tests) |
+| **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
 | **av** (PyAV) | `>=12` | optional `[video]` | foley fps/duration auto-probe (`generate._probe_video`) — degrades to explicit `--fps/--duration` if absent |
@@ -59,14 +63,42 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 | **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `229437c` | video (LTX-2.3 i2v + synced audio + latent upscaler) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code` |
 | **ComfyUI-HunyuanVideo-Foley** | `phazei/ComfyUI-HunyuanVideo-Foley` | `afd2960` | audio foley (video→SFX) | safe-with-precautions — only 3 nodes used; never run the bundled `cli.py`/`infer.py`/`gradio_app.py` (pickle-RCE) |
 | **ComfyUI-QwenVL** | `1038lab/ComfyUI-QwenVL` | `fcd1ada` | agent local VLM judge (Qwen2.5-VL-7B) | safe-with-precautions — weights from the official Qwen repo only |
+| **ComfyUI_IPAdapter_plus** | `cubiq/ComfyUI_IPAdapter_plus` | `a0f451a` | Phase-4b auto-repaint (SDXL depth-CN + IPAdapter view generation) | safe-with-precautions — clean deps (torch/comfy/PIL/einops), no net/telemetry/exec; only the niche `IPAdapterEmbeds` loader does `torch.load` (don't feed it untrusted `.ipadpt`) |
 
 > Core-native (no pack needed): **Z-Image**, **ACE-Step 1.5**, **Hunyuan3D 2.1**, and the agent
 > verdict-capture node all ship in ComfyUI core — only the three packs above are third-party.
 
-## 4 · MCP bridge (assistant → ComfyUI)
+## 4 · MCP bridges (assistant → ComfyUI · Blender · FreeCAD)
 | Server | Package | Version | Transport | Security posture |
 |--------|---------|---------|-----------|------------------|
 | **comfyui-mcp** | npm `comfyui-mcp` (`artokun`) | **0.9.4** | stdio, **loopback only** (127.0.0.1) | MIT; audited not-malicious. Per-tool **approval gates** on code-exec tools (`.claude/settings.json`); `NPM_CONFIG_OMIT=optional` disables the tunnel/cloud deps. Pinned + re-audited on bump. |
+| **blender_mcp** | Gitea `lab/blender_mcp` (Blender Foundation) | **v1.0.0** (`03004fd`) | stdio → TCP, **loopback** (127.0.0.1:9876) | GPL-3.0; first-party, **zero telemetry** (deps `docutils`/`mcp[cli]`/`pyyaml`), from-source audited. Tier-1/2 code-exec & path tools gated; launched from the pinned Gitea commit via `uvx --from "git+…#subdirectory=mcp"` (server pkg is in the repo's `mcp/` subdir; **never** the bare `uvx blender-mcp`); never `-t http`. **Gitea, not GitHub.** |
+| **freecad-mcp** | GitHub `neka-nat/freecad-mcp` (server + addon) | **`63acb30`** (= v0.1.18) | stdio → XML-RPC, **loopback** (127.0.0.1:9875) | MIT; no telemetry (deps `mcp[cli]`/`validators`), from-source audited. Tier-1/2 tools gated; keep "Remote Connections" OFF. Pinned by commit; re-audited on bump. |
+
+> **Gitea exception:** `blender_mcp` lives on Blender's Gitea (`projects.blender.org`), not GitHub —
+> Dependabot and the GitHub-compare path in `scripts/update_report.py` can't reach it, so its weekly
+> check uses the Gitea compare API and bumps follow a git-SHA clone/checkout (see `UPDATING.md`).
+> `freecad-mcp` **is** on GitHub, so it rides the existing `check_git_pack`.
+
+> **Headless Blender render (shipped Phase 2):** `generate.py render` runs `blender --background
+> --python <template>` as a normal CLI subprocess — separate from the MCP bridge, no per-call
+> approval. Three modes (`mesh`, `comfy-scene`, `finish`) with Cycles GPU (OptiX/CUDA); templates in
+> `workflows/templates/blender/`. Requires Blender ≥ 5.1 on PATH or `$BLENDER_BIN`; CI tests mock
+> the subprocess (GPU-free). **Phase 4b** adds `generate.py finalize-texture` (same runner) — an
+> all-around multi-view albedo bake (`_common.bake_multiview` + `mesh_finalize.py`) of a winning mesh
+> from N supplied views OR **auto-generated** (`--auto-repaint`: render_views depth + SDXL depth-ControlNet
+> + IPAdapter via `scripts/brandkit/repaint.py`, with silhouette masking + cross-view consistency).
+>
+> **Headless FreeCAD `cad` (shipped):** `generate.py cad` shells `FreeCADCmd <template> <params.json>`
+> (job runner `scripts/brandkit/freecad.py`, templates in `workflows/templates/freecad/`) to author
+> parametric primitives (box/cylinder/cone/sphere/tube), convert CAD/mesh files, and **`--mode script`**
+> (headless exec of an agent-authored FreeCAD `.py` for generative CAD self-correction) → STEP/STL/OBJ.
+> Also a normal CLI subprocess, no per-call approval. Requires FreeCAD ≥ 1.0 (`FreeCADCmd`) on PATH,
+> `$FREECAD_BIN`, or the default install; CI mocks the subprocess (GPU-free). glTF export is GUI-only
+> (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
+> script`) and **fully autonomous** (`auto_generate.py --pipeline cad` — a provider-agnostic LLM writes +
+> revises the script; `scripts/agent/llm.py`, built + **live-validated** (local Ollama: `qwen2.5-coder`
+> full loop to PASS, `qwen2.5vl` vision judge)).
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
@@ -89,7 +121,8 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (317 tests, `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
+py3.12 (503 tests local; ~497 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
+`--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 
 ## 7 · Host / runtime stack (reference build)

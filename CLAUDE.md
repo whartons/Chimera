@@ -7,10 +7,13 @@ Project brief for Claude Code. Read this first, then follow it for every change.
 > and the per-module docs under [`modules/`](modules/).
 
 ## What this is
-Chimera is a modular, multimodal generative-media pipeline built on **ComfyUI**.
-One repo, many beasts: **image, video, 3D, audio**, plus an **LLM/agent
-orchestration layer**. The repo is **public and reusable**; personal and
-brand-specific workflows stay **private (gitignored)**.
+Chimera is a modular, multimodal generative-media pipeline and DCC/CAD orchestration hub. One
+repo, many beasts: **ComfyUI** is the substrate for the generative modalities (**image, video,
+3D, audio**); **Blender** and **FreeCAD** are peer DCC/CAD tools driven through pinned, audited
+MCP bridges under the same agent layer. All of it is wired through an **LLM/agent orchestration
+layer** that closes the quality loop and drives the tools interactively from an AI assistant.
+The repo is **public and reusable**; personal and brand-specific workflows stay **private
+(gitignored)**.
 
 ## Who it serves (drives examples only — keep tracked content generic)
 - **Live-streaming / content creation:** thumbnails, channel art, scene overlays,
@@ -50,7 +53,7 @@ chimera/
 │   ├── STACK.md         # dependency/stack inventory (Python · ComfyUI · node-pack pins · MCP · CI · host)
 │   ├── SETUP.md         # install notes
 │   └── BLACKWELL-TUNING.md  # RTX 50-series / cu130 tuning guide (measured numbers)
-├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent
+├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent, blender, cad
 ├── scripts/
 │   ├── generate.py      # unified brand-aware CLI: image/video/audio/3d + replay/new-brand/lint
 │   ├── brandkit/        # shared core: manifest, prompt, fillers, watermark, outputs, sidecar, mesh, comfy
@@ -85,12 +88,36 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   subject + quality bar when brandless) → generate → a VLM judges the output against the rubric →
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
-  GPU); two backends slot in — a headless local **Qwen2.5-VL** judge and an assistant
-  multi-judge-consensus pass. `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
+  GPU); three backends slot in — a headless local **Qwen2.5-VL** judge, a provider-agnostic
+  OpenAI-compatible **LLMJudge** (`--backend api`), and an assistant multi-judge-consensus pass.
+  `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
 - **An MCP bridge**: a pinned, security-audited ComfyUI MCP server exposes pipeline actions
   so an assistant can drive ComfyUI. Build on an **existing** server (e.g. `comfyui-mcp`)
   rather than reinventing the transport; the repo's original surface is the modules +
-  orchestration logic, not the MCP bridge.
+  orchestration logic, not the MCP bridge. The same pin + audit + per-tool-gate model now
+  also covers **Blender** ([`modules/blender/`](modules/blender/)) and **FreeCAD**
+  ([`modules/cad/`](modules/cad/)) — both **interactive/GUI only in Phase 1**, driven via
+  [`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp) and
+  [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), with gates in
+  `.claude/settings.json`. Headless Blender automation (Phase 2), 3D self-correction over Blender
+  renders (Phase 3, `auto_generate.py --pipeline mesh3d`), front-projected albedo **texturing**
+  (Phase 4a, `--texture`), the all-around **multi-view bake** (Phase 4b — `generate.py finalize-texture`
+  → `_common.bake_multiview`, **manual views AND `--auto-repaint`** = `render_views` depth + SDXL
+  depth-ControlNet+IPAdapter via `scripts/brandkit/repaint.py`), and headless FreeCAD geometry
+  (`generate.py cad` — parametric primitives + CAD/mesh convert → STEP/STL/OBJ, **plus `--mode script`** =
+  headless exec of an agent-authored FreeCAD script for **generative CAD self-correction**: brief → script
+  → `cad` → `render` → judge → revise) are **shipped** — both **assistant-driven** (`cad --mode script`)
+  and **autonomous** (`auto_generate.py --pipeline cad`, where a **provider-agnostic LLM** writes/revises
+  the script — `scripts/agent/llm.py`, OpenAI-compatible/no-SDK, env-configured for
+  OpenAI/Anthropic/OpenRouter/local). The same backend gives an **`--backend api`** AI judge for any loop
+  (local Qwen stays the default). Each loop role — **codegen / judge / rewriter** — can take its own
+  per-role endpoint (`--codegen-*`/`--judge-*`/`--rewriter-*` + `CHIMERA_{CODEGEN,JUDGE,REWRITER}_*`,
+  specific-wins over the shared `--llm-*`/`CHIMERA_LLM_*` via `client_for_role`); **`--rewrite-prompts`**
+  swaps in an `LLMExpander` that rewrites prompts from the judge's FIX feedback (falling back to the
+  template). An **interactive AI agent in the IDE supersedes all of this** — the endpoint config/keys are
+  read only by headless `auto_generate.py` runs. **Phase-4b in-loop finalize is shipped:** `auto_generate.py --pipeline
+  mesh3d --finalize` textures the winning mesh (multi-view auto-repaint bake) + re-judges it
+  (informational, non-gating); cross-view-consistency conditioning shipped with the auto-repaint polish.
 
 ## Hardware
 Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (32 GB VRAM).
@@ -109,7 +136,7 @@ stale doc is a bug.
   `scripts/update_report.py`). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (the CI count uses
-  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 2).
+  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 6).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump
   `pyproject.toml` `version`, then tag + create the GitHub release.
 

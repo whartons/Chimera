@@ -20,7 +20,11 @@ GIT_PACKS = [
     ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "229437c"),
     ("ComfyUI-HunyuanVideo-Foley", "phazei", "ComfyUI-HunyuanVideo-Foley", "afd2960"),
     ("ComfyUI-QwenVL", "1038lab", "ComfyUI-QwenVL", "fcd1ada"),
+    ("ComfyUI_IPAdapter_plus", "cubiq", "ComfyUI_IPAdapter_plus", "a0f451a"),
+    ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "63acb30"),
 ]
+# blender_mcp lives on Blender's Gitea (not GitHub) — checked via the Gitea compare API.
+GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "03004fd")]
 NPM_PACKS = [("comfyui-mcp (MCP bridge)", "comfyui-mcp", "0.9.4")]
 COMFY_REF = "0.24.1"   # the reference build documented in docs/STACK.md / SETUP.md
 MARK = {"ok": "✅", "warn": "⚠️", "info": "ℹ️"}
@@ -35,6 +39,28 @@ def _gh(path):
         req.add_header("Authorization", f"Bearer {tok}")   # higher rate limit in CI
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read())
+
+
+def _gitea(host, path):
+    req = urllib.request.Request(
+        host.rstrip("/") + path,
+        headers={"Accept": "application/json", "User-Agent": "chimera-update"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+def check_gitea_pack(name, host, owner, repo, pin):
+    """Gitea (e.g. projects.blender.org) compare API -> commits-ahead. The Blender MCP is NOT on
+    GitHub, so check_git_pack / Dependabot can't reach it."""
+    try:
+        branch = _gitea(host, f"/api/v1/repos/{owner}/{repo}").get("default_branch", "main")
+        ahead = _gitea(host, f"/api/v1/repos/{owner}/{repo}/compare/{pin}...{branch}").get("total_commits", 0)
+        if ahead == 0:
+            return ("ok", f"**{name}** — pin `{pin}` is current with `{branch}`.")
+        return ("warn", f"**{name}** — pin `{pin}` is **{ahead} commit(s) behind** `{branch}`. "
+                        f"RE-AUDIT the diff before bumping (see UPDATING.md).")
+    except Exception as e:
+        return ("info", f"**{name}** — could not check Gitea ({type(e).__name__}).")
 
 
 def check_git_pack(name, owner, repo, pin):
@@ -81,12 +107,13 @@ def check_comfyui():
 def gather():
     """Run every (network) check and return the [(level, message)] rows."""
     rows = [check_git_pack(*p) for p in GIT_PACKS]
+    rows += [check_gitea_pack(*p) for p in GITEA_PACKS]
     rows += [check_npm(*p) for p in NPM_PACKS]
     rows.append(check_comfyui())
     return rows
 
 
-def build(rows, repo="whartons/ComfyUI-Chimera"):
+def build(rows, repo="whartons/Chimera"):
     """Render the rows into the issue markdown (pure — unit-tested)."""
     base = f"https://github.com/{repo}/blob/main"
     warns = sum(1 for lvl, _ in rows if lvl == "warn")
@@ -113,4 +140,4 @@ def build(rows, repo="whartons/ComfyUI-Chimera"):
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")   # the report has emoji; issue body is UTF-8
-    print(build(gather(), repo=os.environ.get("GITHUB_REPOSITORY", "whartons/ComfyUI-Chimera")))
+    print(build(gather(), repo=os.environ.get("GITHUB_REPOSITORY", "whartons/Chimera")))

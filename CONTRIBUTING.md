@@ -13,8 +13,8 @@ The core logic is unit-tested **without** a GPU or a running ComfyUI — the tes
 ComfyUI client, so you can develop and validate most changes on any machine.
 
 ```bash
-git clone https://github.com/whartons/ComfyUI-Chimera
-cd ComfyUI-Chimera
+git clone https://github.com/whartons/Chimera
+cd Chimera
 pip install -e ".[dev]"     # editable install + pytest & ruff; gives you the `chimera` command
 python -m pytest            # the whole offline core
 ruff check .                # lint (correctness rules)

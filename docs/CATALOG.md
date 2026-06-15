@@ -316,6 +316,62 @@ third-party dependency for this backend.
 
 ---
 
+## 🛠️ DCC / CAD bridges (MCP)
+
+Peer tools to ComfyUI under the agent layer — driven by an assistant over **pinned,
+audited, loopback-only** MCP servers (same standard as the `comfyui-mcp` bridge).
+The MCP bridges are interactive (Phase 1); Blender headless rendering (Phase 2), 3D
+self-correction over Blender renders (Phase 3), headless FreeCAD geometry (`generate.py cad`),
+and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto_generate.py
+--pipeline cad`) are all shipped.
+
+| Tool | Server | Pin | License | Socket |
+|------|--------|-----|---------|--------|
+| **Blender** | official `lab/blender_mcp` (Blender Foundation, Gitea) | `v1.0.0` = `03004fd` | GPL-3.0-or-later | `127.0.0.1:9876` |
+| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `63acb30` (= v0.1.18) | MIT | `127.0.0.1:9875` |
+
+- **Blender** chosen over the high-profile `ahujasid/blender-mcp` on security grounds
+  (first-party, zero telemetry, headless-capable; the community server is GUI-only,
+  ships opt-out Supabase telemetry, and had a live file-read bug). See
+  [`../modules/blender/README.md`](../modules/blender/README.md).
+  - The **interactive bridge** (GUI) is Phase 1. The **headless `generate.py render`
+    backend** (`--mode mesh` / `comfy-scene` / `finish`, Blender Cycles, live-validated
+    on Blender 5.1) is also shipped — it runs as a normal CLI subprocess, not through
+    the MCP bridge (no per-call approval). Templates in `workflows/templates/blender/`.
+- **FreeCAD** — de-facto community standard, MIT, no telemetry, 14 tools incl. FEM via
+  CalculiX. See [`../modules/cad/README.md`](../modules/cad/README.md).
+- **FreeCAD headless `cad` is shipped** — `generate.py cad` drives `FreeCADCmd` to author
+  parametric primitives (box/cylinder/cone/sphere/tube), convert CAD/mesh files, and **`--mode script`**
+  run an agent-authored FreeCAD script (generative CAD) → STEP/STL/OBJ (templates in
+  `workflows/templates/freecad/`, runner `scripts/brandkit/freecad.py`). STEP is the BREP authoring
+  Blender lacks; glTF stays GUI-only (use STL → Blender). No model — deterministic geometry. The
+  **CAD self-correction loop** (brief → script → `cad` → `render` → judge → revise) runs both
+  assistant-driven (`--mode script`) and **fully autonomous** (`auto_generate.py --pipeline cad`, a
+  provider-agnostic LLM writes the script — see the agent module). The interactive MCP bridge stays the
+  route for live edits.
+- Phase 3 (VLM self-correction over renders) is **shipped for Blender**
+  (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
+  judge + geometry checks). **Phase 4a** adds albedo texturing (`--texture`: front-projected bake,
+  back palette-filled) restoring the color rubric. **Phase 4b** ships all-around texture: the **multi-view
+  bake** (`generate.py finalize-texture` → `_common.bake_multiview`, no model, pure bpy/Cycles) **plus
+  `--auto-repaint`** which *generates* the views — `render_views` depth + an **SDXL depth-ControlNet +
+  IPAdapter** repaint (`scripts/brandkit/repaint.py`). Pinned/audited pieces for auto-repaint:
+  | Piece | Source / pin | License |
+  |---|---|---|
+  | IPAdapter node pack | `cubiq/ComfyUI_IPAdapter_plus` @ `a0f451a` (audited safe-with-precautions) | MIT |
+  | IPAdapter model | `h94/IP-Adapter` → `ip-adapter-plus_sdxl_vit-h.safetensors` → `models/ipadapter/` | Apache-2.0 |
+  | CLIP-Vision (ViT-H) | `h94/IP-Adapter` image_encoder → `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` → `models/clip_vision/` | MIT |
+  | Depth ControlNet | `xinsir/controlnet-depth-sdxl-1.0` → `models/controlnet/` | Apache-2.0 |
+  | Base | `sd_xl_base_1.0.safetensors` (already present) | CreativeML-OpenRAIL++ |
+
+  Auto-repaint masks each view to its depth silhouette + adds cross-view consistency (a 2nd IPAdapter pass
+  on the previous painted view). The **autonomous CAD loop** uses the provider-agnostic LLM backend
+  (`scripts/agent/llm.py` — OpenAI-compatible: Gemini / OpenAI / Anthropic / OpenRouter / local). The
+  **in-loop finalize** on the mesh3d winner is now **shipped** (`auto_generate.py --pipeline mesh3d
+  --finalize` — auto-runs the auto-repaint bake on the winner + re-judges, informational).
+
+---
+
 ## Where to get everything
 - **ComfyUI Templates Library** — sidebar, built in. First stop.
 - **ComfyUI docs / workflow examples** — https://docs.comfy.org/tutorials

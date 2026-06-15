@@ -54,3 +54,80 @@ def test_build_rubric_omits_absent_style_and_palette_and_negative():
     assert "palette" not in joined
     assert "style matches" not in joined
     assert "avoids these traits" not in joined
+
+
+def test_build_rubric_3d_form_criteria_and_noun():
+    from scripts.agent.rubric import build_rubric
+    from scripts.brandkit.manifest import default_manifest
+    r = build_rubric(default_manifest(), "an armored knight", modality="3d")
+    assert r.noun == "3D render"
+    joined = " ".join(r.criteria).lower()
+    assert "clearly depicts: an armored knight" in joined
+    assert "proportions and silhouette" in joined
+    assert "no missing, broken, or fused" in joined
+    assert "holes, spikes, or floating" in joined
+    # grey clay: no color/palette criterion for 3d
+    assert "palette" not in joined
+
+
+def test_3d_rubric_prompt_keeps_verdict_tokens_and_3d_noun():
+    from scripts.agent.rubric import build_rubric
+    from scripts.brandkit.manifest import default_manifest
+    prompt = build_rubric(default_manifest(), "a rover", modality="3d").as_prompt()
+    assert "Evaluate the 3D render against this rubric" in prompt
+    assert "PASS" in prompt and "FAIL" in prompt and "FIX:" in prompt
+
+
+def test_image_rubric_unchanged_default():
+    from scripts.agent.rubric import build_rubric
+    from scripts.brandkit.manifest import default_manifest
+    r = build_rubric(default_manifest(), "a rover")
+    assert r.noun == "image"
+    assert r.as_prompt().startswith("Evaluate the image against this rubric")
+
+
+def test_3d_rubric_includes_style_and_negative_when_present():
+    r = build_rubric(_m(), "a knight", modality="3d")
+    joined = " ".join(r.criteria).lower()
+    assert "form's style matches: rugged tactical" in joined
+    assert "avoids these traits: blurry, cartoonish" in joined
+    assert "palette" not in joined  # still no color criterion for grey clay
+
+
+def test_unknown_modality_raises():
+    import pytest
+    with pytest.raises(ValueError, match="modality"):
+        build_rubric(_m(), "a knight", modality="3D")  # capital D is not a valid modality
+
+
+def test_3d_textured_rubric_adds_satisfiable_color_criteria():
+    r = build_rubric(_m(), "a knight", modality="3d", textured=True)
+    assert r.noun == "textured 3D render"
+    joined = " ".join(r.criteria).lower()
+    assert "proportions and silhouette" in joined
+    assert "colored consistent with" in joined
+    assert "a plain or palette-filled back/underside is acceptable" in joined
+    assert "brand palette" in joined
+
+
+def test_3d_textured_prompt_keeps_tokens():
+    p = build_rubric(_m(), "a rover", modality="3d", textured=True).as_prompt()
+    assert "Evaluate the textured 3D render against this rubric" in p
+    assert "PASS" in p and "FAIL" in p and "FIX:" in p
+
+
+def test_3d_untextured_unchanged_when_textured_false():
+    r = build_rubric(_m(), "a rover", modality="3d")
+    assert r.noun == "3D render"
+    joined = " ".join(r.criteria).lower()
+    assert "back/underside is acceptable" not in joined
+    assert "brand palette" not in joined
+
+
+def test_3d_textured_brandless_has_color_but_no_palette_criterion():
+    from scripts.brandkit.manifest import BrandManifest
+    r = build_rubric(BrandManifest(name="Bare"), "a fox", modality="3d", textured=True)
+    joined = " ".join(r.criteria).lower()
+    assert "colored consistent with" in joined   # color criterion still added
+    assert "brand palette" not in joined          # but no palette criterion (empty palette)
+    assert "avoids these traits" not in joined    # and no negative criterion

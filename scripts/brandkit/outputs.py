@@ -10,7 +10,8 @@ _MEDIA_DIRS = {
     "images": {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"},
     "video":  {".mp4", ".webm", ".mov", ".mkv", ".avi", ".gif"},
     "audio":  {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus"},
-    "3d":     {".glb", ".gltf", ".obj", ".ply", ".fbx", ".stl"},
+    "3d":     {".glb", ".gltf", ".obj", ".ply", ".fbx", ".stl",
+               ".step", ".stp", ".iges", ".igs", ".brep"},   # CAD (BREP) outputs group with 3D geometry
 }
 
 

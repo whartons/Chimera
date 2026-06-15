@@ -101,6 +101,12 @@ that blocks TRELLIS.2 here. On the **Blackwell / cu130 / PyTorch 2.10 / Python
   failure-prone change to a working ComfyUI and is intentionally not automated
   here.
 
+**The self-correction loop textures its winner automatically (shipped).**
+`auto_generate.py --pipeline mesh3d --finalize` runs the Blender **multi-view auto-repaint bake** on
+the winning mesh (SDXL depth-ControlNet + IPAdapter → `bake_multiview`) and emits a textured GLB — the
+supported in-pipeline texturing path on this stack (the in-ComfyUI Hunyuan3D-Paint below stays
+wheel-blocked). For a one-off on any GLB, `generate.py finalize-texture --auto-repaint` does the same.
+
 **How to texture an exported mesh today** (all operate on the shape-only GLB):
 
 1. **DCC tools** — import the GLB into Blender / Substance Painter / ZBrush and
@@ -109,8 +115,9 @@ that blocks TRELLIS.2 here. On the **Blackwell / cu130 / PyTorch 2.10 / Python
    visualbruno's `ComfyUI-Hunyuan3d-2-1` (with their prebuilt rasterizer wheels)
    in a separate, matching ComfyUI, and texture the GLB there.
 3. **Revisit when wheels catch up** — once a `custom_rasterizer` wheel ships for
-   cu130 / torch 2.10 / `sm_120`, an in-pipeline `--texture` flag becomes a clean
-   addition (the shape path here already produces a valid glTF-v2 mesh to paint).
+   cu130 / torch 2.10 / `sm_120`, an in-ComfyUI **Hunyuan3D-Paint** PBR path becomes a
+   clean addition (distinct from the already-shipped Blender-bake `--texture`/`--finalize`
+   above; the shape path here already produces a valid glTF-v2 mesh to paint).
 
 ## `--octree` — geometry detail vs file size
 

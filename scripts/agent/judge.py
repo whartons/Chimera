@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from scripts.brandkit.nodes import find_node_by_title
+from scripts.agent.geometry import structural_issues, RENDER_CHECKS_SUFFIX
 
 
 @dataclass
@@ -230,3 +231,35 @@ class ConsensusJudge(Judge):
             except Exception as e:                     # one flaky judge != a dead panel
                 verdicts.append(Verdict(passed=False, score=0.0, issues=[f"judge error: {e}"]))
         return combine_verdicts(verdicts, pass_threshold=self.pass_threshold)
+
+
+class GeometryAwareJudge(Judge):
+    """Wrap an inner judge and fold deterministic geometry facts into its verdict. After the inner
+    judge scores the contact sheet, read the sibling '<stem>.checks.json' (written by the render
+    generator from mesh_eval's bmesh probe); on any structural failure force passed=False and union
+    the structural NOT-MET lines in. A VLM can't see watertightness/holes/disconnected chunks from a
+    render — this is how those get caught. No checks file (or a corrupt one) → pure passthrough."""
+
+    def __init__(self, inner: Judge, *, checks_suffix=RENDER_CHECKS_SUFFIX):
+        self.inner = inner
+        self.checks_suffix = checks_suffix
+
+    def judge(self, image_path, rubric) -> Verdict:
+        v = self.inner.judge(image_path, rubric)
+        p = Path(image_path)
+        cf = p.with_name(p.stem + self.checks_suffix)
+        if not cf.exists():
+            return v
+        try:
+            checks = json.loads(cf.read_text(encoding="utf-8"))
+        except Exception:
+            return v
+        extra = structural_issues(checks)
+        if not extra:
+            return v
+        seen, issues = set(), []
+        for it in list(v.issues) + extra:
+            if it not in seen:
+                seen.add(it)
+                issues.append(it)
+        return Verdict(passed=False, score=v.score, issues=issues)

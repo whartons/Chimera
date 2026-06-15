@@ -1,27 +1,32 @@
 # Chimera
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
-[![tests](https://github.com/whartons/ComfyUI-Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/ComfyUI-Chimera/actions/workflows/ci.yml)
+[![tests](https://github.com/whartons/Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/Chimera/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![codecov](https://codecov.io/gh/whartons/ComfyUI-Chimera/branch/main/graph/badge.svg)](https://codecov.io/gh/whartons/ComfyUI-Chimera)
+[![codecov](https://codecov.io/gh/whartons/Chimera/branch/main/graph/badge.svg)](https://codecov.io/gh/whartons/Chimera)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-%E2%89%A50.24-orange)
 ![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Built on RTX 5090 · cu130](https://img.shields.io/badge/built%20on-RTX%205090%20%C2%B7%20cu130-76B900?logo=nvidia&logoColor=white)
 
-> An **agentic toolkit for ComfyUI**: a **self-correction loop** that judges its own renders with a
-> VLM and **iterates until they pass**, plus a hardened **MCP bridge** to drive ComfyUI from an AI
-> assistant — over a **brand-aware, multimodal** core (image · video · audio · 3D) that also runs
-> **fully standalone** from one CLI. Built and run end-to-end on an RTX 5090.
+> An **agentic generative + DCC/CAD hub** built on **ComfyUI, Blender, and FreeCAD**: a **self-correction
+> loop** that judges its own output with a VLM and **iterates until it passes** — now across **2D images,
+> 3D meshes, and parametric CAD** (where an LLM even *writes and revises FreeCAD scripts* until the render
+> passes). The judge + code-gen backend is **provider-agnostic** — any OpenAI-compatible LLM (Gemini,
+> OpenAI, Anthropic, or a **local** model), or a headless local Qwen2.5-VL. Plus hardened, pinned **MCP
+> bridges** to drive ComfyUI/Blender/FreeCAD from an assistant, and **headless** image·video·audio·3D,
+> Blender-render, and FreeCAD-CAD pipelines — all from one **`chimera`** CLI, fully standalone. Built and
+> run end-to-end on an RTX 5090.
 
 ![An ember-winged chimera — lion, goat, and serpent-headed tail — over an erupting volcano, generated with this repo's Z-Image workflow on an RTX 5090](docs/images/chimera-zimage-sample.png)
 <sub>↑ A proper chimera — lion body, a goat head from the back, a serpent-headed tail, and ember-lit dragon wings — over an erupting volcano. Generated with the included [Z-Image workflow](workflows/templates/brand-zimage-txt2img.json) (`--variant base`) on an RTX 5090, straight out of ComfyUI.</sub>
 
-Chimera wraps ComfyUI in an **agent layer**: it can **drive ComfyUI from an AI assistant** (a pinned,
-audited MCP bridge) and **close the quality loop itself** — generate → VLM-judge → refine — so
-generation isn't one-shot, it *iterates to a passing result*. It also runs **fully standalone**: a
-pip-installable **`chimera`** CLI over a brand-aware, multimodal core, no assistant required. Public
-and reusable — fork it, take what's useful. Developed on an RTX 5090 but written to help anyone on
-ComfyUI, especially **Blackwell (RTX 50-series)**.
+Chimera wraps ComfyUI, Blender, and FreeCAD in an **agent layer**: it can **drive them from an AI
+assistant** (pinned, audited MCP bridges) and **close the quality loop itself** — generate → VLM-judge →
+refine — so generation isn't one-shot, it *iterates to a passing result*, whether the artifact is a 2D
+render, a 3D mesh, or a parametric CAD solid. It also runs **fully standalone**: a pip-installable
+**`chimera`** CLI over a brand-aware, multimodal core, no assistant required. Public and reusable — fork
+it, take what's useful. Developed on an RTX 5090 but written to help anyone on ComfyUI, especially
+**Blackwell (RTX 50-series)**.
 
 **The headline, in motion — the loop correcting itself:**
 
@@ -34,9 +39,12 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   *iterates to a passing result*: build a rubric (brand-specific, or a general subject + quality bar)
   → generate → a **VLM judges the output against the rubric** → unmet criteria are fed back into the
   prompt → regenerate until it passes or hits an
-  iteration cap. A **judge-agnostic, model-free core** (unit-tested, no GPU) with two interchangeable
-  backends: a **headless local Qwen2.5-VL-7B** judge, and an **assistant multi-judge-consensus** pass.
-  Live-validated end-to-end. See [`modules/agent/self-correction.md`](modules/agent/self-correction.md).
+  iteration cap. A **judge-agnostic, model-free core** (unit-tested, no GPU) with interchangeable judge
+  backends: a **headless local Qwen2.5-VL-7B** judge (default), a **provider-agnostic `--backend api`**
+  (any OpenAI-compatible LLM — OpenAI / Anthropic / OpenRouter / local Ollama), and an assistant consensus
+  pass. It drives **image, 3D (`--pipeline mesh3d`), and fully-autonomous generative CAD (`--pipeline cad`** —
+  an LLM writes + revises a FreeCAD script → render → judge → revise). Live-validated end-to-end. See
+  [`modules/agent/self-correction.md`](modules/agent/self-correction.md).
 - **🔌 Drive ComfyUI from an AI assistant** — a **pinned, security-audited** [MCP bridge](modules/agent/)
   exposes pipeline actions so an assistant (e.g. Claude) can run ComfyUI for you, with **per-tool
   approval gates** on the dangerous tools. The self-correction loop + the bridge are the two halves of
@@ -65,8 +73,24 @@ ComfyUI, especially **Blackwell (RTX 50-series)**.
   injection + alpha-exact logo overlay + product re-render + optional LoRA), routed to a per-brand
   folder. Entirely opt-in — the tool generates fine without it. The *pattern* is public; your brand
   data stays gitignored. See [`modules/image/brand-kits.md`](modules/image/brand-kits.md).
+- **🧩 Drive Blender & FreeCAD too** — assistant-driven, **pinned/audited/per-tool-gated** GUI bridges
+  ([`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp),
+  [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp)) **plus shipped headless paths**:
+  `generate.py render` (mesh / turntable MP4 / ComfyUI→scene / print-ready figurine) and the full **3D
+  self-correction loop** (`auto_generate.py --pipeline mesh3d`) — concept → Hunyuan3D mesh → headless
+  Blender contact-sheet render → VLM **form** judge + a deterministic bmesh geometry gate → refine — with
+  albedo texturing (`--texture`) and an all-around multi-view + SDXL auto-repaint texture of the winner
+  (`--finalize`). Requires Blender ≥ 5.1. See [`modules/blender/`](modules/blender/) and
+  [`modules/threed/`](modules/threed/).
+- **FreeCAD is a peer CAD tool, headless too.** Beyond the interactive MCP bridge, **`generate.py cad`**
+  drives `FreeCADCmd` headlessly to author **parametric primitives** (box / cylinder / cone / sphere /
+  tube) and **convert** CAD/mesh files, exporting **STEP / STL / OBJ** — the BREP (STEP) authoring Blender
+  can't do. Composes with `render --mode mesh` (STL → Cycles). Requires FreeCAD ≥ 1.0; GPU-free CI tested.
+  And it closes the loop: **`cad --mode script`** runs an agent-authored FreeCAD script, while
+  **`auto_generate.py --pipeline cad`** is **fully-autonomous generative CAD** — an LLM writes + revises the
+  script → `cad` → render → judge → revise (built + **live-validated** against a local Ollama endpoint).
 
-**317 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
+**503 GPU-free unit tests** (mocked ComfyUI client) keep the core green without a GPU — run on every
 push via cross-platform CI (Linux + Windows).
 
 ## 🔭 How it works
@@ -90,15 +114,48 @@ flowchart LR
 The full dependency/stack inventory (Python · ComfyUI · pinned node packs · MCP · models · CI · host)
 is in **[`docs/STACK.md`](docs/STACK.md)**.
 
+### How the AI roles work
+The self-correction loop has up to three AI roles — **codegen**, **judge**, **rewriter** — and how they're
+filled depends on *how you run it*:
+
+- **With an AI agent in your IDE (Claude Code, etc.) — the default while you work.** The agent *is* the
+  codegen/judge/rewriter: it authors scripts, scores renders, and rewrites prompts itself via MCP + its own
+  reasoning. **No `CHIMERA_*` endpoint settings or API keys are used** (it's billed to your agent plan) — the
+  settings below have *no effect* in this mode.
+- **Autonomous / unattended (`auto_generate.py`).** With no agent, each role is filled by a configured LLM:
+  - `--backend local` — the **judge** is the local Qwen2.5-VL via ComfyUI (no external API); codegen/rewriter use their endpoints.
+  - `--backend api` — every active role uses an OpenAI-compatible endpoint (Gemini / OpenAI / Anthropic / OpenRouter / Ollama).
+
+**Per-role endpoints (autonomous only)** — each role uses its own model/endpoint or falls back to a shared default:
+
+| Role | Active when | Flags | Env |
+|------|-------------|-------|-----|
+| codegen | `--pipeline cad` | `--codegen-base-url` / `--codegen-model` | `CHIMERA_CODEGEN_*` |
+| judge | `--backend api` | `--judge-base-url` / `--judge-model` | `CHIMERA_JUDGE_*` |
+| rewriter | `--rewrite-prompts` | `--rewriter-base-url` / `--rewriter-model` | `CHIMERA_REWRITER_*` |
+| shared default | — | `--llm-base-url` / `--llm-model` | `CHIMERA_LLM_*` |
+
+Set only the shared `--llm-*` / `CHIMERA_LLM_*` and every role uses it (original behavior); a role-specific
+value overrides the shared one for that role. Example — strong hosted coder + local vision judge:
+```
+auto_generate.py --pipeline cad --backend api \
+  --codegen-base-url https://openrouter.ai/api/v1 --codegen-model qwen/qwen2.5-coder-32b-instruct \
+  --judge-base-url http://localhost:11434/v1   --judge-model qwen2.5vl:7b
+```
+**No GPU?** Point all roles at a hosted multimodal model (e.g. Gemini free tier) with `--backend api` —
+codegen + judge run via the API; FreeCAD/Blender run on CPU.
+
 ## 🧩 Modules
 | Module | What it does | Status |
 |--------|--------------|--------|
-| [`agent`](modules/agent/self-correction.md) | **Self-correction loop** (generate → VLM judge → refine) | ✅ |
+| [`agent`](modules/agent/self-correction.md) | **Self-correction loop** (generate → VLM judge → refine) — 2D image **and** 3D mesh (`--pipeline mesh3d`; `--finalize` textures the winner) | ✅ |
 | [`agent`](modules/agent/) | **MCP bridge** + security model — drive ComfyUI from an assistant | ✅ |
 | [`image`](modules/image/) | Z-Image (default) · FLUX.2 (secondary) — txt2img / logo / product · `--upscale` | ✅ |
 | [`video`](modules/video/) | LTX-2.3 image-to-video + native synced audio · `--upscale` | ✅ |
 | [`audio`](modules/audio/) | ACE-Step (music) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | Hunyuan3D 2.1 image → mesh (GLB / STL / OBJ) | ✅ |
+| [`blender`](modules/blender/) | **MCP bridge** — drive a live Blender (GUI); **`generate.py render`** — headless mesh render, ComfyUI→scene, mesh finish/figurine; **`finalize-texture`** — all-around multi-view albedo bake | ✅ |
+| [`cad`](modules/cad/) | **MCP bridge** — drive a live FreeCAD (GUI); **`generate.py cad`** — headless parametric primitives, CAD/mesh convert, + agent-authored scripts (generative CAD) → STEP/STL/OBJ | ✅ |
 
 ## 🏗️ Architecture / engineering highlights
 
@@ -120,9 +177,10 @@ The parts an engineer (or hiring manager) might want to see:
 - **Third-party code is treated as untrusted.** The MCP server and every custom node pack are
   **read, adversarially audited, and pinned to an exact version or commit** before adoption, with
   per-tool approval gates on the dangerous tools — never `@latest`.
-- **Tested without a GPU, on every push.** 317 tests run against a mocked ComfyUI client (graph-building,
-  routing, sidecar, replay, scaffolder, doctor, and agent-loop logic), linted with **ruff** and packaged
-  as an installable CLI — all verified by **CI on Linux + Windows**.
+- **Tested without a GPU.** A mocked ComfyUI client lets the suite cover graph-building, routing, sidecar,
+  replay, scaffolder, doctor, agent-loop logic, the headless Blender render + multi-view finalize runners,
+  the headless FreeCAD `cad` runner, and the 3D self-correction generator + geometry checks — linted with
+  **ruff**, packaged as an installable CLI, and run on every push (count + CI matrix above).
 
 ## ⚡ Use it — install once, then `chimera`
 
@@ -154,6 +212,19 @@ chimera audio --brand <brand> --mode foley --from-video clip.mp4 --subject "tire
 Brandless outputs land in `outputs/<media>/`; with `--brand` they route to
 `brands/<brand>/outputs/<media>/` — each with a reproducibility sidecar, **moved** (never duplicated).
 The opt-in `--watermark` composites the brand logo in-graph (needs a brand; off by default).
+
+**DCC/CAD — headless Blender + FreeCAD** (no ComfyUI; needs Blender ≥ 5.1 / FreeCAD ≥ 1.0 on PATH):
+
+```bash
+chimera render --from rover.glb --turntable                 # Blender Cycles hero PNG + 360° MP4
+chimera render --from rover.glb --mode finish --watertight  # clean → print-ready STL/GLB figurine
+chimera cad --shape tube --radius 12 --inner-radius 8 --height 30 --formats step,stl   # parametric CAD solid
+chimera cad --mode convert --from part.step --formats stl,obj                          # CAD/mesh format convert
+chimera cad --mode script --script mug.py --formats step,stl                            # generative CAD: run an agent-authored FreeCAD script
+chimera finalize-texture --from winner.glb --views front.png,right.png,back.png,left.png  # all-around bake (manual views)
+chimera finalize-texture --from winner.glb --auto-repaint --concept concept.png --subject "an armored rover" \
+    --comfy-output-dir <dir>                                                              # all-around bake (auto SDXL repaint)
+```
 
 ### 🤖 Or let it correct itself
 `--brand` is **optional** here too — brandless judges subject + quality (a general QA gate); add a
@@ -215,7 +286,7 @@ See **[`docs/CATALOG.md`](docs/CATALOG.md)** for the best free, locally-runnable
 2. **5090 owner?** Run the [tuning guide](docs/BLACKWELL-TUNING.md) — it pays for itself.
 3. Install Chimera + download a module's models (e.g. [`modules/image/models.md`](modules/image/models.md)):
    ```bash
-   git clone https://github.com/whartons/ComfyUI-Chimera && cd ComfyUI-Chimera
+   git clone https://github.com/whartons/Chimera && cd Chimera
    pip install -e ".[dev]"          # the `chimera` CLI + test/lint tooling
    chimera doctor --brand example-brand   # confirm ComfyUI + models are ready
    ```

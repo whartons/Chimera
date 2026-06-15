@@ -27,8 +27,8 @@ images = ["pillow>=10"]   # non-PNG logo sizing (see generate._image_size)
 video = ["av>=12"]        # foley fps/duration auto-probe (see generate._probe_video)
 
 [project.urls]
-Homepage = "https://github.com/whartons/ComfyUI-Chimera"
-Issues = "https://github.com/whartons/ComfyUI-Chimera/issues"
+Homepage = "https://github.com/whartons/Chimera"
+Issues = "https://github.com/whartons/Chimera/issues"
 
 [project.scripts]
 # Install editable (`pip install -e .`) then call the CLI by name: `chimera image --brand ...`.
