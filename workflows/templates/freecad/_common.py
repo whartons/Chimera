@@ -43,7 +43,7 @@ def export_shapes(objs, out_dir, stem, formats) -> list:
                     combined.addMesh(MeshPart.meshFromShape(
                         Shape=o.Shape, LinearDeflection=0.1, AngularDeflection=0.5))
                 else:
-                    raise ValueError("object %s has no Shape/Mesh to export to %s" % (o.Name, f))
+                    raise ValueError(f"object {o.Name} has no Shape/Mesh to export to {f}")
             combined.write(path)
         else:
             raise ValueError("unsupported export format: " + str(fmt))
