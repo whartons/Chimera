@@ -33,6 +33,11 @@ it, take what's useful. Developed on an RTX 5090 but written to help anyone on C
 ![The self-correction loop: the same six-wheeled rover at the same seed — the consensus judge fails an off-brand glossy toy finish at 0.38, then the loop corrects it to on-brand gunmetal tactical armor at 0.92](docs/images/agent-correct.gif)
 <sub>↑ **One subject, one seed.** The VLM judge **fails** an off-brand render (glossy toy finish, 0.38), the loop folds its `FIX: add…; avoid…` directives back into the prompt, and the re-render **passes** (on-brand tactical armor, 0.92) — generate → judge → refine, no human in the loop. The subject never changes; what gets corrected is the *brand*. It runs **brandless** too — the same loop against a *subject + quality* rubric (e.g. correcting a chimera that's missing its serpent-headed tail). See [`modules/agent/self-correction.md`](modules/agent/self-correction.md).</sub>
 
+**Beyond 2D — the same hub builds 3D and CAD:**
+
+![A concept image, its grey Hunyuan3D mesh, and the same mesh with an all-around auto-repaint texture](docs/images/chimera-sample-3d.png)
+<sub>↑ **One image → 3D mesh → texture.** A brand-neutral concept (left) is meshed by **Hunyuan3D** (`chimera 3d`, centre), then given all-around colour by the multi-view **auto-repaint bake** (`chimera finalize-texture --auto-repaint`, right) — geometry locked by depth-ControlNet, identity carried by IPAdapter. The same hub renders headless in **Blender** and authors parametric parts in **FreeCAD**; see the per-module samples under [`modules/`](modules/).</sub>
+
 ## ✅ What's here today (tested, not vapor)
 
 - **🤖 An agent self-correction loop** *(the headline)* — Chimera doesn't just generate once, it

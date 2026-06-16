@@ -1,5 +1,9 @@
 # `video` — brand-aware image-to-video with native synchronized audio (LTX-2.3)
 
+![A short looping clip of a sci-fi utility robot with subtle idle motion](../../docs/images/chimera-sample-video.gif)
+
+*LTX-2.3 image-to-video — `chimera video --from-image robot.png`. Brand-neutral sample (silent GIF; the workflow also emits synced audio).*
+
 A **tested, importable** LTX-2.3 22B image-to-video workflow that generates
 **video and synchronized audio in a single ComfyUI pass** — no separate
 audio-generation step. Built from the live ComfyUI node schemas, run end-to-end

@@ -1,5 +1,9 @@
 # `threed` — image-to-3D mesh generation
 
+![One concept image, then its grey Hunyuan3D mesh, then the same mesh with an all-around auto-repaint texture](../../docs/images/chimera-sample-3d.png)
+
+*The 3D pipeline end to end: one concept image → Hunyuan3D mesh (`chimera 3d`) → all-around auto-repaint texture (`chimera finalize-texture --auto-repaint`). Brand-neutral sample.*
+
 Takes a single input image and produces a 3D mesh exported as a `.glb` file.
 Powered by **Hunyuan3D 2.1** running on native ComfyUI 0.22.3 nodes — no custom
 node pack required, no gated model dependencies.
