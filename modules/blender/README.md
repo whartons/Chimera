@@ -1,5 +1,9 @@
 # `blender` — image-and-scene DCC bridge
 
+![A 360-degree headless Cycles turntable of a generated mesh](../../docs/images/chimera-sample-blender.gif)
+
+*Headless Cycles turntable of a generated mesh — `chimera render --from mesh.glb --turntable`. Brand-neutral sample.*
+
 This module covers **two shipped paths** for driving Blender from Chimera:
 
 1. **Interactive MCP bridge** — an AI assistant connects to a running Blender GUI

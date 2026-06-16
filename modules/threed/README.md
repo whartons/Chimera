@@ -1,5 +1,9 @@
 # `threed` — image-to-3D mesh generation
 
+![One concept image, then its grey Hunyuan3D mesh, then the same mesh with an all-around auto-repaint texture](../../docs/images/chimera-sample-3d.png)
+
+*The 3D pipeline end to end: one concept image → Hunyuan3D mesh (`chimera 3d`) → all-around auto-repaint texture (`chimera finalize-texture --auto-repaint`). Brand-neutral sample.*
+
 Takes a single input image and produces a 3D mesh exported as a `.glb` file.
 Powered by **Hunyuan3D 2.1** running on native ComfyUI 0.22.3 nodes — no custom
 node pack required, no gated model dependencies.
@@ -77,9 +81,11 @@ textures, materials, or vertex colors — the mesh will appear as an untextured
 grey solid in most viewers.
 
 This is a limitation of the current native ComfyUI path, not of Hunyuan3D in
-general. PBR texturing (Hunyuan3D-Paint) would require a separate custom node
-pack that is not yet part of this module. Downstream texturing in Blender,
-Substance Painter, or similar tools works fine on the exported geometry.
+general. In-ComfyUI PBR texturing (Hunyuan3D-Paint) would require a separate
+custom node pack that is wheel-blocked on this stack (see below) — but the
+self-correction loop **does** texture its winning mesh automatically via a
+Blender multi-view bake (`--finalize`, described below), and downstream texturing
+in Blender, Substance Painter, or similar tools works fine on the exported geometry.
 
 ### Why in-pipeline PBR texturing is deferred on this stack
 

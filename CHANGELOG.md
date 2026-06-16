@@ -6,6 +6,32 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-15
+
+A maintenance release: fixes the 3D auto-repaint texture bake (it produced an empty atlas on real,
+GLB-imported meshes) and illustrates the v0.2.0 DCC/CAD features with brand-neutral sample renders
+across the module docs.
+
+### Fixed
+- **3D auto-repaint texture bake produced a near-empty (black) atlas on real meshes.** `bake_multiview`
+  and `bake_albedo` ran `smart_project` on the mesh exactly as imported from GLB — but glTF/GLB import
+  splits a vertex per face-corner, so the surface had no shared edges and the unwrap made every face its
+  own sub-pixel island, baking to ~nothing. They now **weld coincident verts + recompute normals before
+  unwrapping** (`_common._weld_for_bake`), restoring real, packable islands (a textured robot mesh went
+  from ~0% to ~44% atlas coverage). The bake engine had only ever been validated on a clean primitive
+  sphere (already-shared verts), which never exercised the split-mesh path.
+
+### Docs
+- Added brand-neutral **sample renders to every modality README** (image, 3D, Blender turntable, CAD,
+  video) plus a "concept → 3D mesh → auto-repaint texture" showcase in the main README — the DCC/CAD
+  features that shipped in v0.2.0 were previously unillustrated.
+- Corrected four post-v0.2.0 staleness spots that still described shipped features as roadmap/unbuilt:
+  `modules/cad/README.md` dropped **in-loop finalize** from "Still roadmap" (it ships as `--finalize`);
+  `modules/agent/self-correction.md` now states the **LLM-driven expander** (`LLMExpander`,
+  `--rewrite-prompts`) ships alongside `TemplatedExpander` and that the Phase-4b auto-repaint
+  view-generator is shipped (not deferred); `modules/threed/README.md` scopes "not part of this module"
+  to **in-ComfyUI** Hunyuan3D-Paint and points to the shipped Blender multi-view bake.
+
 ## [0.2.0] - 2026-06-15
 
 The **DCC/CAD hub** release: Chimera grows from a ComfyUI-only pipeline into an agentic generative +
@@ -265,7 +291,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/whartons/Chimera/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/whartons/Chimera/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/whartons/Chimera/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/whartons/Chimera/compare/v0.1.1...v0.1.2

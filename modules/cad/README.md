@@ -1,5 +1,9 @@
 # `cad` — parametric CAD bridge
 
+![A machined L-bracket with bolt holes, authored by a FreeCAD script and rendered in Blender](../../docs/images/chimera-sample-cad.png)
+
+*Generative script-mode part — an agent-authored FreeCAD script (`chimera cad --mode script`) → STEP/STL, rendered headless in Blender. Brand-neutral sample.*
+
 This module is the glue that lets an AI assistant **drive a live FreeCAD session**:
 create and edit parametric solids, run FEM simulations, export STEP/STL/glTF, and
 introspect the document model — all from an MCP tool call. The scope here is
@@ -144,9 +148,8 @@ from the FreeCAD error it feeds back, so a decent coder recovers in a couple of 
 > reachable), so point it only at an LLM you trust. This is a first-party CLI capability, *not* an MCP
 > tool, so the per-tool gates below don't apply; the gated MCP `execute_code` is the separate GUI path.
 
-**Still roadmap:** sketch/constraint modeling, FEM headless, assemblies, and an **in-loop finalize**
-(auto-texture the winning mesh). Keep a FreeCAD window open with the addon active for live MCP-assisted
-editing.
+**Still roadmap:** sketch/constraint modeling, FEM headless, and assemblies. Keep a FreeCAD window open
+with the addon active for live MCP-assisted editing.
 
 ## Security audit (commit `63acb30`) & per-tool gates
 

@@ -1,7 +1,7 @@
 """Shared bpy helpers for Chimera's headless Blender templates. Each template does:
     import _common as C; p = C.args(); ... ; C.emit({"outputs": [...], "blender_version": ...})
 Run only inside `blender --background --python <template> -- <json>`."""
-import bpy, sys, os, json, math, glob, mathutils
+import bpy, bmesh, sys, os, json, math, glob, mathutils
 
 
 def args() -> dict:
@@ -169,6 +169,21 @@ def _hex_to_rgba(h, default=(0.5, 0.5, 0.5, 1.0)):
         return default
 
 
+def _weld_for_bake(obj):
+    """Weld coincident verts + recompute normals before a smart_project bake. glTF/GLB import splits a
+    vertex per face-corner (along every UV/normal seam), so a re-imported mesh has NO shared edges —
+    smart_project then treats every face as its own island, packs them into sub-pixel specks, and the
+    EMIT bake rasterizes essentially nothing (a black atlas). Welding reconnects the surface so the
+    unwrap yields real, packable islands. (The bake engine was validated on a clean primitive sphere,
+    whose verts are already shared, so this never surfaced until a real Hunyuan3D GLB was baked.)"""
+    me = obj.data
+    bm = bmesh.new(); bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bm.normal_update()
+    bm.to_mesh(me); bm.free()
+    me.update()
+
+
 def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=1024):
     """Smart-UV unwrap `obj`, project `concept_path` from a dead-front camera onto front-facing
     faces, and EMIT-bake into a res×res albedo atlas; back/grazing faces get a flat fill (palette[0]
@@ -180,6 +195,8 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
+
+    _weld_for_bake(obj)   # reconnect GLB-split verts so smart_project yields real (not sub-pixel) islands
 
     # 1. atlas UV (the bake target layout)
     bpy.ops.object.mode_set(mode='EDIT')
@@ -321,6 +338,8 @@ def bake_multiview(obj, scn, view_images, *, azimuths, elevation_deg=15.0,
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
+
+    _weld_for_bake(obj)   # reconnect GLB-split verts so smart_project yields real (not sub-pixel) islands
 
     # 1. atlas UV (bake-target layout)
     bpy.ops.object.mode_set(mode='EDIT')
