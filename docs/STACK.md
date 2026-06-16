@@ -35,7 +35,7 @@ flowchart TD
 ---
 
 ## 1 · Language & Python packages
-The `chimera` package (**v0.2.0**, MIT) is pure Python with one required runtime dependency.
+The `chimera` package (**v0.2.1**, MIT) is pure Python with one required runtime dependency.
 
 | Package | Version | Scope | Used for |
 |---------|---------|-------|----------|
