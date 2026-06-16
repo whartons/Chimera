@@ -7,6 +7,11 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Docs
+- **README restructured** for a public audience: merged the two duplicate quickstarts into one, replaced
+  the 10-bullet "What's here today" wall with a single **Capabilities** table, added a one-row "every
+  modality" sample strip (image/video/3D/Blender/CAD), moved the per-role codegen/judge/rewriter endpoint
+  reference out to `modules/agent/self-correction.md` (a one-line pointer remains), de-duplicated
+  reproducibility (previously stated 3×), and trimmed editorial hype — ~342 → ~236 lines, no facts dropped.
 - **README polish + licensing clarity** (post-v0.2.1 public-launch pass): separated each showcase image
   from its caption so captions render *below* the image instead of inline to its lower-right;
   de-duplicated the "runs standalone" claim; fixed a malformed bold span in the agent bullet; and added
