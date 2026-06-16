@@ -24,8 +24,8 @@
 Chimera wraps ComfyUI, Blender, and FreeCAD in an **agent layer**: it can **drive them from an AI
 assistant** (pinned, audited MCP bridges) and **close the quality loop itself** — generate → VLM-judge →
 refine — so generation isn't one-shot, it *iterates to a passing result*, whether the artifact is a 2D
-render, a 3D mesh, or a parametric CAD solid. It also runs **fully standalone**: a pip-installable
-**`chimera`** CLI over a brand-aware, multimodal core, no assistant required. Public and reusable — fork
+render, a 3D mesh, or a parametric CAD solid. The same brand-aware, multimodal core also ships as a
+pip-installable **`chimera`** CLI you can drive directly. Public and reusable — fork
 it, take what's useful. Developed on an RTX 5090 but written to help anyone on ComfyUI, especially
 **Blackwell (RTX 50-series)**.
 
@@ -50,8 +50,9 @@ it, take what's useful. Developed on an RTX 5090 but written to help anyone on C
   iteration cap. A **judge-agnostic, model-free core** (unit-tested, no GPU) with interchangeable judge
   backends: a **headless local Qwen2.5-VL-7B** judge (default), a **provider-agnostic `--backend api`**
   (any OpenAI-compatible LLM — OpenAI / Anthropic / OpenRouter / local Ollama), and an assistant consensus
-  pass. It drives **image, 3D (`--pipeline mesh3d`), and fully-autonomous generative CAD (`--pipeline cad`** —
-  an LLM writes + revises a FreeCAD script → render → judge → revise). Live-validated end-to-end. See
+  pass. It drives **image**, **3D** (`--pipeline mesh3d`), and **fully-autonomous generative CAD**
+  (`--pipeline cad` — an LLM writes + revises a FreeCAD script → render → judge → revise). Live-validated
+  end-to-end. See
   [`modules/agent/self-correction.md`](modules/agent/self-correction.md).
 - **🔌 Drive ComfyUI from an AI assistant** — a **pinned, security-audited** [MCP bridge](modules/agent/)
   exposes pipeline actions so an assistant (e.g. Claude) can run ComfyUI for you, with **per-tool
@@ -146,7 +147,7 @@ filled depends on *how you run it*:
 Set only the shared `--llm-*` / `CHIMERA_LLM_*` and every role uses it (original behavior); a role-specific
 value overrides the shared one for that role. Example — strong hosted coder + local vision judge:
 ```
-auto_generate.py --pipeline cad --backend api \
+auto_generate.py --pipeline cad --backend api --subject "a coffee mug" \
   --codegen-base-url https://openrouter.ai/api/v1 --codegen-model qwen/qwen2.5-coder-32b-instruct \
   --judge-base-url http://localhost:11434/v1   --judge-model qwen2.5vl:7b
 ```
@@ -332,5 +333,9 @@ Developed on an RTX 5090 (32 GB), **cu130 / torch 2.10** reference build. Most t
 via quantized (GGUF / NVFP4 / fp8) weights — see each module's `models.md`.
 
 ## License
-MIT — see [`LICENSE`](LICENSE). Models are licensed separately; see
-[`docs/CATALOG.md`](docs/CATALOG.md) for each model's terms.
+**Chimera's own code is MIT** — see [`LICENSE`](LICENSE); MIT applies to this repo's code only. The
+tools it drives run as **separate local processes** and keep their own licenses — **ComfyUI** (GPL-3.0),
+**Blender** (GPL-3.0-or-later), **FreeCAD** (LGPL-2.0+) — as do the pinned node packs and MCP bridges
+(see [`docs/STACK.md`](docs/STACK.md) §3–§4). **Models** are licensed separately, some
+non-commercial / personal-use; see [`docs/CATALOG.md`](docs/CATALOG.md). Nothing third-party is vendored
+here: Chimera references and orchestrates these — it does not redistribute them.

@@ -52,7 +52,7 @@ The `chimera` package (**v0.2.1**, MIT) is pure Python with one required runtime
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **ComfyUI** (Desktop) | **0.24.1** (reference) · **≥0.24.x** required | the generation engine. ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
+| **ComfyUI** (Desktop) | **0.24.1** (reference) · **≥0.24.x** required | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
 
 ## 3 · Third-party ComfyUI node packs (pinned + security-audited)
 Every pack is **pinned by commit** (never `@latest`) and read-through audited before adoption; a
@@ -121,7 +121,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (503 tests local; ~497 in CI — the 6 `[images]`/pillow-gated tests skip without that extra,
+py3.12 (503 tests local; 496 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

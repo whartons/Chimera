@@ -28,6 +28,11 @@ bf16 weights are published there alongside the shared encoder and VAE).
 > encoder + VAE. Find them via the ComfyUI **Templates Library** (sidebar),
 > **ComfyUI-Manager → Model Manager**, or search Hugging Face for
 > `Comfy-Org z_image_turbo`.
+>
+> **Filename note:** upstream, the base checkpoint is published as
+> `z_image_turbo_bf16.safetensors`. Chimera's `base` / `product` graphs load it as
+> **`z_image_bf16.safetensors`** (the on-disk name in the table above), so **rename it**
+> to `z_image_bf16.safetensors` after downloading.
 
 ### What each file does
 
@@ -70,7 +75,7 @@ is **4x-UltraSharp** (an ESRGAN `.pth`); drop it into `upscale_models/`.
 
 ## FLUX.2 (secondary)
 
-FLUX.2 [dev] (Klein) — activates when the model name starts with `flux2`. Uses a
+FLUX.2 [dev] — activates when the model name starts with `flux2`. Uses a
 **split loader**: a diffusion transformer + a Mistral-3 text encoder + a VAE
 (not an all-in-one checkpoint; `CheckpointLoaderSimple` will not work).
 
