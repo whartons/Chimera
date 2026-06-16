@@ -6,7 +6,19 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **3D auto-repaint texture bake produced a near-empty (black) atlas on real meshes.** `bake_multiview`
+  and `bake_albedo` ran `smart_project` on the mesh exactly as imported from GLB — but glTF/GLB import
+  splits a vertex per face-corner, so the surface had no shared edges and the unwrap made every face its
+  own sub-pixel island, baking to ~nothing. They now **weld coincident verts + recompute normals before
+  unwrapping** (`_common._weld_for_bake`), restoring real, packable islands (a textured robot mesh went
+  from ~0% to ~44% atlas coverage). The bake engine had only ever been validated on a clean primitive
+  sphere (already-shared verts), which never exercised the split-mesh path.
+
 ### Docs
+- Added brand-neutral **sample renders to every modality README** (image, 3D, Blender turntable, CAD,
+  video) plus a "concept → 3D mesh → auto-repaint texture" showcase in the main README — the DCC/CAD
+  features that shipped in v0.2.0 were previously unillustrated.
 - Corrected four post-v0.2.0 staleness spots that still described shipped features as roadmap/unbuilt:
   `modules/cad/README.md` dropped **in-loop finalize** from "Still roadmap" (it ships as `--finalize`);
   `modules/agent/self-correction.md` now states the **LLM-driven expander** (`LLMExpander`,
