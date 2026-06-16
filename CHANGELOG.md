@@ -6,6 +6,20 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Docs
+- **README polish + licensing clarity** (post-v0.2.1 public-launch pass): separated each showcase image
+  from its caption so captions render *below* the image instead of inline to its lower-right;
+  de-duplicated the "runs standalone" claim; fixed a malformed bold span in the agent bullet; and added
+  the missing `--subject` to the per-role-endpoint example. The **License** section now scopes MIT to
+  Chimera's own code and points to the driven apps'/bridges'/models' own licenses; `docs/STACK.md`
+  records ComfyUI's **GPL-3.0**; `docs/CATALOG.md` clarifies the MCP **"Bridge license"** column is the
+  server's, not the host application's (FreeCAD itself is **LGPL-2.1**).
+- **Doc-accuracy fixes:** `modules/image/models.md` now notes the Z-Image base checkpoint is published
+  upstream as `z_image_turbo_bf16.safetensors` and must be **renamed** to `z_image_bf16.safetensors` (the
+  name the `base`/`product` graphs load); dropped the incorrect "(Klein)" from the FLUX.2 **[dev]**
+  heading; corrected the CI test count to **503 local / 496 in CI / 7 `[images]`-gated** in
+  `docs/STACK.md` and `CLAUDE.md`.
+
 ## [0.2.1] - 2026-06-15
 
 A maintenance release: fixes the 3D auto-repaint texture bake (it produced an empty atlas on real,

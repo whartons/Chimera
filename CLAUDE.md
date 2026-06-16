@@ -136,7 +136,7 @@ stale doc is a bug.
   `scripts/update_report.py`). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (the CI count uses
-  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 6).
+  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 7).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump
   `pyproject.toml` `version`, then tag + create the GitHub release.
 
