@@ -6,6 +6,8 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-25
+
 ### Changed
 - **Dependency pins — weekly re-audit (2026-06).** Merged Dependabot **#33** (`actions/checkout`
   v6→v7, CI green). Bumped, after re-auditing each diff per [`docs/UPDATING.md`](docs/UPDATING.md):
@@ -321,7 +323,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/whartons/Chimera/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/whartons/Chimera/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/whartons/Chimera/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/whartons/Chimera/compare/v0.1.2...v0.1.3
