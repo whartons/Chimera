@@ -2,7 +2,7 @@
   "mcpServers": {
     "comfyui": {
       "command": "cmd",
-      "args": ["/c", "npx", "-y", "comfyui-mcp@0.9.4"],
+      "args": ["/c", "npx", "-y", "comfyui-mcp@0.18.0"],
       "env": {
         "COMFYUI_URL": "${COMFYUI_URL:-http://127.0.0.1:8000}",
         "NPM_CONFIG_OMIT": "optional"
@@ -11,7 +11,7 @@
     },
     "blender": {
       "command": "cmd",
-      "args": ["/c", "uvx", "--from", "git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4#subdirectory=mcp", "blender-mcp"],
+      "args": ["/c", "uvx", "--from", "git+https://projects.blender.org/lab/blender_mcp@98b0e49d98321d321c7e631389200f513f765d59#subdirectory=mcp", "blender-mcp"],
       "env": {
         "BLENDER_MCP_HOST": "127.0.0.1",
         "BLENDER_MCP_PORT": "9876"

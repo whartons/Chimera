@@ -20,10 +20,10 @@ custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
 | | |
 |---|---|
 | **Server** | [`artokun/comfyui-mcp`](https://github.com/artokun/comfyui-mcp) (npm: `comfyui-mcp`) |
-| **Pinned** | `comfyui-mcp@0.9.4` |
+| **Pinned** | `comfyui-mcp@0.18.0` |
 | **License** | MIT · **runs 100% locally** (only talks to your ComfyUI over `127.0.0.1`) |
 | **Transport** | stdio — Claude Code / Claude Desktop launch it directly |
-| **Tools** | ~86: node introspection, arbitrary API-format workflow exec, queue/poll/interrupt, image up/download, model + custom-node management, VRAM control |
+| **Tools** | ~100: node introspection, arbitrary API-format workflow exec, queue/poll/interrupt, image up/download, model + custom-node management, VRAM control, plus 0.18.0 graph-panel / Civitai helpers |
 
 > **Why not the "official" one?** Comfy-Org only ships a **cloud-only** MCP
 > (`cloud.comfy.org/mcp`) — it can't drive a local instance. There is no official
@@ -39,7 +39,7 @@ so anyone who opens this repo in Claude Code gets it. To turn it on:
    ComfyUI **Desktop** default; a manual `python main.py` install uses **`8188`**).
 2. In Claude Code, run **`/mcp`** and **approve** the `comfyui` server (project-scoped
    servers require a one-time approval), or restart Claude Code.
-3. Confirm: `/mcp` should show `comfyui` **Connected** with ~86 tools. Then ask the
+3. Confirm: `/mcp` should show `comfyui` **Connected** with ~100 tools. Then ask the
    assistant to call `get_system_stats` — it should report your `comfyui_version`
    and GPU, proving the bridge reached ComfyUI.
 
@@ -57,7 +57,7 @@ shell-less spawn resolves the `npx` shim). On **macOS / Linux**, change the serv
 entry to:
 ```json
 "command": "npx",
-"args": ["-y", "comfyui-mcp@0.9.4"]
+"args": ["-y", "comfyui-mcp@0.18.0"]
 ```
 
 ## Security model — keep secrets OUT of the tracked config
@@ -69,14 +69,20 @@ entry to:
   never in a tracked file. See [`../../.env.example`](../../.env.example).
 - This server runs with your user privileges and **can install custom nodes,
   download models, and stop/restart ComfyUI**. That power is the point — but treat
-  anything you ask it to install as untrusted code, and the pin (`@0.9.4`) stops it
+  anything you ask it to install as untrusted code, and the pin (`@0.18.0`) stops it
   changing under you.
 
-## Security audit (v0.9.4) & per-tool gates
-This repo pins `comfyui-mcp@0.9.4` because that version was **read through and
-adversarially audited** before adoption. Verdict: **not malicious** — with the default
-`npx` + stdio launch (no extra env), it opens **no socket, no tunnel, no LLM agent, and
-exfiltrates nothing** (no telemetry, no `eval`; tokens scoped to their matching service).
+## Security audit (v0.18.0) & per-tool gates
+This repo pins `comfyui-mcp@0.18.0`. The original `0.9.4` adoption was read-through +
+adversarially audited; the `0.9.4 → 0.18.0` bump was **re-audited per
+[`../../docs/UPDATING.md`](../../docs/UPDATING.md)** — the release notes for every intervening
+version plus the install/network-relevant code (`postinstall.mjs`, the dependency manifest, and
+the new tools). Verdict: **not malicious** — with the default `npx` + stdio launch (no extra env),
+it opens **no socket, no tunnel, no LLM agent, and exfiltrates nothing** (no telemetry, no `eval`;
+tokens scoped to their matching service). 0.18.0's newer capabilities — Comfy Cloud mode, the
+Civitai MCP hookup, a generic auth header, and a Claude-Agent-SDK session — are all **opt-in**:
+env-gated and/or `optionalDependencies` that `NPM_CONFIG_OMIT=optional` never installs, so they
+stay inert. The `postinstall` only copies a settings-template file (`.env.example`-style).
 The real risk is **capability by design**: a handful of tools (`install_custom_node`,
 `apply_manifest`, `install_comfyui`, …) download and **execute third-party Python** inside
 ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:

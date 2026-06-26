@@ -6,6 +6,17 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Dependency pins — weekly re-audit (2026-06).** Merged Dependabot **#33** (`actions/checkout`
+  v6→v7, CI green). Bumped, after re-auditing each diff per [`docs/UPDATING.md`](docs/UPDATING.md):
+  **ComfyUI-LTXVideo** `229437c → 4f45fd6` (additive — LTX-2.3 example workflows + a benign
+  audio-only node + a one-line param max); **comfyui-mcp** `0.9.4 → 0.18.0` (not malicious — the new
+  Comfy Cloud / Civitai-MCP / auth-header / Claude-Agent-SDK capabilities are all opt-in, env-gated
+  or `optionalDependencies` omitted via `NPM_CONFIG_OMIT=optional`; `postinstall` only copies a
+  settings template; existing per-tool gates re-verified, no new high-risk tool); **blender_mcp**
+  `03004fd → 98b0e49d` (a docs-only commit past `v1.0.0`). Synced `docs/STACK.md`, `docs/CATALOG.md`,
+  the module `models.md`/`requirements.md`/READMEs, `.mcp.json`, and `scripts/update_report.py`.
+
 ### Docs
 - **README restructured** for a public audience: merged the two duplicate quickstarts into one, replaced
   the 10-bullet "What's here today" wall with a single **Capabilities** table, added a one-row "every

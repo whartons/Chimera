@@ -79,7 +79,7 @@ The Python MCP servers launch via Astral's `uv`. Install once:
 1. Install **Blender ≥ 5.1.0** (winget `BlenderFoundation.Blender` or blender.org) and enable
    **online access** (Edit → Preferences → System) — the addon requires it.
 2. Install the **`lab/blender_mcp` addon** (`addon/blender_mcp_addon/` from the pinned commit
-   `03004fd`) as a Blender extension and enable it. The socket **auto-starts on enable**
+   `98b0e49d`) as a Blender extension and enable it. The socket **auto-starts on enable**
    (`127.0.0.1:9876`).
 3. The server is launched by Claude via `.mcp.json`
    (`uvx --from "git+…@<sha>#subdirectory=mcp" blender-mcp` — the server package is in the repo's
