@@ -26,10 +26,10 @@ Python packages need to be installed separately; the addon ships its own depende
 |---|---|
 | **Server** | `lab/blender_mcp` |
 | **Source** | Gitea — `projects.blender.org/lab/blender_mcp` |
-| **Pinned ref** | commit `03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4` (`v1.0.0`) |
+| **Pinned ref** | commit `98b0e49d98321d321c7e631389200f513f765d59` (`v1.0.0` +1, docs-only) |
 | **License** | GPL-3.0-or-later |
 | **Python deps** | `docutils`, `mcp[cli]`, `pyyaml` — fetched automatically by `uv` |
-| **Launcher** | `uvx --from "git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4#subdirectory=mcp" blender-mcp` (server package is in the repo's `mcp/` subdir) |
+| **Launcher** | `uvx --from "git+https://projects.blender.org/lab/blender_mcp@98b0e49d98321d321c7e631389200f513f765d59#subdirectory=mcp" blender-mcp` (server package is in the repo's `mcp/` subdir) |
 | **Console script** | `blender-mcp` (module: `blmcp`) |
 | **Addon path** | `addon/blender_mcp_addon/` inside the pinned repo |
 | **Addon destination** | Blender's add-ons/extensions directory (installed via `Edit → Preferences → Add-ons → Install from Disk`) |

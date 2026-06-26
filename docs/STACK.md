@@ -20,7 +20,7 @@ flowchart TD
         cli["generate.py CLI + brandkit core"]
         agent["agent loop: rubric · expander · judge · consensus"]
     end
-    mcp["comfyui-mcp 0.9.4 (stdio, loopback)"]
+    mcp["comfyui-mcp 0.18.0 (stdio, loopback)"]
     cli -->|"POST /prompt (HTTP)"| comfy
     agent --> cli
     mcp -->|drives| comfy
@@ -60,7 +60,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 
 | Pack | Repo | Pinned commit | Used by | Audit verdict |
 |------|------|--------------|---------|---------------|
-| **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `229437c` | video (LTX-2.3 i2v + synced audio + latent upscaler) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code` |
+| **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `4f45fd6` | video (LTX-2.3 i2v + synced audio + latent upscaler) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code` |
 | **ComfyUI-HunyuanVideo-Foley** | `phazei/ComfyUI-HunyuanVideo-Foley` | `afd2960` | audio foley (video→SFX) | safe-with-precautions — only 3 nodes used; never run the bundled `cli.py`/`infer.py`/`gradio_app.py` (pickle-RCE) |
 | **ComfyUI-QwenVL** | `1038lab/ComfyUI-QwenVL` | `fcd1ada` | agent local VLM judge (Qwen2.5-VL-7B) | safe-with-precautions — weights from the official Qwen repo only |
 | **ComfyUI_IPAdapter_plus** | `cubiq/ComfyUI_IPAdapter_plus` | `a0f451a` | Phase-4b auto-repaint (SDXL depth-CN + IPAdapter view generation) | safe-with-precautions — clean deps (torch/comfy/PIL/einops), no net/telemetry/exec; only the niche `IPAdapterEmbeds` loader does `torch.load` (don't feed it untrusted `.ipadpt`) |
@@ -71,8 +71,8 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 ## 4 · MCP bridges (assistant → ComfyUI · Blender · FreeCAD)
 | Server | Package | Version | Transport | Security posture |
 |--------|---------|---------|-----------|------------------|
-| **comfyui-mcp** | npm `comfyui-mcp` (`artokun`) | **0.9.4** | stdio, **loopback only** (127.0.0.1) | MIT; audited not-malicious. Per-tool **approval gates** on code-exec tools (`.claude/settings.json`); `NPM_CONFIG_OMIT=optional` disables the tunnel/cloud deps. Pinned + re-audited on bump. |
-| **blender_mcp** | Gitea `lab/blender_mcp` (Blender Foundation) | **v1.0.0** (`03004fd`) | stdio → TCP, **loopback** (127.0.0.1:9876) | GPL-3.0; first-party, **zero telemetry** (deps `docutils`/`mcp[cli]`/`pyyaml`), from-source audited. Tier-1/2 code-exec & path tools gated; launched from the pinned Gitea commit via `uvx --from "git+…#subdirectory=mcp"` (server pkg is in the repo's `mcp/` subdir; **never** the bare `uvx blender-mcp`); never `-t http`. **Gitea, not GitHub.** |
+| **comfyui-mcp** | npm `comfyui-mcp` (`artokun`) | **0.18.0** | stdio, **loopback only** (127.0.0.1) | MIT; audited not-malicious. Per-tool **approval gates** on code-exec tools (`.claude/settings.json`); `NPM_CONFIG_OMIT=optional` omits the optional cloud/tunnel/Claude-Agent-SDK deps (0.18.0's cloud/Civitai/auth features stay inert); benign `postinstall` (copies a settings template). Pinned + re-audited on bump. |
+| **blender_mcp** | Gitea `lab/blender_mcp` (Blender Foundation) | **v1.0.0 +1** (`98b0e49d`, docs-only) | stdio → TCP, **loopback** (127.0.0.1:9876) | GPL-3.0; first-party, **zero telemetry** (deps `docutils`/`mcp[cli]`/`pyyaml`), from-source audited. Tier-1/2 code-exec & path tools gated; launched from the pinned Gitea commit via `uvx --from "git+…#subdirectory=mcp"` (server pkg is in the repo's `mcp/` subdir; **never** the bare `uvx blender-mcp`); never `-t http`. **Gitea, not GitHub.** |
 | **freecad-mcp** | GitHub `neka-nat/freecad-mcp` (server + addon) | **`63acb30`** (= v0.1.18) | stdio → XML-RPC, **loopback** (127.0.0.1:9875) | MIT; no telemetry (deps `mcp[cli]`/`validators`), from-source audited. Tier-1/2 tools gated; keep "Remote Connections" OFF. Pinned by commit; re-audited on bump. |
 
 > **Gitea exception:** `blender_mcp` lives on Blender's Gitea (`projects.blender.org`), not GitHub —

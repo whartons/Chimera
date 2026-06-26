@@ -22,7 +22,7 @@ See [`../agent/self-correction.md`](../agent/self-correction.md).
 | | |
 |---|---|
 | **Server** | official `lab/blender_mcp` (Blender Foundation) — Gitea `projects.blender.org` |
-| **Pinned** | `v1.0.0` = commit `03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4` |
+| **Pinned** | commit `98b0e49d98321d321c7e631389200f513f765d59` (v1.0.0 +1, docs-only) |
 | **License** | GPL-3.0-or-later · runs 100% locally (loopback `127.0.0.1:9876`) |
 | **Transport** | stdio (Claude launches it) → TCP socket → Blender addon |
 | **Tools** | 26: scene introspection, object ops, code-exec, render, screenshots, doc search |
@@ -41,14 +41,14 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 System → Network → Allow Online Access`).
 
 1. **Install the Blender addon.** Clone (or download) `lab/blender_mcp` at the pinned
-   commit `03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4`. Install `addon/blender_mcp_addon/` via
+   commit `98b0e49d98321d321c7e631389200f513f765d59`. Install `addon/blender_mcp_addon/` via
    `Edit → Preferences → Add-ons → Install from Disk`. Enable it. The addon
    auto-starts the loopback socket (`127.0.0.1:9876`) on enable — no extra step needed.
 
 2. **Register the MCP server.** The server entry lives in
    [`../../.mcp.json`](../../.mcp.json) and is launched by Claude Code as:
    ```
-   uvx --from "git+https://projects.blender.org/lab/blender_mcp@03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4#subdirectory=mcp" blender-mcp
+   uvx --from "git+https://projects.blender.org/lab/blender_mcp@98b0e49d98321d321c7e631389200f513f765d59#subdirectory=mcp" blender-mcp
    ```
    The `#subdirectory=mcp` is required — the server package lives in the repo's `mcp/`
    subdir (the root has no installable package). Never use the **bare** `uvx blender-mcp`:
