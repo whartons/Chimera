@@ -6,6 +6,12 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-27
+
+Adds **`image --mode relight`** — a FLUX.2 ReferenceLatent relight that changes a still's lighting
+while preserving its exact composition (live-validated on ComfyUI 0.26.2) — plus brand-neutral,
+field-tested technique notes distilled from production use.
+
 ### Added
 - **`image --mode relight` — FLUX.2 ReferenceLatent relight.** Relight/restyle a still while keeping
   its **exact composition** (`--asset <source> --subject "<relight prompt>"`). Uses FLUX.2's native
@@ -395,7 +401,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/whartons/Chimera/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/whartons/Chimera/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/whartons/Chimera/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/whartons/Chimera/compare/v0.2.0...v0.2.1
