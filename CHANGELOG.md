@@ -6,6 +6,16 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Agent layer upgraded to Qwen3 (Ollama-unified).** The self-correction judge is now
+  **Qwen3-VL-8B-Instruct** served by **Ollama** over the OpenAI-compatible `--backend api` path
+  (recommended; `qwen3-vl:8b`, swappable to `:32b` / `:30b-a3b` by env/flag — `CHIMERA_JUDGE_MODEL`);
+  the CAD codegen + prompt-rewriter text roles target **Qwen3.6-27B** on the same endpoint. The
+  `1038lab/ComfyUI-QwenVL` node is demoted to an **optional** judge path (re-pointed to Qwen3-VL) and
+  dropped from the auto-checked pin table. Cloud (OpenAI/Anthropic/Gemini/OpenRouter) stays a drop-in
+  via the same config; `.env.example` documents the per-role + lesser-GPU/cloud knobs. `--backend local`
+  remains the default and now drives the optional ComfyUI Qwen3-VL node. (Old Qwen2.5 models retired.)
+
 ## [0.2.2] - 2026-06-25
 
 ### Changed

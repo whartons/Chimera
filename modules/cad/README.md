@@ -120,11 +120,12 @@ repeat. It runs two ways:
 - **Fully autonomous** — **`auto_generate.py --pipeline cad --subject "..."`**: a **provider-agnostic
   LLM** (`scripts/agent/llm.py` — any OpenAI-compatible endpoint: **Gemini / OpenAI / Anthropic /
   OpenRouter / local Ollama**, env-configured via `CHIMERA_LLM_*`) writes + revises the script across
-  iterations. The judge is the local Qwen2.5-VL (default) or the same LLM (`--backend api`). With
-  `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
+  iterations. The judge is the **recommended Ollama Qwen3-VL** via `--backend api`, or the optional
+  ComfyUI Qwen3-VL judge node via `--backend local`. With `--backend api` it's a pure LLM+FreeCAD+Blender
+  loop (no ComfyUI). See
   [`../agent/self-correction.md`](../agent/self-correction.md#bring-your-own-llm---backend-api----pipeline-cad)
-  for the provider table. (Built + **live-validated** against a local Ollama endpoint — `qwen2.5-coder`
-  drove a full FreeCAD→render→judge→revise→PASS loop; `qwen2.5vl` confirmed the vision judge.)
+  for the provider table. (Built + **live-validated** against a local Ollama endpoint; the agent layer now
+  targets **Qwen3.6-27B** for codegen and **Qwen3-VL-8B** for the vision judge.)
 
 **Per-role endpoints (autonomous runs only; an interactive AI agent needs none of this).** Codegen
 (`--codegen-*` / `CHIMERA_CODEGEN_*`) and the judge (`--judge-*` / `CHIMERA_JUDGE_*`) each take their own
@@ -134,8 +135,8 @@ OpenAI-compatible endpoint, falling back to the shared `--llm-*` / `CHIMERA_LLM_
 |-------|---------|-------|-----|
 | Interactive (IDE agent) | the agent | the agent | none (FreeCAD/Blender local) |
 | No GPU, hosted API | `--backend api` hosted multimodal (Gemini free tier / GPT-4o / Claude) | same model | none |
-| Mixed | `--codegen-model` strong hosted coder | `--backend local` Qwen-VL (~16 GB) | judge GPU only |
-| Fully local | `--codegen-model qwen2.5-coder:7b/14b/32b` (Ollama) | `--backend local` Qwen-VL | per model |
+| Mixed | `--codegen-model` strong hosted coder | `--backend api` Ollama Qwen3-VL-8B (~6–9 GB) | judge GPU only |
+| Fully local | `--codegen-model qwen3.6-27b` (Ollama) | `--backend api` Ollama Qwen3-VL-8B (recommended) or `--backend local` ComfyUI Qwen3-VL node | per model |
 
 Codegen quality drives success: a 7B *coder* works, a 7B *vision* model does not. The loop self-corrects
 from the FreeCAD error it feeds back, so a decent coder recovers in a couple of iterations.

@@ -62,11 +62,14 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 |------|------|--------------|---------|---------------|
 | **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `4f45fd6` | video (LTX-2.3 i2v + synced audio + latent upscaler) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code` |
 | **ComfyUI-HunyuanVideo-Foley** | `phazei/ComfyUI-HunyuanVideo-Foley` | `afd2960` | audio foley (video→SFX) | safe-with-precautions — only 3 nodes used; never run the bundled `cli.py`/`infer.py`/`gradio_app.py` (pickle-RCE) |
-| **ComfyUI-QwenVL** | `1038lab/ComfyUI-QwenVL` | `fcd1ada` | agent local VLM judge (Qwen2.5-VL-7B) | safe-with-precautions — weights from the official Qwen repo only |
 | **ComfyUI_IPAdapter_plus** | `cubiq/ComfyUI_IPAdapter_plus` | `a0f451a` | Phase-4b auto-repaint (SDXL depth-CN + IPAdapter view generation) | safe-with-precautions — clean deps (torch/comfy/PIL/einops), no net/telemetry/exec; only the niche `IPAdapterEmbeds` loader does `torch.load` (don't feed it untrusted `.ipadpt`) |
 
 > Core-native (no pack needed): **Z-Image**, **ACE-Step 1.5**, **Hunyuan3D 2.1**, and the agent
 > verdict-capture node all ship in ComfyUI core — only the three packs above are third-party.
+>
+> **Optional (agent judge):** the judge runs on **Ollama Qwen3-VL** by default (see §5 + `modules/agent/`);
+> the `1038lab/ComfyUI-QwenVL` node can host it inside ComfyUI instead — re-pin to a Qwen3-VL-capable
+> commit + re-scan before use. It is no longer a default/auto-checked pin.
 
 ## 4 · MCP bridges (assistant → ComfyUI · Blender · FreeCAD)
 | Server | Package | Version | Transport | Security posture |
@@ -97,8 +100,8 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > `$FREECAD_BIN`, or the default install; CI mocks the subprocess (GPU-free). glTF export is GUI-only
 > (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
 > script`) and **fully autonomous** (`auto_generate.py --pipeline cad` — a provider-agnostic LLM writes +
-> revises the script; `scripts/agent/llm.py`, built + **live-validated** (local Ollama: `qwen2.5-coder`
-> full loop to PASS, `qwen2.5vl` vision judge)).
+> revises the script; `scripts/agent/llm.py`, built + **live-validated** against a local Ollama endpoint.
+> The agent layer now targets **Qwen3.6-27B** (codegen/rewriter) + **Qwen3-VL-8B** (vision judge)).
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
@@ -108,7 +111,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 | Audio — music | **ACE-Step 1.5 XL Turbo** | Comfy-Org · core-native |
 | Audio — foley | **HunyuanVideo-Foley** | phazei · 48 kHz synced |
 | 3D | **Hunyuan3D 2.1** | Comfy-Org · shape-only (PBR texturing platform-blocked) |
-| Agent judge | **Qwen2.5-VL-7B-Instruct** | official Qwen · Apache-2.0 · ~15 GB FP16 |
+| Agent judge | **Qwen3-VL-8B-Instruct** (Ollama) | official Qwen · Apache-2.0 · ~6–9 GB (Q4/q8) · swap via `CHIMERA_JUDGE_MODEL` |
 
 Weights are **never committed** — referenced by name + source; see CATALOG for files, destinations, sizes, and licenses.
 

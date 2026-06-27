@@ -17,7 +17,7 @@ Run it two ways: as a pip-installable **`chimera`** CLI you drive yourself, or t
 security-audited **MCP bridges** that let an AI assistant drive the tools for you. Image, video, audio, 3D,
 Blender-render, and FreeCAD-CAD all run headless from one core — no brand and no assistant required
 (`chimera image --subject "…"` just works). The judge/codegen backend is provider-agnostic (any
-OpenAI-compatible LLM, or a local Qwen2.5-VL). Public and reusable — built end-to-end on an RTX 5090,
+OpenAI-compatible LLM, or a local Qwen3-VL-8B served via Ollama). Public and reusable — built end-to-end on an RTX 5090,
 written to help anyone on ComfyUI, especially **Blackwell (RTX 50-series)**.
 
 ![An ember-winged chimera — lion body, goat head, serpent-headed tail — over an erupting volcano, generated with this repo's Z-Image workflow](docs/images/chimera-zimage-sample.png)
@@ -88,8 +88,9 @@ judges *subject + quality*); `--pipeline mesh3d|cad` extends the loop to 3D and 
 python scripts/agent/auto_generate.py --subject "an armored rover" --comfy-output-dir <dir>
 ```
 
-Backends (`--backend local` Qwen2.5-VL / `--backend api` any OpenAI-compatible LLM) and per-role
-codegen/judge/rewriter endpoints are in [`modules/agent/self-correction.md`](modules/agent/self-correction.md).
+Backends (`--backend api` Ollama Qwen3-VL, recommended / any OpenAI-compatible LLM — or `--backend local`,
+the optional ComfyUI Qwen3-VL judge node) and per-role codegen/judge/rewriter endpoints are in
+[`modules/agent/self-correction.md`](modules/agent/self-correction.md).
 **Driving Chimera from an AI agent in your IDE supersedes all endpoint config** — the agent fills those
 roles itself, and no `CHIMERA_*` keys are read.
 
