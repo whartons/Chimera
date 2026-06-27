@@ -16,9 +16,10 @@ All notable changes to Chimera are documented here. The format follows
   dropped from the auto-checked pin table. Cloud (OpenAI/Anthropic/Gemini/OpenRouter) stays a drop-in
   via the same config; `.env.example` documents the per-role + lesser-GPU/cloud knobs. `--backend local`
   remains the default and now drives the optional ComfyUI Qwen3-VL node. (Old Qwen2.5 models retired.)
-- **ComfyUI reference build → 0.26.2** (was 0.24.1). Validated on the new Desktop build: `chimera doctor`
-  clean (all workflow-template node types resolve), image self-correction loop **PASS** (ComfyUI gen +
-  Ollama Qwen3-VL judge), torch 2.10+cu130 intact. `≥0.24.x` floor unchanged. Synced `docs/STACK.md` +
+- **ComfyUI reference build → 0.26.2** (was 0.24.1). Full per-modality smoke on the new Desktop build:
+  `chimera doctor` clean (all workflow-template node types resolve), **image** + **CAD** self-correction
+  loops **PASS** (score 1.0), **video** (LTXVideo i2v → `.mp4`) and **audio** (ACE-Step music → `.mp3`)
+  generate, torch 2.10+cu130 intact. `≥0.24.x` floor unchanged. Synced `docs/STACK.md` +
   `scripts/update_report.py` `COMFY_REF`.
 
 ### Fixed
