@@ -180,23 +180,35 @@ and the "gotchas" section below for details.
   in `KSampler` (guidance-distilled — real CFG is off).
 - Sampler/scheduler: **`euler` / `simple`**, ~20 steps.
 
-### Relighting / editing a still while keeping its composition (field-tested)
+### Relighting a still while keeping its composition (`--mode relight`)
 
-To change a still's **lighting or look while preserving its exact composition** (e.g. relight a
-product shot, swap day→dusk), use FLUX.2's native **`ReferenceLatent` edit path**, *not* img2img:
+To change a still's **lighting or look while preserving its exact composition** (relight a product
+shot, swap day→dusk/night), use **`--mode relight`** — FLUX.2's native **`ReferenceLatent` edit**:
 
-- **The technique:** `LoadImage(source) → VAEEncode → latent`, then feed that latent into
-  `ReferenceLatent(conditioning, latent)` so it rides the *positive* conditioning, and sample with
-  your relight prompt. The reference latent anchors the layout; the prompt changes only the lighting/
-  style. (`ReferenceLatent` is a **core** node — confirmed present on ComfyUI 0.26.2; FLUX.2 dev +
-  the Mistral-3 encoder are the same models this module already uses.)
-- **Why not img2img:** a plain VAEEncode→KSampler at partial denoise **drifts the composition** — it
-  reinvents layout/objects as it restyles. ReferenceLatent holds the structure that img2img loses.
-- **Avoid the "Fun" ControlNet pack for this.** A ControlNet-pack relight route was tried and
-  **failed — it broke FLUX.2** on the stack. The native ReferenceLatent path needs no extra pack.
+```
+python scripts/generate.py image --mode relight \
+  --asset <source.png> \
+  --subject "the same scene relit with warm golden-hour rim light, deep shadows, cinematic" \
+  --comfy-output-dir "<ComfyUI output dir>"
+```
 
-> A turnkey, live-validated relight **template** is a planned follow-up; the building blocks above are
-> confirmed on 0.26.2. Until then, wire the `ReferenceLatent` node into the FLUX.2 graph as described.
+- `--asset` is the source still (a brand `products/`/`references/`/`outputs/images/` file, or — when
+  brandless — a direct path). `--subject` is the relight prompt.
+- **Relight is a FLUX.2 capability.** The mode loads the FLUX.2 relight template and, if your brand
+  default is Z-Image, transparently uses `flux2_dev_fp8mixed.safetensors` (Z-Image has no equivalent
+  edit node). The sidecar records the FLUX.2 model actually used.
+- **Live-validated on ComfyUI 0.26.2** (sunset and moonlight relights both held the source's exact
+  composition while transforming the lighting).
+
+**How it works (and why not img2img):** `LoadImage(source) → VAEEncode → latent`, fed into
+`ReferenceLatent(conditioning, latent)` so it rides the *positive* conditioning, then a full-denoise
+sample with your relight prompt. The reference latent anchors the layout; the prompt changes only the
+lighting/style. A plain img2img (partial-denoise) **drifts the composition** — it reinvents layout as
+it restyles — which ReferenceLatent avoids. (A ControlNet-pack relight route was also tried and
+**broke FLUX.2** on this stack; the native path needs no extra pack.)
+
+Template: [`workflow.flux2-relight.template.json`](workflow.flux2-relight.template.json) (canonical
+copy `workflows/templates/brand-flux2-relight.json`).
 
 ## Performance (RTX 5090 / cu130 / SageAttention)
 

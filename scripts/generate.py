@@ -126,6 +126,12 @@ def _prepare_image(args, m, brand_dir, client, ap):
     fkw = {"mode": args.mode, "variant": args.variant, "model": args.model,
            "upscale": args.upscale,
            "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
+    if args.mode == "relight":
+        # relight (FLUX.2 ReferenceLatent edit): --asset is the source still to relight. Search the
+        # usual input locations incl. prior renders; brandless -> treat --asset as a direct path.
+        asset_path = _resolve_asset(brand_dir, args.asset,
+                                    ("products", "references", "outputs/images"), ap, "relight --asset")
+        fkw["asset"] = client.upload_image(asset_path)
     if args.mode in ("logo", "product"):
         subdir = "logos" if args.mode == "logo" else "products"
         asset_name = args.asset or (m.logo.default or "").split("/")[-1] or None
@@ -728,7 +734,7 @@ def main():
     sub = ap.add_subparsers(dest="modality", required=True)
     img = sub.add_parser("image"); _add_common(img)
     img.add_argument("--subject", required=True)
-    img.add_argument("--mode", choices=["txt2img", "logo", "product"], default="txt2img")
+    img.add_argument("--mode", choices=["txt2img", "logo", "product", "relight"], default="txt2img")
     img.add_argument("--asset", default=None)
     img.add_argument("--variant", choices=["base", "turbo"], default=None,
                      help="Z-Image fidelity: turbo (8-step, default for txt2img/logo) or base "
