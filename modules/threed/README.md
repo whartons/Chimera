@@ -141,6 +141,26 @@ Default is `256`. Use `128` for lightweight previews; `384`+ for high-detail
 hero assets (check VRAM headroom before going above `256` on cards with less
 than 32 GB).
 
+## Preparing a mesh for 3D printing / casting (field-tested)
+
+Turning a generated mesh into a physical object (3D print or cast) is easier when you treat it
+as **one watertight solid**, not an assembly:
+
+- **Prefer a single fused solid over a kit-of-parts.** When converting a logo, emblem, or
+  figure into a physical object, model/mesh the *whole thing* as one solid. A multi-part "kit"
+  multiplies failure points — each part must be independently manifold, correctly oriented, and
+  fit-assembled — whereas a single fused solid slices and casts far more predictably. (Lesson
+  from a logo → cast-object project: the one-solid version won decisively over the kit version.)
+- **Clean stray geometry first.** Hunyuan3D often meshes the concept image's flat
+  background/ground as stray plane geometry. Before slicing, **weld** coincident vertices,
+  **separate by loose parts**, and **drop near-planar fragments** (thinnest dimension < ~2% of
+  the longest). The Blender `mesh_finish` path (`generate.py render ... --finish`) does the
+  weld / voxel-remesh / decimate / scale pass and exports a clean STL + GLB.
+- **Watertight + real wall thickness.** Slicers need a manifold, watertight solid; surface-net
+  output can have thin or open shells — thicken/voxel-remesh as needed.
+- **Formats:** `--format stl` for printing; for parametric, dimensioned parts author them in
+  FreeCAD instead (`generate.py cad` → STEP/STL) where wall thickness and fit are exact.
+
 ## VRAM
 
 | Step | Approximate VRAM | Notes |

@@ -30,6 +30,8 @@ switching between them is a single flag.
 **Supporting docs**
 - [`models.md`](models.md) — all model files, HF repos, destinations, and license notes.
 - [`brand-kits.md`](brand-kits.md) — internals: how Brand Kits wires the pipeline together.
+- [`recipes.md`](recipes.md) — field-tested, brand-neutral recipes for creator/community assets
+  (platform emotes & stickers, tiered badge sets, animated-logo stingers).
 
 ## Use it — unified CLI
 
@@ -177,6 +179,24 @@ and the "gotchas" section below for details.
 - Guidance is a dedicated **`FluxGuidance`** node (default `3.5`); **`cfg` is `1`**
   in `KSampler` (guidance-distilled — real CFG is off).
 - Sampler/scheduler: **`euler` / `simple`**, ~20 steps.
+
+### Relighting / editing a still while keeping its composition (field-tested)
+
+To change a still's **lighting or look while preserving its exact composition** (e.g. relight a
+product shot, swap day→dusk), use FLUX.2's native **`ReferenceLatent` edit path**, *not* img2img:
+
+- **The technique:** `LoadImage(source) → VAEEncode → latent`, then feed that latent into
+  `ReferenceLatent(conditioning, latent)` so it rides the *positive* conditioning, and sample with
+  your relight prompt. The reference latent anchors the layout; the prompt changes only the lighting/
+  style. (`ReferenceLatent` is a **core** node — confirmed present on ComfyUI 0.26.2; FLUX.2 dev +
+  the Mistral-3 encoder are the same models this module already uses.)
+- **Why not img2img:** a plain VAEEncode→KSampler at partial denoise **drifts the composition** — it
+  reinvents layout/objects as it restyles. ReferenceLatent holds the structure that img2img loses.
+- **Avoid the "Fun" ControlNet pack for this.** A ControlNet-pack relight route was tried and
+  **failed — it broke FLUX.2** on the stack. The native ReferenceLatent path needs no extra pack.
+
+> A turnkey, live-validated relight **template** is a planned follow-up; the building blocks above are
+> confirmed on 0.26.2. Until then, wire the `ReferenceLatent` node into the FLUX.2 graph as described.
 
 ## Performance (RTX 5090 / cu130 / SageAttention)
 

@@ -6,6 +6,22 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Docs
+- **Field-tested technique notes from production use** (brand-neutral; technique only, no brand data):
+  a creator-assets recipe doc [`modules/image/recipes.md`](modules/image/recipes.md) (platform
+  emotes/stickers — GIF-not-APNG, background-cutout + dark-outline for light/dark legibility,
+  matched-seed keyframes for real animation; tiered badge sets); an image-to-video **motion-realism**
+  caveat in [`modules/video/README.md`](modules/video/README.md) (i2v reliably animates *energy/
+  ambient* motion over a rigid subject, not mechanical/articulated motion); a **3D-print/casting**
+  prep note in [`modules/threed/README.md`](modules/threed/README.md) (prefer one watertight solid
+  over a kit-of-parts; clean Hunyuan's stray background plane); and a **FLUX.2 relight** technique in
+  [`modules/image/README.md`](modules/image/README.md) (native `ReferenceLatent` edit preserves
+  composition where img2img drifts it — `ReferenceLatent` confirmed present on 0.26.2).
+- **`--texture` (mesh3d Phase 4a) live-validated end-to-end** on the upgraded stack (concept →
+  Hunyuan3D → front albedo bake → judge → refine; self-corrected 0.42 → 0.65, front-faithful with a
+  grey back by design — `--finalize` adds all-around colour). `modules/agent/self-correction.md`
+  updated from "pending a ComfyUI run" to validated.
+
 ## [0.3.0] - 2026-06-27
 
 The agent layer moves to **Qwen3** (Ollama-unified) and the reference stack to **ComfyUI 0.26.2** /
