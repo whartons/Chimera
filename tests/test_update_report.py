@@ -41,6 +41,11 @@ def test_check_gitea_pack_ok_when_current(monkeypatch):
     assert lvl == "ok"
 
 
+def test_comfyui_qwenvl_not_auto_pinned():
+    # The agent judge moved to Ollama Qwen3-VL; ComfyUI-QwenVL is an OPTIONAL path, not an auto-checked pin.
+    assert not any(repo == "ComfyUI-QwenVL" for _, _, repo, _ in ur.GIT_PACKS)
+
+
 def test_freecad_pinned_via_github_git_pack():
     # FreeCAD MCP is on GitHub -> tracked by check_git_pack (GIT_PACKS), pinned to commit 63acb30.
     assert any(owner == "neka-nat" and repo == "freecad-mcp" and pin == "63acb30"
