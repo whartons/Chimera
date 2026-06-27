@@ -12,7 +12,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 ```mermaid
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
-        comfy["ComfyUI 0.24.1 (engine + models)"]
+        comfy["ComfyUI 0.26.2 (engine + models)"]
         packs["pinned node packs: LTXVideo · Foley · QwenVL · IPAdapter"]
         comfy --- packs
     end
@@ -52,7 +52,7 @@ The `chimera` package (**v0.2.2**, MIT) is pure Python with one required runtime
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **ComfyUI** (Desktop) | **0.24.1** (reference) · **≥0.24.x** required | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
+| **ComfyUI** (Desktop) | **0.26.2** (reference) · **≥0.24.x** required | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
 
 ## 3 · Third-party ComfyUI node packs (pinned + security-audited)
 Every pack is **pinned by commit** (never `@latest`) and read-through audited before adoption; a

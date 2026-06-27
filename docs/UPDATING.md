@@ -35,7 +35,7 @@ so the weekly report only *points* at the core release — the authoritative che
 2. Update via the **ComfyUI Desktop app**.
 3. Run the gates — especially **`chimera doctor`** (confirms node packs + models still resolve) and a
    smoke render of **each modality** (a ComfyUI bump can change node schemas).
-4. If the reference build moved, update the `0.24.1` references in `docs/STACK.md` / `docs/SETUP.md`
+4. If the reference build moved, update the `0.26.2` references in `docs/STACK.md` / `docs/SETUP.md`
    and `COMFY_REF` in [`scripts/update_report.py`](../scripts/update_report.py).
 
 ## 3 · Pinned node packs & the MCP server — *manual, audit-gated*

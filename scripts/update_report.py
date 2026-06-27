@@ -25,7 +25,7 @@ GIT_PACKS = [
 # blender_mcp lives on Blender's Gitea (not GitHub) — checked via the Gitea compare API.
 GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "98b0e49d")]
 NPM_PACKS = [("comfyui-mcp (MCP bridge)", "comfyui-mcp", "0.18.0")]
-COMFY_REF = "0.24.1"   # the reference build documented in docs/STACK.md / SETUP.md
+COMFY_REF = "0.26.2"   # the reference build documented in docs/STACK.md / SETUP.md
 MARK = {"ok": "✅", "warn": "⚠️", "info": "ℹ️"}
 
 
