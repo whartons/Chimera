@@ -48,24 +48,29 @@ def enable_gpu(scn):
     return label
 
 
-def studio(scn, world_strength=0.25):
+def studio(scn, radius=2.0, world_strength=0.25):
+    """Three-point AREA rig + dim world, SCALED to the object's bounding radius so it correctly exposes a
+    mesh at any scale — a normalized ~2-unit Hunyuan mesh AND a CAD STL that imports at tens of mm-units.
+    Light distance ∝ radius and energy ∝ radius² (inverse-square) keep illuminance ~constant as the rig
+    scales out; at radius≈2 the factor is 1.0, reproducing the original fixed rig exactly."""
     scn.world = bpy.data.worlds.new("W")
     scn.world.use_nodes = True
     scn.world.node_tree.nodes["Background"].inputs[1].default_value = world_strength
+    f = max(radius, 1e-3) / 2.0          # scale vs the original ~2-unit reference rig
     for nm, e, loc, rot in (("Key", 1400, (-5, -5, 8), (45, 0, -40)),
                             ("Fill", 500, (5, -3, 4), (60, 0, 55)),
                             ("Rim", 900, (3, 6, 6), (60, 0, 150))):
         lt = bpy.data.lights.new(nm, 'AREA')
-        lt.energy = e
-        lt.size = 5
+        lt.energy = e * f * f            # inverse-square compensation as the rig scales out with f
+        lt.size = 5 * f
         o = bpy.data.objects.new(nm, lt)
         scn.collection.objects.link(o)
-        o.location = loc
+        o.location = tuple(c * f for c in loc)
         o.rotation_euler = tuple(math.radians(a) for a in rot)
 
 
-def floor(scn, rough=0.4):
-    bpy.ops.mesh.primitive_plane_add(size=40, location=(0, 0, 0))
+def floor(scn, radius=2.0, rough=0.4):
+    bpy.ops.mesh.primitive_plane_add(size=40 * max(radius, 1e-3) / 2.0, location=(0, 0, 0))
     m = bpy.data.materials.new("Floor")
     m.use_nodes = True
     b = m.node_tree.nodes["Principled BSDF"]
@@ -105,12 +110,14 @@ def import_mesh(path):
 
 
 def frame_object(scn, obj, lens=70, margin=1.4):
-    """Add a camera that frames `obj`'s bounding sphere; add floor + studio lights."""
-    floor(scn)
-    studio(scn)
+    """Add a camera that frames `obj`'s bounding sphere, plus a floor + studio rig SCALED to the object so
+    it's correctly exposed at any mesh scale (a normalized Hunyuan mesh OR a mm-scale CAD STL — the latter
+    imports at tens of units and washed out to near-black under the old fixed-size rig)."""
     bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
     center = sum(bbox, mathutils.Vector()) / 8.0
-    radius = max((v - center).length for v in bbox)
+    radius = max((v - center).length for v in bbox) or 1.0
+    floor(scn, radius)
+    studio(scn, radius)
     cam = bpy.data.cameras.new("Cam")
     cam.lens = lens
     co = bpy.data.objects.new("Cam", cam)
