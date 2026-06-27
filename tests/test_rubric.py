@@ -131,3 +131,30 @@ def test_3d_textured_brandless_has_color_but_no_palette_criterion():
     assert "colored consistent with" in joined   # color criterion still added
     assert "brand palette" not in joined          # but no palette criterion (empty palette)
     assert "avoids these traits" not in joined    # and no negative criterion
+
+
+def test_3d_rubric_prompt_explains_contact_sheet_layout():
+    """The 3D/CAD judge is shown a multi-view CONTACT SHEET (4 orbit stills in a grid, see
+    render_generate). Without telling the VLM the panels are ONE model from N angles, it miscounts
+    them as N separate objects and fails 'a single ...'. The prompt MUST explain the layout."""
+    from scripts.brandkit.manifest import default_manifest
+    p = build_rubric(default_manifest(), "a single cylinder", modality="3d").as_prompt().lower()
+    assert "contact sheet" in p                       # names the layout
+    assert "same" in p                                # ...same model
+    assert "separate" in p or "multiple" in p         # ...NOT separate/multiple objects
+    # still a numbered checklist with verdict tokens
+    assert "evaluate the 3d render" in p and "pass" in p and "fail" in p
+
+
+def test_3d_textured_prompt_also_explains_contact_sheet():
+    from scripts.brandkit.manifest import default_manifest
+    p = build_rubric(default_manifest(), "a rover", modality="3d", textured=True).as_prompt().lower()
+    assert "contact sheet" in p
+
+
+def test_image_rubric_has_no_contact_sheet_preamble():
+    """The 2D image path judges a SINGLE image, not a contact sheet — adding the preamble there would
+    confuse the judge. Only the multi-view 3D path gets it."""
+    from scripts.brandkit.manifest import default_manifest
+    p = build_rubric(default_manifest(), "a rover").as_prompt().lower()
+    assert "contact sheet" not in p
