@@ -10,7 +10,7 @@ Config (env, with CLI overrides; no hardcoded vendor default):
                         https://api.openai.com/v1 | https://api.anthropic.com/v1 |
                         https://openrouter.ai/api/v1 | http://localhost:11434/v1 (Ollama)
   CHIMERA_LLM_API_KEY   (falls back to OPENAI_API_KEY / ANTHROPIC_API_KEY; omit for keyless local)
-  CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen2.5-coder | llava | ...
+  CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen3.6-27b | qwen3-vl:8b | ...
 """
 from __future__ import annotations
 import os, json, base64, urllib.request, urllib.error
