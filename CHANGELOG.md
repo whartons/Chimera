@@ -6,6 +6,12 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-27
+
+The agent layer moves to **Qwen3** (Ollama-unified) and the reference stack to **ComfyUI 0.26.2** /
+**FreeCAD 1.1.1** — and the **CAD self-correction loop now runs end-to-end** (three masked bugs fixed,
+live-validated PASS at score 1.0). All four generative modalities re-smoked on the new stack.
+
 ### Changed
 - **Agent layer upgraded to Qwen3 (Ollama-unified).** The self-correction judge is now
   **Qwen3-VL-8B-Instruct** served by **Ollama** over the OpenAI-compatible `--backend api` path
@@ -365,7 +371,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/whartons/Chimera/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/whartons/Chimera/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/whartons/Chimera/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/whartons/Chimera/compare/v0.1.3...v0.2.0
