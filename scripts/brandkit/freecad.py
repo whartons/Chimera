@@ -1,8 +1,8 @@
-"""Headless FreeCAD job runner: spawn `FreeCADCmd <template.py> <params.json>` per job, parse the
-one-line result manifest the template prints. Pure host-side plumbing; templates carry all FreeCAD
-knowledge. Params go through a temp JSON FILE (not inline) because FreeCADCmd exposes script args as
-sys.argv=[exe, script, *args] with no `--` separator — a file path avoids all Windows quoting of
-JSON's embedded quotes. The `_runner` seam keeps it FreeCAD-free testable (mock the subprocess)."""
+"""Headless FreeCAD job runner: spawn `FreeCADCmd <template.py>` per job (the params-file path is handed
+to the template via the $CHIMERA_CAD_PARAMS env var), parse the one-line result manifest the template
+prints. Pure host-side plumbing; templates carry all FreeCAD knowledge. Params go through a temp JSON
+FILE referenced by env — NOT a CLI arg — because FreeCAD 1.1.x opens any trailing file argument as a
+document (a .json hits the FEM YAML/JSON importer and throws). The `_runner` seam keeps it testable."""
 from __future__ import annotations
 import glob, json, os, shutil, subprocess, tempfile
 
@@ -39,9 +39,13 @@ def run_template(template_path, params: dict, *, freecad_bin=None, timeout=600,
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(params, fh)
-        argv = [exe, str(template_path), pfile]
+        # Hand the params path to the template via ENV, not a CLI arg: FreeCAD 1.1.x treats a trailing
+        # file as a document to OPEN (a .json hits the FEM importer and throws), polluting stderr + the
+        # CAD loop's revise feedback. The template reads $CHIMERA_CAD_PARAMS (sys.argv fallback).
+        argv = [exe, str(template_path)]
+        env = {**os.environ, "CHIMERA_CAD_PARAMS": pfile}
         try:
-            proc = _runner(argv, capture_output=True, text=True, timeout=timeout)
+            proc = _runner(argv, capture_output=True, text=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired as e:
             raise FreeCADJobError(f"FreeCAD job timed out after {timeout}s") from e
         if proc.returncode != 0:
