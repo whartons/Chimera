@@ -68,6 +68,39 @@ def test_product_mode_requires_image():
     with pytest.raises(ValueError):
         build_workflow(ROOT, m, mode="product", positive="x", negative="", seed=1)
 
+def test_relight_sets_source_and_wires_reference_latent():
+    m = load_manifest(FIX)  # FLUX.2-default brand
+    wf = build_workflow(ROOT, m, mode="relight", positive="warm sunset rim light", negative="",
+                        seed=9, source_image="src.png")
+    assert wf["14"]["class_type"] == "LoadImage" and wf["14"]["inputs"]["image"] == "src.png"
+    # ReferenceLatent rides the positive conditioning and references the encoded source latent;
+    # FluxGuidance then reads the reference-augmented conditioning.
+    assert wf["13"]["class_type"] == "ReferenceLatent"
+    assert wf["13"]["inputs"]["conditioning"] == ["4", 0]
+    assert wf["13"]["inputs"]["latent"] == ["15", 0]
+    assert wf["5"]["inputs"]["conditioning"] == ["13", 0]
+    # a full-denoise edit anchored by the reference latent — NOT partial-denoise img2img
+    assert wf["8"]["inputs"]["denoise"] == 1.0
+    assert wf["8"]["inputs"]["latent_image"] == ["15", 0]
+    assert wf["4"]["inputs"]["text"] == "warm sunset rim light"
+
+def test_relight_mode_requires_source():
+    m = load_manifest(FIX)
+    with pytest.raises(ValueError):
+        build_workflow(ROOT, m, mode="relight", positive="x", negative="", seed=1)
+
+def test_relight_forces_flux2_on_zimage_brand(tmp_path):
+    # relight is a FLUX.2-only (ReferenceLatent) capability: a Z-Image brand default must resolve to
+    # the FLUX.2 relight template + model in BOTH the graph and the sidecar resolver (one source).
+    from scripts.brandkit.workflow import resolve_image_model, DEFAULT_RELIGHT_MODEL
+    p = tmp_path / "b.yaml"
+    p.write_text("name: B\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\n")
+    m = load_manifest(p)
+    wf = build_workflow(ROOT, m, mode="relight", positive="x", negative="", seed=1, source_image="s.png")
+    assert wf["1"]["inputs"]["unet_name"] == DEFAULT_RELIGHT_MODEL   # flux2, not the z_image default
+    assert wf["13"]["class_type"] == "ReferenceLatent"              # loaded the flux2 relight template
+    assert resolve_image_model("relight", None, "z_image_turbo_nvfp4.safetensors") == DEFAULT_RELIGHT_MODEL
+
 def test_logo_top_left_and_center_placement(tmp_path):
     p = tmp_path / "b.yaml"
     p.write_text("name: B\nstyle: x\n"

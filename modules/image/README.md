@@ -30,6 +30,8 @@ switching between them is a single flag.
 **Supporting docs**
 - [`models.md`](models.md) — all model files, HF repos, destinations, and license notes.
 - [`brand-kits.md`](brand-kits.md) — internals: how Brand Kits wires the pipeline together.
+- [`recipes.md`](recipes.md) — field-tested, brand-neutral recipes for creator/community assets
+  (platform emotes & stickers, tiered badge sets, animated-logo stingers).
 
 ## Use it — unified CLI
 
@@ -177,6 +179,36 @@ and the "gotchas" section below for details.
 - Guidance is a dedicated **`FluxGuidance`** node (default `3.5`); **`cfg` is `1`**
   in `KSampler` (guidance-distilled — real CFG is off).
 - Sampler/scheduler: **`euler` / `simple`**, ~20 steps.
+
+### Relighting a still while keeping its composition (`--mode relight`)
+
+To change a still's **lighting or look while preserving its exact composition** (relight a product
+shot, swap day→dusk/night), use **`--mode relight`** — FLUX.2's native **`ReferenceLatent` edit**:
+
+```
+python scripts/generate.py image --mode relight \
+  --asset <source.png> \
+  --subject "the same scene relit with warm golden-hour rim light, deep shadows, cinematic" \
+  --comfy-output-dir "<ComfyUI output dir>"
+```
+
+- `--asset` is the source still (a brand `products/`/`references/`/`outputs/images/` file, or — when
+  brandless — a direct path). `--subject` is the relight prompt.
+- **Relight is a FLUX.2 capability.** The mode loads the FLUX.2 relight template and, if your brand
+  default is Z-Image, transparently uses `flux2_dev_fp8mixed.safetensors` (Z-Image has no equivalent
+  edit node). The sidecar records the FLUX.2 model actually used.
+- **Live-validated on ComfyUI 0.26.2** (sunset and moonlight relights both held the source's exact
+  composition while transforming the lighting).
+
+**How it works (and why not img2img):** `LoadImage(source) → VAEEncode → latent`, fed into
+`ReferenceLatent(conditioning, latent)` so it rides the *positive* conditioning, then a full-denoise
+sample with your relight prompt. The reference latent anchors the layout; the prompt changes only the
+lighting/style. A plain img2img (partial-denoise) **drifts the composition** — it reinvents layout as
+it restyles — which ReferenceLatent avoids. (A ControlNet-pack relight route was also tried and
+**broke FLUX.2** on this stack; the native path needs no extra pack.)
+
+Template: [`workflow.flux2-relight.template.json`](workflow.flux2-relight.template.json) (canonical
+copy `workflows/templates/brand-flux2-relight.json`).
 
 ## Performance (RTX 5090 / cu130 / SageAttention)
 

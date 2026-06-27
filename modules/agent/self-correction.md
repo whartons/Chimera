@@ -360,9 +360,12 @@ self-correction, through the existing channel) while the loop never chases back 
 image can't produce. A `<stem>.texture.json` sidecar records the textured status + GLB name.
 
 **v1 honesty:** front-faithful, back palette-filled (or mirrored); the EMIT bake captures the concept's
-lighting (lit-looking albedo, not delit). **Live-validated on Blender 5.1.2 / RTX 5090** (the smoke
-caught and fixed the headless `project_from_view` bug); the full `--texture` loop end-to-end is pending
-a ComfyUI run.
+lighting (lit-looking albedo, not delit). **Full loop live-validated end-to-end on the upgraded stack
+(2026-06-27, ComfyUI 0.26.2 + Qwen3-VL-8B-Instruct judge):** concept → Hunyuan3D mesh → front albedo
+bake → judge → refine ran clean and self-corrected (0.42 → 0.65 over 2 iters), emitting a `textured:true`
+GLB. The result is **front-faithful with a grey/unpainted back by design** (one front image has no back
+data) — for all-around colour use **`--finalize`** (Phase 4b multi-view auto-repaint, below). (Earlier
+Blender-only smoke had already caught + fixed the headless `project_from_view` bug.)
 
 ### Phase 4b — all-around texture: multi-view bake engine + auto-repaint (both shipped)
 

@@ -85,6 +85,28 @@ The filler automatically appends a brand-default negative prompt plus
 **anti-frozen / anti-silence** terms (`static, no motion, muted, silent`) to help
 the sampler avoid degenerate outputs.
 
+### Prompting tip — what i2v motion is realistic (field-tested)
+
+Image-to-video is strongest at **ambient / energy / atmospheric** motion layered over the
+source still, and weak at **inventing articulated or mechanical** motion that isn't already
+implied by the image. From production use (e.g. a logo/crest stinger):
+
+```
+# good: energy motion over a rigid subject — the emblem stays fixed, the ENERGY moves
+"a metal emblem holding still, glowing embers drifting up, light flares pulsing, slow camera push-in"
+
+# unreliable: asking the still to mechanically articulate
+"the robot walks forward and turns its head"   # limbs/gears it can't see won't move convincingly
+```
+
+- **Reliable from one still:** glow/flare pulses, drifting particles/embers/smoke, shimmer,
+  parallax, subtle drift, and camera moves (push-in, orbit, pan).
+- **Unreliable from one still:** walking/articulated limbs, turning gears, parts assembling or
+  transforming, anything requiring geometry the single frame doesn't contain.
+- For genuine mechanical motion, drive it from a **video/animation source** (or a keyframed
+  3D turntable — see [`../threed/`](../threed/) + [`../blender/`](../blender/)) rather than
+  expecting i2v to author it.
+
 ### VRAM
 
 The 22B nvfp4 model requires roughly the full 32 GB card. The CLI defaults

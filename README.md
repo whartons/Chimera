@@ -105,7 +105,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it exactly | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check`; a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **511 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **515 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |

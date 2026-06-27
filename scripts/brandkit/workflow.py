@@ -9,10 +9,15 @@ from .nodes import find_node_by_title, NodeNotFound
 
 _TEMPLATES = {
     "flux2": {"txt2img": "brand-txt2img.json", "logo": "brand-logo-overlay.json",
-              "product": "brand-product-mockup.json"},
+              "product": "brand-product-mockup.json", "relight": "brand-flux2-relight.json"},
     "zimage": {"txt2img": "brand-zimage-txt2img.json", "logo": "brand-zimage-logo-overlay.json",
                "product": "brand-zimage-product.json"},
 }
+# Relight (FLUX.2 ReferenceLatent edit) is a FLUX.2-only capability — Z-Image has no equivalent edit
+# node here. When relight is requested without a FLUX.2 model, fall back to this default so the mode
+# "just works" rather than erroring on a Z-Image brand default. (resolve_image_model enforces this for
+# both the graph and the sidecar; see build_workflow.)
+DEFAULT_RELIGHT_MODEL = "flux2_dev_fp8mixed.safetensors"
 # Z-Image fidelity variants: model + KSampler steps/cfg (validated values).
 _ZIMAGE_VARIANTS = {
     "turbo": {"model": "z_image_turbo_nvfp4.safetensors", "steps": 8, "cfg": 1.0},
@@ -76,7 +81,11 @@ def _zimage_variant(mode, variant, model):
 def resolve_image_model(mode, variant, model):
     """The model file the image graph will actually load — for the sidecar. Z-Image's variant
     determines the file (e.g. product/--variant base -> z_image_bf16, not the brand's turbo
-    default); FLUX.2 (and anything non-z_image) loads the given model name as-is."""
+    default); FLUX.2 (and anything non-z_image) loads the given model name as-is. `relight` is a
+    FLUX.2 (ReferenceLatent) capability, so a non-FLUX.2 model resolves to DEFAULT_RELIGHT_MODEL —
+    keeping the graph and the sidecar in agreement on a single source of truth."""
+    if mode == "relight" and _family(model) != "flux2":
+        return DEFAULT_RELIGHT_MODEL
     if _family(model) == "zimage":
         return _ZIMAGE_VARIANTS[_zimage_variant(mode, variant, model)]["model"]
     return model
@@ -168,18 +177,21 @@ def _place_logo(wf: dict, m: BrandManifest, logo_px=None):
 
 
 def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negative: str,
-                   seed: int, logo_image=None, product_image=None, logo_px=None,
+                   seed: int, logo_image=None, product_image=None, source_image=None, logo_px=None,
                    variant=None, model=None) -> dict:
     model = model or m.defaults.model
-    family = _family(model)
+    # Resolve the model FIRST and derive the family from the resolved name, so a relight on a Z-Image
+    # brand default correctly resolves to FLUX.2 and loads the FLUX.2 relight template (not a missing
+    # zimage/relight one). resolve_image_model is a passthrough for normal FLUX.2/Z-Image runs.
+    resolved = resolve_image_model(mode, variant, model)
+    family = _family(resolved)
     wf = deepcopy(_load_template(Path(repo_root), family, mode))
     if family == "zimage":
         _apply_zimage(wf, m, positive, seed, mode, variant, model)
     else:
-        # FLUX/other: write the resolved model (resolve_image_model is a passthrough here), the
-        # same value _resolve_model_used records — so a --model override reaches the graph AND the
-        # sidecar identically.
-        _apply_common(wf, m, positive, negative, seed, resolve_image_model(mode, variant, model))
+        # FLUX/other: write the resolved model — the same value _resolve_model_used records — so a
+        # --model override (or the relight FLUX.2 fallback) reaches the graph AND the sidecar identically.
+        _apply_common(wf, m, positive, negative, seed, resolved)
     _inject_lora(wf, m)
     if mode == "logo":
         name = logo_image or (m.logo.default or "").split("/")[-1]
@@ -191,6 +203,10 @@ def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negati
         if not product_image:
             raise ValueError("product mode requires product_image")
         _n(wf, "brand:product_load")["inputs"]["image"] = product_image
+    if mode == "relight":
+        if not source_image:
+            raise ValueError("relight mode requires source_image")
+        _n(wf, "brand:relight_load")["inputs"]["image"] = source_image
     return wf
 
 
@@ -207,6 +223,8 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
         kw["logo_px"] = logo_px
     if mode == "product":
         kw["product_image"] = asset
+    if mode == "relight":
+        kw["source_image"] = asset
     wf = build_workflow(repo_root, manifest, mode=mode, positive=positive,
                         negative=negative, seed=seed, **kw)
     if watermark and mode != "logo":  # logo mode already composites a logo

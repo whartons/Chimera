@@ -18,6 +18,7 @@ PAIRS = [
     ("modules/image/workflow.zimage-txt2img.template.json",      "workflows/templates/brand-zimage-txt2img.json"),
     ("modules/image/workflow.zimage-logo-overlay.template.json", "workflows/templates/brand-zimage-logo-overlay.json"),
     ("modules/image/workflow.zimage-product.template.json",      "workflows/templates/brand-zimage-product.json"),
+    ("modules/image/workflow.flux2-relight.template.json",       "workflows/templates/brand-flux2-relight.json"),
     ("modules/video/workflow.template.json",                     "workflows/templates/brand-video-i2v.json"),
     ("modules/audio/workflow.music.template.json",               "workflows/templates/brand-audio-music.json"),
     ("modules/audio/workflow.foley.template.json",               "workflows/templates/brand-audio-foley.json"),
