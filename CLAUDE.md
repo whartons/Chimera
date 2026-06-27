@@ -88,8 +88,9 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   subject + quality bar when brandless) → generate → a VLM judges the output against the rubric →
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
-  GPU); three backends slot in — a headless local **Qwen2.5-VL** judge, a provider-agnostic
-  OpenAI-compatible **LLMJudge** (`--backend api`), and an assistant multi-judge-consensus pass.
+  GPU); three backends slot in — a provider-agnostic OpenAI-compatible **LLMJudge** (`--backend api`,
+  the recommended path: **Qwen3-VL-8B-Instruct** served via Ollama), an optional headless local
+  **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass.
   `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
 - **An MCP bridge**: a pinned, security-audited ComfyUI MCP server exposes pipeline actions
   so an assistant can drive ComfyUI. Build on an **existing** server (e.g. `comfyui-mcp`)

@@ -97,6 +97,26 @@ def test_chat_raises_on_bad_response_shape(monkeypatch):
         c.chat([{"role": "user", "content": "x"}], _opener=_opener({"no_choices": True}))
 
 
+def test_chat_raises_on_empty_content(monkeypatch):
+    # A plain empty/whitespace content is a failure, not a silent "" that flows downstream.
+    _clear_env(monkeypatch)
+    c = LLMClient(base_url="http://x/v1", model="m")
+    with pytest.raises(LLMError, match="empty content"):
+        c.chat([{"role": "user", "content": "x"}], _opener=_opener(_msg("   ")))
+
+
+def test_chat_empty_content_from_thinking_model_explains_cause(monkeypatch):
+    # The real-world trap: a 'thinking' VLM (e.g. Ollama qwen3-vl:8b, not -instruct) spends the whole
+    # max_tokens budget on its `reasoning` field and returns empty content (finish_reason='length').
+    # The error must name the cause + the -instruct fix, not just "empty".
+    _clear_env(monkeypatch)
+    c = LLMClient(base_url="http://x/v1", model="m")
+    thinking = {"choices": [{"finish_reason": "length",
+                             "message": {"content": "", "reasoning": "let me think... " * 50}}]}
+    with pytest.raises(LLMError, match="thinking.*instruct"):
+        c.chat([{"role": "user", "content": "x"}], _opener=_opener(thinking))
+
+
 class _FakeClient:
     def __init__(self, replies):
         self.replies = list(replies); self.calls = 0; self.seen = []

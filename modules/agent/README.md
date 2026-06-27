@@ -10,8 +10,9 @@ custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
   build/queue, poll, fetch.
 - **The self-correction loop** — the **orchestration** layer on top: a
   `generate → judge → refine` loop that iterates to a candidate passing a brand/brief
-  rubric, with an assistant multi-judge-consensus backend and a headless local-VLM
-  backend sharing one model-free core (`scripts/agent/`). See
+  rubric, with an assistant multi-judge-consensus backend and a headless VLM backend
+  (Qwen3-VL-8B-Instruct — recommended via Ollama `--backend api`, with an optional
+  ComfyUI judge node) sharing one model-free core (`scripts/agent/`). See
   [`self-correction.md`](self-correction.md) (and the assistant recipe in
   [`../../workflows/agent/README.md`](../../workflows/agent/README.md)).
 

@@ -105,9 +105,10 @@ return best.img                          # cap reached: best-scoring candidate
 `assistant_vision_judge` is the assistant looking at the image and producing a
 free-text verdict that `parse_verdict()` normalizes — there is **no API key and no
 local VLM** in this backend; the "judge" is the Claude Code runtime itself. Swapping
-that single call for a `LocalVLMJudge` over a Qwen2.5-VL graph is exactly the local
-standalone backend — and that backend is **built and live-validated**
-(`python scripts/agent/auto_generate.py --backend local …`), with the same rubric,
+that single call for a Qwen3-VL judge — the recommended Ollama path (`--backend api`)
+or a `LocalVLMJudge` over the optional ComfyUI Qwen3-VL graph (`--backend local`) — is
+exactly the local standalone backend, which is **built and live-validated**
+(`python scripts/agent/auto_generate.py --backend api …`), with the same rubric,
 expander, and loop shape.
 
 `auto_generate.py` also exposes `--backend assistant`, but as an **explicitly gated** opt-in:

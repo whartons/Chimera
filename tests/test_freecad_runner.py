@@ -21,14 +21,14 @@ def test_run_template_argv_and_paramsfile_and_manifest(tmp_path):
     def runner(argv, **kw):
         seen["argv"] = argv
         seen["kw"] = kw
-        # params are passed via a temp JSON file = the last argv; it must round-trip the dict
-        seen["params"] = json.loads(Path(argv[-1]).read_text())
+        # params are passed via the $CHIMERA_CAD_PARAMS env var (a temp JSON file), NOT a CLI arg
+        seen["params"] = json.loads(Path(kw["env"]["CHIMERA_CAD_PARAMS"]).read_text())
         return _fake_proc(stdout='noise\n@@CHIMERA_MANIFEST@@ {"outputs": ["b.step"], "freecad_version": "1.1.1"}\nbye')
     out = F.run_template(tmpl, {"shape": "box"}, freecad_bin="fc", timeout=42, _runner=runner)
     assert out == {"outputs": ["b.step"], "freecad_version": "1.1.1"}
     a = seen["argv"]
-    assert a[0] == "fc" and a[1] == str(tmpl)
-    assert a[-1].endswith(".json")
+    assert a == ["fc", str(tmpl)]                       # no params file in argv (FreeCAD 1.1.x would open it)
+    assert seen["kw"]["env"]["CHIMERA_CAD_PARAMS"].endswith(".json")
     assert seen["params"] == {"shape": "box"}
     assert seen["kw"]["timeout"] == 42
 
@@ -37,7 +37,7 @@ def test_run_template_cleans_up_params_file(tmp_path):
     tmpl = tmp_path / "t.py"; tmpl.write_text("x")
     captured = {}
     def runner(argv, **kw):
-        captured["pf"] = argv[-1]
+        captured["pf"] = kw["env"]["CHIMERA_CAD_PARAMS"]
         return _fake_proc(stdout='@@CHIMERA_MANIFEST@@ {"outputs": []}')
     F.run_template(tmpl, {"a": 1}, freecad_bin="fc", _runner=runner)
     assert not Path(captured["pf"]).exists()   # temp params file removed in finally
@@ -47,7 +47,7 @@ def test_run_template_cleans_up_params_file_on_error(tmp_path):
     tmpl = tmp_path / "t.py"; tmpl.write_text("x")
     captured = {}
     def runner(argv, **kw):
-        captured["pf"] = argv[-1]
+        captured["pf"] = kw["env"]["CHIMERA_CAD_PARAMS"]
         return _fake_proc(returncode=1, stderr="boom")
     with pytest.raises(F.FreeCADJobError):
         F.run_template(tmpl, {"a": 1}, freecad_bin="fc", _runner=runner)

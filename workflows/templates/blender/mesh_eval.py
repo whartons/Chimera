@@ -14,6 +14,14 @@ scn.cycles.seed = int(p.get("seed", 0))
 scn.render.resolution_x, scn.render.resolution_y = int(p["res"][0]), int(p["res"][1])
 
 obj = C.import_mesh(p["mesh"])
+# CAD STLs (and any material-less import) carry no material -> Cycles renders them flat/near-black; give a
+# neutral clay so the judge sees clean geometry. Hunyuan GLBs keep their own (vertex-colour) material.
+if not obj.data.materials:
+    _cm = bpy.data.materials.new("Clay"); _cm.use_nodes = True
+    _cb = _cm.node_tree.nodes["Principled BSDF"]
+    _cb.inputs["Base Color"].default_value = (0.72, 0.72, 0.74, 1)
+    _cb.inputs["Roughness"].default_value = 0.6
+    obj.data.materials.append(_cm)
 # centre the origin on the geometry bounds so Z-rotation orbits in place (stays framed/on floor)
 bpy.ops.object.select_all(action='DESELECT')
 obj.select_set(True)

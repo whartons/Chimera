@@ -95,9 +95,10 @@ _TEMPLATE = "agent-vlm-judge.json"
 
 
 class LocalVLMJudge(Judge):
-    """Judge an image with Qwen2.5-VL run as a ComfyUI graph (1038lab/ComfyUI-QwenVL).
-    Fills agent-vlm-judge.json (uploaded image + rubric.as_prompt()), queues it, reads the
-    verdict text the graph wrote via SaveImageTextDataSetToFolder, and parses it."""
+    """Judge an image with Qwen3-VL run as a ComfyUI graph (1038lab/ComfyUI-QwenVL) — the OPTIONAL
+    judge path; the default/recommended judge is the Ollama LLMJudge (see scripts/agent/llm.py +
+    auto_generate.py --backend api). Fills agent-vlm-judge.json (uploaded image + rubric.as_prompt()),
+    queues it, reads the verdict text the graph wrote via SaveImageTextDataSetToFolder, and parses it."""
 
     def __init__(self, client, repo_root, comfy_output_dir, *, timeout=600,
                  _read_retries=5, _read_delay=0.4):

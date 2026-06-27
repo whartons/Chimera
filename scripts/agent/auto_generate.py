@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Headless self-correction loop (local backend): generate -> VLM-judge -> refine, until PASS.
 
-Wires the model-free agent core (expander + run_loop) to a real generator and a local Qwen2.5-VL
-judge (LocalVLMJudge over the agent-vlm-judge.json graph). Each iteration the expander folds the
-previous verdict's unmet-criterion issues back into the prompt, so candidates converge on the rubric.
+Wires the model-free agent core (expander + run_loop) to a real generator and a Qwen3-VL judge — a
+ComfyUI Qwen3-VL node (`--backend local`, default) or the OpenAI-compatible LLMJudge (`--backend api`,
+recommended: Qwen3-VL-8B via Ollama). Each iteration the expander folds the previous verdict's
+unmet-criterion issues back into the prompt, so candidates converge on the rubric.
 
 Two pipelines (--pipeline):
   * image (default) — ComfyUI txt2img; the rubric scores the 2D render.
@@ -25,10 +26,12 @@ subject + quality (image) or subject + form (mesh3d), and the winner routes into
 A third pipeline, `cad`, is fully autonomous generative CAD: a provider-agnostic LLM writes/revises a
 FreeCAD script -> `cad --mode script` -> Blender contact-sheet render -> form judge -> revise.
 
-Judge backends (--backend): `local` (Qwen2.5-VL, default) or `api` (a provider-agnostic, OpenAI-compatible
-LLM judge — point --llm-base-url/--llm-model at OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or
-a local Ollama/vLLM server; see scripts/agent/llm.py). --comfy-output-dir routes ComfyUI renders and is
-where the Qwen judge drops verdicts; it's required except for `--pipeline cad --backend api` (no ComfyUI).
+Judge backends (--backend): `local` (a ComfyUI Qwen3-VL judge node, default) or `api` (RECOMMENDED — a
+provider-agnostic, OpenAI-compatible LLM judge; point --judge-base-url/--judge-model at local Ollama
+qwen3-vl:8b-instruct, OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible
+server — use a NON-thinking '-instruct' VLM judge (a thinking model returns empty content); see
+.env.example / scripts/agent/llm.py). --comfy-output-dir routes ComfyUI renders and is where the local
+judge drops verdicts; required except for `--pipeline cad --backend api` (no ComfyUI).
 """
 import argparse, datetime, sys
 from pathlib import Path
@@ -55,13 +58,14 @@ def _parse_seeds(raw):
 
 def _backend_error(backend):
     """Return an error message if `backend` can't run from this headless entrypoint, else None.
-    'local' (Qwen2.5-VL judge) is the autonomous path. 'assistant' (multi-judge vision consensus)
-    needs the agent's own eyes in the loop, which a bare subprocess doesn't have — so it's offered
-    but gated: choose it and the CLI refuses, pointing at the local backend / the assistant recipe."""
+    'local' (ComfyUI Qwen3-VL judge) and 'api' (an OpenAI-compatible LLM judge, e.g. Ollama Qwen3-VL) are
+    the autonomous paths. 'assistant' (multi-judge vision consensus) needs the agent's own eyes in the
+    loop, which a bare subprocess doesn't have — so it's offered but gated: choose it and the CLI refuses,
+    pointing at the local/api backends / the assistant recipe."""
     if backend == "assistant":
         return ("the 'assistant' consensus backend judges with the agent's own vision and only runs "
-                "with the agent in the loop (see workflows/agent/README.md). For an unattended run "
-                "use --backend local (the Qwen2.5-VL judge).")
+                "with the agent in the loop (see workflows/agent/README.md). For an unattended run use "
+                "--backend local (the ComfyUI Qwen3-VL judge) or --backend api (e.g. Ollama Qwen3-VL).")
     return None
 
 
@@ -135,8 +139,9 @@ def main():
     ap.add_argument("--max-iters", dest="max_iters", type=int, default=None)
     ap.add_argument("--seeds", default=None, help="comma-separated seeds, one per iteration")
     ap.add_argument("--backend", choices=["local", "api", "assistant"], default="local",
-                    help="local = autonomous Qwen2.5-VL judge (default); api = provider-agnostic LLM judge "
-                         "(OpenAI-compatible, env-configured — see --llm-base-url/--llm-model); "
+                    help="local = ComfyUI Qwen3-VL judge node (default); api = OpenAI-compatible LLM judge "
+                         "(RECOMMENDED — point --llm-base-url/--llm-model or CHIMERA_* at local Ollama "
+                         "qwen3-vl:8b-instruct [non-thinking] or any cloud; see .env.example / scripts/agent/llm.py); "
                          "assistant = agent-driven vision consensus (requires the agent in the loop)")
     ap.add_argument("--pipeline", choices=["image", "mesh3d", "cad"], default="image",
                     help="image = txt2img self-correction (default); mesh3d = concept -> Hunyuan3D "

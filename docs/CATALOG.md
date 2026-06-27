@@ -290,27 +290,30 @@ catches up.
 - **API node:** Gemini (e.g. 3.1 Flash-Lite) is supported by the built-in LLM node.
 - **Quantized loading:** `ComfyUI-GGUF` to fit large models in VRAM.
 
-**Agent / VLM judge (self-correction loop): Qwen2.5-VL-7B-Instruct**
+**Agent / VLM judge (self-correction loop): Qwen3-VL-8B-Instruct (via Ollama; cloud OpenAI-compatible also works)**
 
-The vision judge for the **local standalone** self-correction backend (generate →
-judge → refine). Run as a ComfyUI graph via the
-[`1038lab/ComfyUI-QwenVL`](https://github.com/1038lab/ComfyUI-QwenVL) node pack —
-security-scanned, **pinned at commit `fcd1ada`** (SAFE-WITH-PRECAUTIONS; re-scan before
-advancing the pin). Weights from the **official Qwen repo only**. See
+The vision judge for the self-correction backend (generate → judge → refine). **Default:** served by
+**Ollama** over its OpenAI-compatible `/v1` endpoint (the `LLMJudge`, `--backend api`) —
+`ollama pull qwen3-vl:8b-instruct` (the **non-thinking** Instruct tag — a *thinking* tag like
+`qwen3-vl:8b` spends its token budget on reasoning and returns empty content, silently scoring every
+render 0.0; the loop now also errors loudly on empty judge output), no API key, zero Blackwell/torch coupling (Ollama runs its own bundled
+runtime). The **same** `--backend api` path also targets any cloud OpenAI-compatible provider
+(OpenAI/Anthropic/Gemini/OpenRouter), so a GPU-poor reuser can judge on the cloud. See
 [`../modules/agent/self-correction.md`](../modules/agent/self-correction.md).
 
-The judge graph also writes the verdict text to disk with the **core** ComfyUI node
-`SaveImageTextDataSetToFolder` (`comfy_extras.nodes_dataset`, `experimental`) — this is
-**core, not an extra pack** (unlike the third-party QwenVL pack above), so it needs
-**ComfyUI ≥ 0.24.x** rather than an install. The QwenVL pack remains the only
-third-party dependency for this backend.
+**Optional ComfyUI path:** the judge can instead run as a ComfyUI graph via the
+[`1038lab/ComfyUI-QwenVL`](https://github.com/1038lab/ComfyUI-QwenVL) node pack (re-pin to a
+Qwen3-VL-capable commit ≥ v1.0.4 + re-scan before use; no longer a default/auto-checked pin). That graph
+writes the verdict text with the **core** ComfyUI node `SaveImageTextDataSetToFolder`
+(`comfy_extras.nodes_dataset`, `experimental`) — core, not an extra pack — needing **ComfyUI ≥ 0.24.x**.
 
 | File / repo | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
-| Qwen2.5-VL-7B-Instruct | `Qwen/Qwen2.5-VL-7B-Instruct` | `LLM/Qwen-VL/` | ~15 GB (FP16) | ✅ Apache-2.0 (verify) |
+| Qwen3-VL-8B-Instruct | `Qwen/Qwen3-VL-8B-Instruct` (or `ollama pull qwen3-vl:8b-instruct`) | `LLM/Qwen-VL/` (ComfyUI path) | ~6–9 GB (Q4/q8) | ✅ Apache-2.0 |
 
-- FP16 ≈ **15 GB VRAM** — fits a 32 GB card alongside an image model. A smaller VL
-  variant is the natural fallback on lighter cards (judging quality drops accordingly).
+- 8B ≈ **6–9 GB VRAM** (Ollama Q4/q8) — co-resides with an image model on a 32 GB card. Size ladder
+  (pure config swap via `CHIMERA_JUDGE_MODEL` + `ollama pull`): **8B** (default) · **30B-A3B** MoE
+  (≈32B capability at ≈3B speed) · **32B** (sharpest, slower, VRAM-tight) · **2B/4B** for small cards.
 - The **assistant Workflow** backend needs no model — it judges with the assistant's
   own vision (multi-judge consensus); this VLM is only for the unattended local path.
 

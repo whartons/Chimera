@@ -10,7 +10,9 @@ Config (env, with CLI overrides; no hardcoded vendor default):
                         https://api.openai.com/v1 | https://api.anthropic.com/v1 |
                         https://openrouter.ai/api/v1 | http://localhost:11434/v1 (Ollama)
   CHIMERA_LLM_API_KEY   (falls back to OPENAI_API_KEY / ANTHROPIC_API_KEY; omit for keyless local)
-  CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen2.5-coder | llava | ...
+  CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen3.6-27b | qwen3-vl:8b-instruct | ...
+                        (use a NON-thinking '-instruct' VLM as the judge: a thinking model spends the
+                        token budget on reasoning and returns empty content — see chat() empty guard)
 """
 from __future__ import annotations
 import os, json, base64, urllib.request, urllib.error
@@ -65,9 +67,25 @@ class LLMClient:
         except Exception as e:   # noqa: BLE001 - any other transport/parse failure surfaces as LLMError
             raise LLMError(f"LLM request to {self.base_url} failed: {e}") from e
         try:
-            return resp["choices"][0]["message"]["content"]
+            ch = resp["choices"][0]
+            msg = ch["message"]
+            content = msg.get("content")
         except (KeyError, IndexError, TypeError) as e:
             raise LLMError(f"unexpected LLM response shape: {str(resp)[:300]}") from e
+        if not (content and content.strip()):
+            # A "thinking" model (e.g. the Ollama qwen3-vl:8b tag, vs qwen3-vl:8b-instruct) can spend
+            # the WHOLE max_tokens budget on its separate `reasoning` field and return empty `content`
+            # (finish_reason='length'). Surface that loudly: an empty string flowing downstream is a
+            # silent failure — the judge would score a perfect render 0.0 with no clue why.
+            rlen = len(msg.get("reasoning") or msg.get("reasoning_content") or "")
+            fr = ch.get("finish_reason")
+            hint = ""
+            if rlen or fr == "length":
+                hint = (f" — got {rlen} reasoning tokens but empty content (finish_reason={fr}): this is a "
+                        "'thinking' model exhausting max_tokens. Use a non-thinking '-instruct' model "
+                        "(e.g. qwen3-vl:8b-instruct) or raise max_tokens.")
+            raise LLMError(f"LLM at {self.base_url} returned empty content{hint}")
+        return content
 
     @staticmethod
     def _image_part(image_path):

@@ -1,8 +1,8 @@
 """Shared FreeCAD helpers for Chimera's headless `cad` templates. Each template does:
     import _common as C; p = C.args(); ...; C.emit({"outputs": [...]})
-Run only inside `FreeCADCmd <template.py> <params.json>` (FreeCAD's bundled Python 3.11).
-FreeCADCmd exposes script args as sys.argv=[exe, script, params_json_path] — no `--` separator,
-so the params file path is the LAST argv entry."""
+Run inside `FreeCADCmd <template.py>` (FreeCAD's bundled Python 3.11); the host runner passes the
+params-file path via the $CHIMERA_CAD_PARAMS env var (NOT a CLI arg — FreeCAD 1.1.x would try to OPEN
+a trailing file as a document). C.args() reads that env var, falling back to the last sys.argv entry."""
 import sys, os, json
 import FreeCAD as App
 import Part
@@ -10,8 +10,11 @@ import Mesh
 
 
 def args() -> dict:
-    """Parse the JSON params file whose path is the last sys.argv entry."""
-    with open(sys.argv[-1], encoding="utf-8") as fh:
+    """Parse the JSON params file. Path from $CHIMERA_CAD_PARAMS (the host runner sets it — passing it as
+    a CLI arg makes FreeCAD 1.1.x try to OPEN it as a document); falls back to the last sys.argv entry
+    for a manual `FreeCADCmd <template> <params.json>` invocation."""
+    path = os.environ.get("CHIMERA_CAD_PARAMS") or sys.argv[-1]
+    with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
 

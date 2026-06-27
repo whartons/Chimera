@@ -3,16 +3,33 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+# The 3D/CAD judge is shown a multi-view CONTACT SHEET (render_generate montages 4 orbit stills into
+# a 2x2 grid). A VLM that isn't told the layout reads the N panels as N separate objects and fails
+# 'a single ...' on every criterion (verified: qwen3-vl scored a perfect cylinder 0.0 "four cylinders,
+# not one"; the same image with this preamble scored 1.0). Count-agnostic so it survives a view-count
+# change. Prepended to the 3D rubric prompt only — the 2D image path judges a single image.
+CONTACT_SHEET_PREAMBLE = (
+    "IMPORTANT: The image is a CONTACT SHEET — ONE single 3D model shown from multiple orbit "
+    "(turntable) camera angles arranged in a grid. Every panel depicts the SAME one model from a "
+    "different viewpoint; the panels are NOT multiple or separate objects. Count and judge only the "
+    "single model shown."
+)
+
+
 @dataclass
 class Rubric:
     """A scorable checklist a VLM judge marks met/not-met, then scores 0-1."""
     subject: str
     criteria: list = field(default_factory=list)
     noun: str = "image"  # what the judge is looking at: "image" or "3D render"
+    preamble: str = ""    # optional context prepended before the checklist (e.g. contact-sheet layout)
 
     def as_prompt(self) -> str:
         """Render a numbered checklist instructing the judge how to respond."""
-        lines = [
+        lines = []
+        if self.preamble:
+            lines.append(self.preamble + "\n")
+        lines += [
             f"Evaluate the {self.noun} against this rubric for: {self.subject}.",
             "For each numbered criterion, state MET or NOT-MET with a one-line reason. For any "
             "NOT-MET criterion, append on the SAME line a concrete fix in this exact format: "
@@ -65,7 +82,9 @@ def build_rubric(manifest, subject: str, *, modality: str = "image", textured: b
             criteria.append(f"The form's style matches: {manifest.style}.")
         if manifest.negative:
             criteria.append(f"The {noun} avoids these traits: {manifest.negative}.")
-        return Rubric(subject=subject, criteria=criteria, noun=noun)
+        # the 3D path judges a multi-view contact sheet — tell the judge so it doesn't read the
+        # N orbit panels as N separate objects (see CONTACT_SHEET_PREAMBLE).
+        return Rubric(subject=subject, criteria=criteria, noun=noun, preamble=CONTACT_SHEET_PREAMBLE)
 
     criteria = [f"The image clearly depicts: {subject}."]
     if manifest.style:
