@@ -9,7 +9,8 @@ All notable changes to Chimera are documented here. The format follows
 ### Changed
 - **Agent layer upgraded to Qwen3 (Ollama-unified).** The self-correction judge is now
   **Qwen3-VL-8B-Instruct** served by **Ollama** over the OpenAI-compatible `--backend api` path
-  (recommended; `qwen3-vl:8b`, swappable to `:32b` / `:30b-a3b` by env/flag — `CHIMERA_JUDGE_MODEL`);
+  (recommended; `qwen3-vl:8b-instruct` — the **non-thinking** Instruct tag, swappable to
+  `:32b-instruct` by env/flag — `CHIMERA_JUDGE_MODEL`);
   the CAD codegen + prompt-rewriter text roles target **Qwen3.6-27B** on the same endpoint. The
   `1038lab/ComfyUI-QwenVL` node is demoted to an **optional** judge path (re-pointed to Qwen3-VL) and
   dropped from the auto-checked pin table. Cloud (OpenAI/Anthropic/Gemini/OpenRouter) stays a drop-in
@@ -21,14 +22,30 @@ All notable changes to Chimera are documented here. The format follows
   `scripts/update_report.py` `COMFY_REF`.
 
 ### Fixed
+- **CAD self-correction loop now passes end-to-end** (`auto_generate.py --pipeline cad --backend api`).
+  Three independent bugs each blocked the loop on the upgraded stack; live-validated PASS (score **1.0**,
+  iter 0) on “a single solid cylinder 40mm diameter and 60mm tall” after all three:
+  1. **Render was near-black.** The Blender studio rig (`workflows/templates/blender/_common.py`) had a
+     fixed light/floor scale tuned for ~2-unit Hunyuan meshes; CAD STLs import at mm magnitude (40–60
+     Blender units), so inverse-square falloff left the render almost black and the judge correctly scored
+     it 0.0. `studio()`/`floor()`/`frame_object` now scale the rig to the object's radius, and `mesh_eval`
+     gives material-less imports a neutral clay so Cycles doesn't render them flat.
+  2. **Judge miscounted the contact sheet.** The 3D/CAD judge sees a 2×2 montage of 4 orbit (turntable)
+     views; nothing told the VLM that, so it read “four cylinders” and failed *“a single …”* on every
+     criterion. A count-agnostic `CONTACT_SHEET_PREAMBLE` is now prepended to the 3D rubric (2D image path
+     unchanged).
+  3. **Judge model was a *thinking* tag.** `qwen3-vl:8b` (thinking) spends the whole `max_tokens` budget on
+     its `reasoning` field and returns **empty content** → the judge silently scored every render 0.0. The
+     default judge tag is now the documented **non-thinking** `qwen3-vl:8b-instruct`, and `LLMClient.chat`
+     now raises a clear error on empty content (names the thinking-model cause + the `-instruct` fix)
+     instead of failing silently.
 - **FreeCAD 1.1.x cad-job compatibility.** The headless `cad` runner passed the params file as a trailing
   CLI argument; FreeCAD 1.1.x now opens any trailing file as a *document* (a `.json` routes to the FEM
   YAML/JSON mesh importer and throws `AttributeError`), polluting stderr + the CAD loop's revise feedback.
   The runner now hands the params path via the **`$CHIMERA_CAD_PARAMS` env var** (templates read it; sys.argv
   fallback retained). Verified on FreeCAD 1.1.1: `script_exec.py` exports + emits its manifest, no import
-  crash. (Full live test on the upgraded stack: ComfyUI 0.26.2 image loop PASS with the Ollama Qwen3-VL
-  judge; the CAD loop runs end-to-end — autonomous FreeCAD codegen wants a code-specialized model, e.g.
-  `qwen/qwen3-coder`, not a general/thinking model.)
+  crash. (Full live test on the upgraded stack: ComfyUI 0.26.2 image loop PASS + CAD loop PASS, both with
+  the Ollama Qwen3-VL-8B-Instruct judge.)
 
 ## [0.2.2] - 2026-06-25
 

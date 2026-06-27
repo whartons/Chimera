@@ -294,7 +294,9 @@ catches up.
 
 The vision judge for the self-correction backend (generate → judge → refine). **Default:** served by
 **Ollama** over its OpenAI-compatible `/v1` endpoint (the `LLMJudge`, `--backend api`) —
-`ollama pull qwen3-vl:8b`, no API key, zero Blackwell/torch coupling (Ollama runs its own bundled
+`ollama pull qwen3-vl:8b-instruct` (the **non-thinking** Instruct tag — a *thinking* tag like
+`qwen3-vl:8b` spends its token budget on reasoning and returns empty content, silently scoring every
+render 0.0; the loop now also errors loudly on empty judge output), no API key, zero Blackwell/torch coupling (Ollama runs its own bundled
 runtime). The **same** `--backend api` path also targets any cloud OpenAI-compatible provider
 (OpenAI/Anthropic/Gemini/OpenRouter), so a GPU-poor reuser can judge on the cloud. See
 [`../modules/agent/self-correction.md`](../modules/agent/self-correction.md).
@@ -307,7 +309,7 @@ writes the verdict text with the **core** ComfyUI node `SaveImageTextDataSetToFo
 
 | File / repo | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
-| Qwen3-VL-8B-Instruct | `Qwen/Qwen3-VL-8B-Instruct` (or `ollama pull qwen3-vl:8b`) | `LLM/Qwen-VL/` (ComfyUI path) | ~6–9 GB (Q4/q8) | ✅ Apache-2.0 |
+| Qwen3-VL-8B-Instruct | `Qwen/Qwen3-VL-8B-Instruct` (or `ollama pull qwen3-vl:8b-instruct`) | `LLM/Qwen-VL/` (ComfyUI path) | ~6–9 GB (Q4/q8) | ✅ Apache-2.0 |
 
 - 8B ≈ **6–9 GB VRAM** (Ollama Q4/q8) — co-resides with an image model on a 32 GB card. Size ladder
   (pure config swap via `CHIMERA_JUDGE_MODEL` + `ollama pull`): **8B** (default) · **30B-A3B** MoE

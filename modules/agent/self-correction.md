@@ -83,7 +83,8 @@ judge node in place of the assistant's vision — see `scripts/agent/auto_genera
 judge is **Qwen3-VL-8B-Instruct** run **as a ComfyUI graph** (the same queue/`ComfyClient`
 path every Chimera modality uses): `LoadImage → Qwen3-VL(prompt = rubric.as_prompt())
 → text`, then `parse_verdict()` turns that text into a `Verdict`. The **recommended**
-alternative is `--backend api` pointed at **Qwen3-VL-8B-Instruct on Ollama** (`qwen3-vl:8b`),
+alternative is `--backend api` pointed at **Qwen3-VL-8B-Instruct on Ollama** (`qwen3-vl:8b-instruct`
+— the **non-thinking** tag; a *thinking* tag returns empty content and silently fails the judge),
 which needs no ComfyUI node pack. The expander is the same deterministic `TemplatedExpander`,
 so a local run is brand-aware without any assistant or API key.
 
@@ -246,8 +247,8 @@ requires **ComfyUI ≥ 0.24.x**. This ComfyUI-QwenVL judge is now **optional** �
 recommended path is **Qwen3-VL on Ollama** (`--backend api`), which needs no node pack at all.
 
 - **Model:** `Qwen/Qwen3-VL-8B-Instruct` (Apache-2.0) — **~6–9 GB VRAM** (8B, Ollama Q4/q8).
-  Size ladder: **8B default · 32B sharpest · 30B-A3B MoE balance · 2B/4B small cards**. Served
-  via Ollama as `qwen3-vl:8b`; for the optional ComfyUI node path, place weights in
+  Size ladder: **8B default · 32B sharpest · 30B-A3B MoE balance · 2B/4B small cards** (always the
+  `-instruct`, non-thinking variant). Served via Ollama as `qwen3-vl:8b-instruct`; for the optional ComfyUI node path, place weights in
   `models/LLM/Qwen-VL/` (catalogued in [`../../docs/CATALOG.md`](../../docs/CATALOG.md)).
 - **Node pack (optional):** [`1038lab/ComfyUI-QwenVL`](https://github.com/1038lab/ComfyUI-QwenVL)
   is **no longer the default/auto-checked pin** — it's an optional alternative to the Ollama judge.
@@ -455,7 +456,7 @@ above (precedence: role-CLI > role-env > shared-CLI > shared-env, resolved by `c
 `--rewrite-prompts` swaps the templated expander for `LLMExpander`, which rewrites prompts from the judge's
 FIX feedback and falls back to the template on any LLM error). This lets a strong code model do codegen
 while a separate vision model judges — e.g. `--codegen-model qwen/qwen3-coder` +
-`--judge-base-url http://localhost:11434/v1 --judge-model qwen3-vl:8b`. **An AI agent driving
+`--judge-base-url http://localhost:11434/v1 --judge-model qwen3-vl:8b-instruct`. **An AI agent driving
 interactively supersedes all of this** — when Claude Code (or any IDE agent) is in the loop it *is* the
 codegen/judge/rewriter, and none of these endpoint settings or keys are read (Tier 0). These settings only
 affect unattended `auto_generate.py` runs.

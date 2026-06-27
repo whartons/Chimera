@@ -28,7 +28,8 @@ FreeCAD script -> `cad --mode script` -> Blender contact-sheet render -> form ju
 
 Judge backends (--backend): `local` (a ComfyUI Qwen3-VL judge node, default) or `api` (RECOMMENDED — a
 provider-agnostic, OpenAI-compatible LLM judge; point --judge-base-url/--judge-model at local Ollama
-qwen3-vl:8b, OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible server; see
+qwen3-vl:8b-instruct, OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible
+server — use a NON-thinking '-instruct' VLM judge (a thinking model returns empty content); see
 .env.example / scripts/agent/llm.py). --comfy-output-dir routes ComfyUI renders and is where the local
 judge drops verdicts; required except for `--pipeline cad --backend api` (no ComfyUI).
 """
@@ -140,7 +141,7 @@ def main():
     ap.add_argument("--backend", choices=["local", "api", "assistant"], default="local",
                     help="local = ComfyUI Qwen3-VL judge node (default); api = OpenAI-compatible LLM judge "
                          "(RECOMMENDED — point --llm-base-url/--llm-model or CHIMERA_* at local Ollama "
-                         "qwen3-vl:8b or any cloud; see .env.example / scripts/agent/llm.py); "
+                         "qwen3-vl:8b-instruct [non-thinking] or any cloud; see .env.example / scripts/agent/llm.py); "
                          "assistant = agent-driven vision consensus (requires the agent in the loop)")
     ap.add_argument("--pipeline", choices=["image", "mesh3d", "cad"], default="image",
                     help="image = txt2img self-correction (default); mesh3d = concept -> Hunyuan3D "
