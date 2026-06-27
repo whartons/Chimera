@@ -20,6 +20,16 @@ All notable changes to Chimera are documented here. The format follows
   Ollama Qwen3-VL judge), torch 2.10+cu130 intact. `≥0.24.x` floor unchanged. Synced `docs/STACK.md` +
   `scripts/update_report.py` `COMFY_REF`.
 
+### Fixed
+- **FreeCAD 1.1.x cad-job compatibility.** The headless `cad` runner passed the params file as a trailing
+  CLI argument; FreeCAD 1.1.x now opens any trailing file as a *document* (a `.json` routes to the FEM
+  YAML/JSON mesh importer and throws `AttributeError`), polluting stderr + the CAD loop's revise feedback.
+  The runner now hands the params path via the **`$CHIMERA_CAD_PARAMS` env var** (templates read it; sys.argv
+  fallback retained). Verified on FreeCAD 1.1.1: `script_exec.py` exports + emits its manifest, no import
+  crash. (Full live test on the upgraded stack: ComfyUI 0.26.2 image loop PASS with the Ollama Qwen3-VL
+  judge; the CAD loop runs end-to-end — autonomous FreeCAD codegen wants a code-specialized model, e.g.
+  `qwen/qwen3-coder`, not a general/thinking model.)
+
 ## [0.2.2] - 2026-06-25
 
 ### Changed
