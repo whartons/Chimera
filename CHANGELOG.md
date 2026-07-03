@@ -17,19 +17,20 @@ All notable changes to Chimera are documented here. The format follows
   unchanged), no dependency/build changes. Pin advanced in `.mcp.json`, `docs/STACK.md`,
   `docs/CATALOG.md`, `docs/SETUP.md`, `modules/cad/README.md`, `modules/cad/requirements.md`,
   `scripts/update_report.py`, and `tests/test_update_report.py`.
-- **`comfyui-mcp` `0.18.0 → 0.20.9`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
-  resolves the security HOLD in issue #38). None of 0.20.9's new surfaces — the OpenAI-codex /
-  Claude-Agent-SDK **panel orchestrator**, HTTP transport, panel auto-install — are used by Chimera:
-  all opt-in and omitted via `NPM_CONFIG_OMIT=optional`. Pin advanced in `.mcp.json`,
-  `docs/STACK.md`, `modules/agent/README.md`, and `scripts/update_report.py`.
-
-### Security
-- **Disabled `comfyui-mcp` 0.20.9's startup self-update.** 0.20.9 ships a self-update that probes
-  `registry.npmjs.org` on every launch and, on global/local installs, auto-runs
-  `npm i comfyui-mcp@latest` — pulling *un-audited* future releases and defeating the pin-and-audit
-  model. [`.mcp.json`](.mcp.json) now sets **`COMFYUI_MCP_AUTOUPDATE=0`**, which short-circuits the
-  check before the registry probe fires (our `npx` launch makes it notify-only regardless).
+### Fixed
+- **ComfyUI MCP connection — `MCP error -32000: Connection closed`.** Removed
+  **`NPM_CONFIG_OMIT=optional`** from the `comfyui` entry in [`.mcp.json`](.mcp.json): on node ≥ 24 it
+  stripped `sharp`'s required native binary (`@img/sharp-*`, shipped as an optionalDependency), so the
+  server crashed on startup (*"Could not load the sharp module"*). npm cannot omit optional deps by
+  name, so the optional cloud/tunnel/agent packages now install but stay **inert** behind env-gating
+  (per-tool approval gates + loopback binding remain the real controls). If the stale error persists,
+  clear the package's npx cache dir under `~/.npm/_npx` once so it reinstalls with optional deps.
   Documented in [`modules/agent/README.md`](modules/agent/README.md) and [`docs/STACK.md`](docs/STACK.md).
+- **`comfyui-mcp` held on `0.18.0`; the `0.20.9` bump was reverted (resolves #38).** `0.20.9` fails to
+  start — its compiled client imports `@stable-canvas/comfyui-client/dist/main.modern.mjs`, absent from
+  client `1.5.9` (the only version its `^1.5.9` range allows) — and it adds a startup self-update that
+  would auto-pull `@latest` and defeat pinning. It offers nothing this repo uses (all new surfaces are
+  opt-in), so the pin stays on the working, audited 0.18.0.
 
 ## [0.4.0] - 2026-06-27
 

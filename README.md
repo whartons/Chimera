@@ -208,7 +208,9 @@ The MCP server and node packs run third-party code with your privileges, so Chim
 
 - **Pinned + audited — never `@latest`.** Each dependency is read through, adversarially audited, and pinned
   to an exact version/commit before adoption.
-- **Hardened launch.** `NPM_CONFIG_OMIT=optional` keeps optional tunnel / cloud / LLM-SDK deps off your machine.
+- **Loopback + inert by default.** Bridges bind to `127.0.0.1` only; optional tunnel / cloud / LLM-SDK
+  features stay **env-gated and inert** unless you explicitly enable them. (`NPM_CONFIG_OMIT=optional` was
+  dropped — on node ≥ 24 it stripped `sharp`'s required native binary and crashed the server.)
 - **Per-tool approval gates.** Code-execution / process-control / destructive MCP tools force a prompt on
   every call via [`.claude/settings.json`](.claude/settings.json); read-only + generation tools stay frictionless.
 
