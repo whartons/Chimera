@@ -331,7 +331,7 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
 | Tool | Server | Pin | Bridge license | Socket |
 |------|--------|-----|----------------|--------|
 | **Blender** | official `lab/blender_mcp` (Blender Foundation, Gitea) | `98b0e49d` (v1.0.0 +1, docs-only) | GPL-3.0-or-later | `127.0.0.1:9876` |
-| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `63acb30` (= v0.1.18) | MIT | `127.0.0.1:9875` |
+| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `1697aff` (v0.1.18 + 4 bug-fix commits) | MIT | `127.0.0.1:9875` |
 
 > The **Bridge license** column is the MCP server's own license, **not** the host application's. The host
 > apps are licensed separately: **Blender** GPL-3.0-or-later, **FreeCAD** LGPL-2.1 (LGPL-2.0-or-later).

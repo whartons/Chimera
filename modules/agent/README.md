@@ -21,7 +21,7 @@ custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
 | | |
 |---|---|
 | **Server** | [`artokun/comfyui-mcp`](https://github.com/artokun/comfyui-mcp) (npm: `comfyui-mcp`) |
-| **Pinned** | `comfyui-mcp@0.18.0` |
+| **Pinned** | `comfyui-mcp@0.18.0` (0.20.x–0.24.x held — see the audit below) |
 | **License** | MIT · **runs 100% locally** (only talks to your ComfyUI over `127.0.0.1`) |
 | **Transport** | stdio — Claude Code / Claude Desktop launch it directly |
 | **Tools** | ~100: node introspection, arbitrary API-format workflow exec, queue/poll/interrupt, image up/download, model + custom-node management, VRAM control, plus 0.18.0 graph-panel / Civitai helpers |
@@ -78,18 +78,38 @@ This repo pins `comfyui-mcp@0.18.0`. The original `0.9.4` adoption was read-thro
 adversarially audited; the `0.9.4 → 0.18.0` bump was **re-audited per
 [`../../docs/UPDATING.md`](../../docs/UPDATING.md)** — the release notes for every intervening
 version plus the install/network-relevant code (`postinstall.mjs`, the dependency manifest, and
-the new tools). Verdict: **not malicious** — with the default `npx` + stdio launch (no extra env),
-it opens **no socket, no tunnel, no LLM agent, and exfiltrates nothing** (no telemetry, no `eval`;
-tokens scoped to their matching service). 0.18.0's newer capabilities — Comfy Cloud mode, the
-Civitai MCP hookup, a generic auth header, and a Claude-Agent-SDK session — are all **opt-in**:
-env-gated and/or `optionalDependencies` that `NPM_CONFIG_OMIT=optional` never installs, so they
-stay inert. The `postinstall` only copies a settings-template file (`.env.example`-style).
+the new tools). Verdict: **not malicious** — with the `npx` + stdio launch, it opens **no socket,
+no tunnel, no LLM agent, and exfiltrates nothing** (no telemetry, no `eval`; tokens scoped to their
+matching service). 0.18.0's newer capabilities — Comfy Cloud mode, the Civitai MCP hookup, a
+generic auth header, and a Claude-Agent-SDK session — are all **opt-in**: env-gated, so even though
+their (optional) packages are installed they **stay inert** unless you explicitly enable them. The
+`postinstall` only copies a settings-template file (`.env.example`-style).
+
+> **`NPM_CONFIG_OMIT=optional` → `NPM_CONFIG_INCLUDE=optional` (2026-07-03).** The old `omit=optional`
+> (defense-in-depth to skip the optional cloud/tunnel/agent-SDK deps) also stripped `sharp`'s required
+> native binary (`@img/sharp-*`, itself an optionalDependency) on **node ≥ 24** — the server then
+> crashed on startup with *"Could not load the sharp module"* (surfaced to the client as `MCP error
+> -32000: Connection closed`). npm can't omit optional deps by name, so `.mcp.json` now sets
+> **`NPM_CONFIG_INCLUDE=optional`** instead — `include` wins over any inherited `omit`, forcing the
+> optional deps (crucially `sharp`'s binary) to install. The optional cloud/agent packages install too
+> but remain **inert** behind env-gating; the **per-tool approval gates + loopback binding** stay the
+> real controls. After changing this, **fully restart the IDE** (a window reload may keep the stale MCP
+> subprocess), and if it persists clear the `~/.npm/_npx` cache once.
+
+> **0.20.x–0.24.x held (issue #38).** 0.20.9's compiled client imports
+> `@stable-canvas/comfyui-client/dist/main.modern.mjs`, which does not exist in client `1.5.9` (the
+> only version its `^1.5.9` range allows) — so it **fails to start** on a clean install. It also adds a
+> startup self-update that would auto-pull `@latest` and defeat pinning. Since 0.20.x offers nothing
+> this repo uses (codex / Claude-Agent-SDK panel orchestrator, HTTP transport, panel auto-install —
+> all opt-in), the pin **stays on the working, audited 0.18.0**.
+
 The real risk is **capability by design**: a handful of tools (`install_custom_node`,
 `apply_manifest`, `install_comfyui`, …) download and **execute third-party Python** inside
 ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
-- **Hardened launch:** [`../../.mcp.json`](../../.mcp.json) sets `NPM_CONFIG_OMIT=optional`
-  so the optional `cloudflared` / S3 / Azure / LLM-SDK deps (used only by opt-in features)
-  are never installed — the tunnel path is fully inert.
+- **Loopback + inert by default:** [`../../.mcp.json`](../../.mcp.json) points the bridge at
+  `127.0.0.1` only. The optional `cloudflared` / S3 / Azure / LLM-SDK deps do get installed
+  (`NPM_CONFIG_INCLUDE=optional` is set so `sharp`'s native binary loads — see the audit above), but
+  the features they back are **env-gated and stay inert** unless you set their opt-in env/CLI flags.
 - **Per-call approval gates:** [`../../.claude/settings.json`](../../.claude/settings.json)
   forces an `ask` prompt (uncoverable by a broad allow) on the ~17 code-execution /
   process-control / destructive tools. Read-only + generation tools stay frictionless.
