@@ -18,14 +18,16 @@ All notable changes to Chimera are documented here. The format follows
   `docs/CATALOG.md`, `docs/SETUP.md`, `modules/cad/README.md`, `modules/cad/requirements.md`,
   `scripts/update_report.py`, and `tests/test_update_report.py`.
 ### Fixed
-- **ComfyUI MCP connection — `MCP error -32000: Connection closed`.** Removed
-  **`NPM_CONFIG_OMIT=optional`** from the `comfyui` entry in [`.mcp.json`](.mcp.json): on node ≥ 24 it
-  stripped `sharp`'s required native binary (`@img/sharp-*`, shipped as an optionalDependency), so the
-  server crashed on startup (*"Could not load the sharp module"*). npm cannot omit optional deps by
-  name, so the optional cloud/tunnel/agent packages now install but stay **inert** behind env-gating
-  (per-tool approval gates + loopback binding remain the real controls). If the stale error persists,
-  clear the package's npx cache dir under `~/.npm/_npx` once so it reinstalls with optional deps.
-  Documented in [`modules/agent/README.md`](modules/agent/README.md) and [`docs/STACK.md`](docs/STACK.md).
+- **ComfyUI MCP connection — `MCP error -32000: Connection closed`.** The `comfyui` entry in
+  [`.mcp.json`](.mcp.json) previously set `NPM_CONFIG_OMIT=optional`, which on node ≥ 24 stripped
+  `sharp`'s required native binary (`@img/sharp-*`, shipped as an optionalDependency) so the server
+  crashed on startup (*"Could not load the sharp module"*). Replaced it with
+  **`NPM_CONFIG_INCLUDE=optional`** — npm's `include` wins over any inherited `omit`, so the optional
+  deps (crucially `sharp`'s binary) are forced to install. The optional cloud/tunnel/agent packages
+  install too but stay **inert** behind env-gating (per-tool approval gates + loopback binding remain
+  the real controls). If a stale error persists, clear the package's npx cache dir under `~/.npm/_npx`
+  once and **fully restart the IDE** so it reinstalls and reloads the config. Documented in
+  [`modules/agent/README.md`](modules/agent/README.md) and [`docs/STACK.md`](docs/STACK.md).
 - **`comfyui-mcp` held on `0.18.0`; the `0.20.9` bump was reverted (resolves #38).** `0.20.9` fails to
   start — its compiled client imports `@stable-canvas/comfyui-client/dist/main.modern.mjs`, absent from
   client `1.5.9` (the only version its `^1.5.9` range allows) — and it adds a startup self-update that

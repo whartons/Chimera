@@ -4,7 +4,8 @@
       "command": "cmd",
       "args": ["/c", "npx", "-y", "comfyui-mcp@0.18.0"],
       "env": {
-        "COMFYUI_URL": "${COMFYUI_URL:-http://127.0.0.1:8000}"
+        "COMFYUI_URL": "${COMFYUI_URL:-http://127.0.0.1:8000}",
+        "NPM_CONFIG_INCLUDE": "optional"
       },
       "timeout": 600000
     },
