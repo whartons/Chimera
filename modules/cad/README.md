@@ -19,7 +19,7 @@ you choose. For unattended geometry authoring there is a **second, headless path
 | | |
 |---|---|
 | **Server** | `neka-nat/freecad-mcp` (GitHub) |
-| **Pinned** | commit `63acb30` (= published `0.1.18`) — server + addon share the commit |
+| **Pinned** | commit `1697aff` (v0.1.18 + 4 bug-fix commits) — server + addon share the commit |
 | **License** | MIT · runs 100% locally (loopback XML-RPC `127.0.0.1:9875`) |
 | **Transport** | stdio (Claude launches it) → XML-RPC → FreeCAD addon |
 | **Tools** | 14: parametric object ops, FEM, doc/view introspection, code-exec |
@@ -40,7 +40,7 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 `PATH`; **FreeCAD 1.0 or 1.1** (Python 3.12).
 
 1. **Install the FreeCAD addon.** Copy the `addon/FreeCADMCP/` directory from the
-   pinned commit `63acb30` into FreeCAD's user `Mod/` directory. **FreeCAD 1.1 uses a
+   pinned commit `1697aff` into FreeCAD's user `Mod/` directory. **FreeCAD 1.1 uses a
    versioned data dir** — on Windows that is `%APPDATA%\FreeCAD\v1-1\Mod\FreeCADMCP\`
    (1.0 omits the `v1-1`). If unsure, use **Tools → Open user data directory** in FreeCAD
    and copy into the `Mod/` there. Fully restart FreeCAD.
@@ -53,7 +53,7 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 3. **Register the MCP server.** The server entry lives in
    [`../../.mcp.json`](../../.mcp.json) and is launched by Claude Code as:
    ```
-   uvx --from git+https://github.com/neka-nat/freecad-mcp@63acb30 freecad-mcp --host 127.0.0.1
+   uvx --from git+https://github.com/neka-nat/freecad-mcp@1697aff freecad-mcp --host 127.0.0.1
    ```
 
 4. **Approve and confirm.** In Claude Code run **`/mcp`** and approve the `freecad`
@@ -152,9 +152,9 @@ from the FreeCAD error it feeds back, so a decent coder recovers in a couple of 
 **Still roadmap:** sketch/constraint modeling, FEM headless, and assemblies. Keep a FreeCAD window open
 with the addon active for live MCP-assisted editing.
 
-## Security audit (commit `63acb30`) & per-tool gates
+## Security audit (commit `1697aff`) & per-tool gates
 
-**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `63acb30` (MIT) has a
+**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `1697aff` (MIT) has a
 clean minimal dep set (`mcp[cli]`, `validators`) with **no telemetry/Supabase/pickle/torch**
 and no outbound network; the sole transport is loopback XML-RPC to FreeCAD on
 hardcoded `:9875`, a default `127.0.0.1` bind that flips to `0.0.0.0` only on
@@ -186,10 +186,14 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
 - **Path-allowlist `insert_part_from_library`.** The tool has no path-traversal
   guard; scope library paths to a known safe directory before approving any call.
 - **Pin from commit, never floating tag.** Always launch from the pinned git ref
-  `63acb30` so the server cannot change under you.
+  `1697aff` so the server cannot change under you.
 - **Re-audit on every pin bump.** When the pin is advanced, re-run the full audit
   against the diff before committing. Runbook:
   [`../../docs/UPDATING.md`](../../docs/UPDATING.md).
+  Last re-audit: `63acb30 → 1697aff` (4 upstream bug-fix commits — FEM socket timeout,
+  reference-entry parsing, RGBA colour, `getDocument` exception handling, addon import
+  resolution) — **clean**: no new network/egress, no new `eval`/`exec` sink, no new MCP
+  tools (gates unchanged), no dependency/build changes.
 
 ## Tool surface (highlights)
 

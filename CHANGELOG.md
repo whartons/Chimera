@@ -6,6 +6,31 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **`freecad-mcp` `63acb30 → 1697aff`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
+  resolves the freecad item on the weekly update report). 4 upstream bug-fix commits merged by the
+  maintainer via PR #64 — FEM socket timeout that no longer aborts long solves, dict/list
+  `References` parsing, RGB(A) `ShapeColor` normalisation, `getDocument` raises-vs-`None` handling,
+  and FreeCAD addon import resolution. Re-audit **clean** (5-lens adversarial pass): no new
+  network/egress, no new `eval`/`exec` sink (the pre-existing `execute_code` RCE is byte-for-byte
+  unchanged), **no new MCP tools** (Tier gates in `.claude/settings.json` / `tests/test_mcp_gates.py`
+  unchanged), no dependency/build changes. Pin advanced in `.mcp.json`, `docs/STACK.md`,
+  `docs/CATALOG.md`, `docs/SETUP.md`, `modules/cad/README.md`, `modules/cad/requirements.md`,
+  `scripts/update_report.py`, and `tests/test_update_report.py`.
+- **`comfyui-mcp` `0.18.0 → 0.20.9`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
+  resolves the security HOLD in issue #38). None of 0.20.9's new surfaces — the OpenAI-codex /
+  Claude-Agent-SDK **panel orchestrator**, HTTP transport, panel auto-install — are used by Chimera:
+  all opt-in and omitted via `NPM_CONFIG_OMIT=optional`. Pin advanced in `.mcp.json`,
+  `docs/STACK.md`, `modules/agent/README.md`, and `scripts/update_report.py`.
+
+### Security
+- **Disabled `comfyui-mcp` 0.20.9's startup self-update.** 0.20.9 ships a self-update that probes
+  `registry.npmjs.org` on every launch and, on global/local installs, auto-runs
+  `npm i comfyui-mcp@latest` — pulling *un-audited* future releases and defeating the pin-and-audit
+  model. [`.mcp.json`](.mcp.json) now sets **`COMFYUI_MCP_AUTOUPDATE=0`**, which short-circuits the
+  check before the registry probe fires (our `npx` launch makes it notify-only regardless).
+  Documented in [`modules/agent/README.md`](modules/agent/README.md) and [`docs/STACK.md`](docs/STACK.md).
+
 ## [0.4.0] - 2026-06-27
 
 Adds **`image --mode relight`** — a FLUX.2 ReferenceLatent relight that changes a still's lighting

@@ -21,10 +21,10 @@ custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
 | | |
 |---|---|
 | **Server** | [`artokun/comfyui-mcp`](https://github.com/artokun/comfyui-mcp) (npm: `comfyui-mcp`) |
-| **Pinned** | `comfyui-mcp@0.18.0` |
+| **Pinned** | `comfyui-mcp@0.20.9` (self-update disabled — see the audit below) |
 | **License** | MIT · **runs 100% locally** (only talks to your ComfyUI over `127.0.0.1`) |
 | **Transport** | stdio — Claude Code / Claude Desktop launch it directly |
-| **Tools** | ~100: node introspection, arbitrary API-format workflow exec, queue/poll/interrupt, image up/download, model + custom-node management, VRAM control, plus 0.18.0 graph-panel / Civitai helpers |
+| **Tools** | ~100: node introspection, arbitrary API-format workflow exec, queue/poll/interrupt, image up/download, model + custom-node management, VRAM control, plus graph-panel / Civitai helpers (the 0.20.x orchestrator / codex backends are CLI/env-gated, not default tools) |
 
 > **Why not the "official" one?** Comfy-Org only ships a **cloud-only** MCP
 > (`cloud.comfy.org/mcp`) — it can't drive a local instance. There is no official
@@ -58,7 +58,7 @@ shell-less spawn resolves the `npx` shim). On **macOS / Linux**, change the serv
 entry to:
 ```json
 "command": "npx",
-"args": ["-y", "comfyui-mcp@0.18.0"]
+"args": ["-y", "comfyui-mcp@0.20.9"]
 ```
 
 ## Security model — keep secrets OUT of the tracked config
@@ -70,26 +70,37 @@ entry to:
   never in a tracked file. See [`../../.env.example`](../../.env.example).
 - This server runs with your user privileges and **can install custom nodes,
   download models, and stop/restart ComfyUI**. That power is the point — but treat
-  anything you ask it to install as untrusted code, and the pin (`@0.18.0`) stops it
-  changing under you.
+  anything you ask it to install as untrusted code, and the pin (`@0.20.9`, with
+  self-update disabled) stops it changing under you.
 
-## Security audit (v0.18.0) & per-tool gates
-This repo pins `comfyui-mcp@0.18.0`. The original `0.9.4` adoption was read-through +
-adversarially audited; the `0.9.4 → 0.18.0` bump was **re-audited per
+## Security audit (v0.20.9) & per-tool gates
+This repo pins `comfyui-mcp@0.20.9`. The original `0.9.4` adoption was read-through +
+adversarially audited; each bump since (`0.9.4 → 0.18.0 → 0.20.9`) was **re-audited per
 [`../../docs/UPDATING.md`](../../docs/UPDATING.md)** — the release notes for every intervening
 version plus the install/network-relevant code (`postinstall.mjs`, the dependency manifest, and
-the new tools). Verdict: **not malicious** — with the default `npx` + stdio launch (no extra env),
-it opens **no socket, no tunnel, no LLM agent, and exfiltrates nothing** (no telemetry, no `eval`;
-tokens scoped to their matching service). 0.18.0's newer capabilities — Comfy Cloud mode, the
-Civitai MCP hookup, a generic auth header, and a Claude-Agent-SDK session — are all **opt-in**:
-env-gated and/or `optionalDependencies` that `NPM_CONFIG_OMIT=optional` never installs, so they
-stay inert. The `postinstall` only copies a settings-template file (`.env.example`-style).
+the new tools). Verdict: **not malicious** — with our `npx` + stdio launch (no extra env beyond
+the ones below), it opens **no socket, no tunnel, no LLM agent, and exfiltrates nothing** (no
+telemetry, no `eval`; tokens scoped to their matching service). The newer capabilities across
+0.18.0–0.20.9 — Comfy Cloud mode, the Civitai MCP hookup, a generic auth header, and the
+Claude-Agent-SDK / OpenAI-codex **panel orchestrator** — are all **opt-in**: env-/CLI-gated and/or
+`optionalDependencies` that `NPM_CONFIG_OMIT=optional` never installs, so they stay inert. The
+`postinstall` only copies a settings-template file (`.env.example`-style).
+
+> **0.18.0 → 0.20.9 re-audit — one material new risk, mitigated.** 0.20.9 adds a **startup
+> self-update** (`self-update.js`, invoked on every launch) that probes `registry.npmjs.org` and, on
+> global/local installs, auto-runs `npm i comfyui-mcp@latest` — which would pull *un-audited* future
+> releases and defeat the entire pin-and-audit model. This repo neutralises it two ways: our launch is
+> `npx` (self-update classifies as **notify-only** — no on-disk install), **and**
+> [`../../.mcp.json`](../../.mcp.json) sets **`COMFYUI_MCP_AUTOUPDATE=0`**, which short-circuits the
+> check *before* the registry probe fires. With that env set, the bump is clean. (Tracked as issue #38.)
+
 The real risk is **capability by design**: a handful of tools (`install_custom_node`,
 `apply_manifest`, `install_comfyui`, …) download and **execute third-party Python** inside
 ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
 - **Hardened launch:** [`../../.mcp.json`](../../.mcp.json) sets `NPM_CONFIG_OMIT=optional`
-  so the optional `cloudflared` / S3 / Azure / LLM-SDK deps (used only by opt-in features)
-  are never installed — the tunnel path is fully inert.
+  so the optional `cloudflared` / S3 / Azure / LLM-SDK / codex deps (used only by opt-in features)
+  are never installed — the tunnel path is fully inert — plus `COMFYUI_MCP_AUTOUPDATE=0` to disable
+  0.20.9's startup self-update.
 - **Per-call approval gates:** [`../../.claude/settings.json`](../../.claude/settings.json)
   forces an `ask` prompt (uncoverable by a broad allow) on the ~17 code-execution /
   process-control / destructive tools. Read-only + generation tools stay frictionless.
