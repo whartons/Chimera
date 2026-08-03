@@ -101,7 +101,10 @@ def _write_run_sidecar(result, args, repo_root):
     """Write a sidecar next to the winning image summarizing the self-correction run."""
     if result.best_image is None:
         return
-    last = result.history[-1]
+    # the record that produced best_image: match on the best verdict's identity — on exhaustion
+    # the best iteration is often NOT the last one, and the sidecar must describe its neighbor file
+    last = next((r for r in result.history if r.verdict is result.best_verdict),
+                result.history[-1])
     meta = {
         # `kind` discriminator: this is a run summary, NOT a replayable render sidecar
         # (no inputs/model/negative) — generate.py replay refuses it on this key.
