@@ -17,10 +17,10 @@ import urllib.request
 
 # Source of truth for the pins is docs/STACK.md — keep this table in sync (see CLAUDE.md docs rule).
 GIT_PACKS = [
-    ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "4f45fd6"),
+    ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "3b9c5cd"),
     ("ComfyUI-HunyuanVideo-Foley", "phazei", "ComfyUI-HunyuanVideo-Foley", "afd2960"),
     ("ComfyUI_IPAdapter_plus", "cubiq", "ComfyUI_IPAdapter_plus", "a0f451a"),
-    ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "1697aff"),
+    ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "4c3f2ef"),
 ]
 # blender_mcp lives on Blender's Gitea (not GitHub) — checked via the Gitea compare API.
 GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "98b0e49d")]

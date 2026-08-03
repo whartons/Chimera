@@ -7,6 +7,38 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **`ComfyUI-LTXVideo` `4f45fd6 → 3b9c5cd`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
+  resolves the LTXVideo item on weekly report #42). 4 upstream commits: README/example-workflow
+  additions (Pixel Spatial Upscaler IC-LoRA docs + an inert example JSON whose `GemmaAPITextEncode`
+  reference has an empty api_key and stays covered by the standing "never use" exclusion) and one
+  code change — a behavior-preserving try/except import shim in `embeddings_connector.py` for
+  ComfyUI core's upcoming RoPE refactor (core PR #15056), with the legacy fallback verified
+  math-equivalent. **No node/API surface changes**; none of the nodes used by
+  `workflows/templates/brand-video-i2v.json` are touched. The bump is *protective*: the old pin
+  imports the pre-refactor rope helpers unconditionally and would fail to import entirely on a
+  future ComfyUI core that ships the refactor. Pin advanced in `docs/STACK.md`, `docs/CATALOG.md`,
+  `modules/video/models.md`, and `scripts/update_report.py`.
+- **`freecad-mcp` `1697aff → 4c3f2ef`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
+  resolves the freecad item on weekly report #42). 10 upstream commits = **v0.1.19**: stage-labeled
+  FEM error handling, idle GUI-queue early-return, screenshot re-framing for occluded/minimized
+  windows, and `get_view` RPC-failure error handling. Re-audit **clean**: no new network/egress, no
+  new `eval`/`exec` sink, **no new/renamed MCP tools** (Tier gates in `.claude/settings.json` /
+  `tests/test_mcp_gates.py` unchanged), no dependency changes (version bump only). 3 of the 5
+  changed files live in `addon/FreeCADMCP/` — **re-copy the addon into FreeCAD's `Mod/` dir and
+  restart FreeCAD** after updating (the `uvx` pin only refreshes the server half). Pin advanced in
+  `.mcp.json`, `docs/STACK.md`, `docs/CATALOG.md`, `docs/SETUP.md`, `modules/cad/README.md`,
+  `modules/cad/requirements.md`, `scripts/update_report.py`, and `tests/test_update_report.py`.
+
+- **`comfyui-mcp` hold extended through `0.48.x` (resolves #41, #44).** The gatekeeper scans of
+  0.24.5 (#41) and 0.48.1 (#44) found two **default-on startup behaviors** in the plain stdio path —
+  a self-update that phones `registry.npmjs.org` every launch and can `npm i comfyui-mcp@latest` on
+  disk for global/local installs, and a panel auto-install that mutates the ComfyUI install from an
+  unpinned "nightly" channel — plus (0.48.x) a large new multi-provider agent/network surface. The
+  pin **stays on the audited `0.18.0`**, and [`.mcp.json`](.mcp.json) now sets
+  **`COMFYUI_MCP_AUTOUPDATE=0`** + **`COMFYUI_MCP_PANEL_AUTOINSTALL=0`** as defense-in-depth (inert
+  on 0.18.0; they neutralize both behaviors if the pin ever drifts). Hold documented in
+  `modules/agent/README.md` and `docs/STACK.md`.
+
 - **`freecad-mcp` `63acb30 → 1697aff`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
   resolves the freecad item on the weekly update report). 4 upstream bug-fix commits merged by the
   maintainer via PR #64 — FEM socket timeout that no longer aborts long solves, dict/list
