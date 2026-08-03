@@ -38,6 +38,10 @@ _NOTMET = re.compile(r"\bnot[\s\-]?met\b|\bunmet\b", re.IGNORECASE)
 # Also carry any line bearing a 'FIX:' directive (the judge's structured add/avoid correction) so
 # the expander receives it even if the model puts it on its own line rather than the NOT-MET line.
 _FIXLINE = re.compile(r"\bfix\b\s*[:\-]", re.IGNORECASE)
+# A line that IS the overall-verdict / score line (allowing markdown bullets/emphasis), as opposed
+# to a criterion reason that merely mentions 'overall'/'scored' mid-sentence.
+_OVERALL_LINE = re.compile(r"\s*[*#>\-\s]*overall\b", re.IGNORECASE)
+_SCORE_LINE = re.compile(r"\s*[*#>\-\s]*(?:final\s+)?score\b", re.IGNORECASE)
 
 
 def parse_verdict(text: str) -> Verdict:
@@ -50,23 +54,33 @@ def parse_verdict(text: str) -> Verdict:
 
         # Decide PASS/FAIL from the verdict-bearing line only, so criterion
         # reasons containing the word 'fail' (or 'pass') don't contaminate the
-        # overall verdict. The rubric asks the judge to put the overall verdict
-        # on its own line; prefer that line, else the last standalone PASS/FAIL.
+        # overall verdict. The rubric puts the verdict at the END on its own line, so scan in
+        # reverse and prefer a line STARTING with 'overall' — a criterion reason like
+        # 'MET - overall composition passed' earlier in the text must never hijack the verdict.
+        def _has_token(l):
+            return _PASS.search(l) or _FAIL.search(l)
         verdict_line = next(
-            (l for l in lines if "overall" in l.lower()
-             and (_PASS.search(l) or _FAIL.search(l))),
-            None,
-        )
+            (l for l in reversed(lines) if _OVERALL_LINE.match(l) and _has_token(l)), None)
         if verdict_line is None:
             verdict_line = next(
-                (l for l in reversed(lines) if _PASS.search(l) or _FAIL.search(l)),
-                "",
-            )
+                (l for l in reversed(lines) if "overall" in l.lower() and _has_token(l)), None)
+        if verdict_line is None:
+            verdict_line = next((l for l in reversed(lines) if _has_token(l)), "")
         # FAIL takes precedence; PASS only on an explicit standalone token.
         failed = bool(_FAIL.search(verdict_line))
         passed = bool(_PASS.search(verdict_line)) and not failed
 
-        m = _SCORE.search(text)
+        # Score: prefer the dedicated trailing 'score: ...' line (rubric instruction); fall back
+        # to the LAST match anywhere, so prose like 'scored 7 criteria' can't clamp to 1.0.
+        m = None
+        for l in reversed(lines):
+            if _SCORE_LINE.match(l):
+                m = _SCORE.search(l)
+                if m:
+                    break
+        if m is None:
+            all_scores = list(_SCORE.finditer(text))
+            m = all_scores[-1] if all_scores else None
         if m:
             val = float(m.group(1))
             if m.group(3):                                  # "value/denom"
@@ -78,11 +92,13 @@ def parse_verdict(text: str) -> Verdict:
             score = 0.0
 
         issues = []
+        vseg = verdict_line.strip()
         for line in lines:
             seg = line.strip()
-            # Collect genuine NOT-MET lines (and any standalone FIX: directive line); skip the
-            # overall verdict line so a real 'Overall: FAIL' isn't threaded back as noise.
-            if seg and "overall" not in seg.lower() and (_NOTMET.search(seg) or _FIXLINE.search(seg)):
+            # Collect genuine NOT-MET lines (and any standalone FIX: directive line); skip only
+            # the verdict line ITSELF — a NOT-MET reason may legitimately say 'overall proportions'
+            # and its FIX feedback must still reach the expander.
+            if seg and seg != vseg and (_NOTMET.search(seg) or _FIXLINE.search(seg)):
                 issues.append(seg)
 
         return Verdict(passed=passed, score=score, issues=issues)
