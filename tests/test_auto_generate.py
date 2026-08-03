@@ -28,6 +28,26 @@ def test_resolve_manifest_brandless_returns_neutral_default():
     assert not m.style and not m.palette and not m.negative
 
 
+def test_write_run_sidecar_records_best_iteration_not_last(tmp_path):
+    # on exhaustion best_image comes from the highest-scoring iteration, which is often not the
+    # last — the sidecar's winning_seed/prompt must describe the file it sits next to
+    import argparse, json
+    from scripts.agent.auto_generate import _write_run_sidecar
+    from scripts.agent.loop import LoopResult, IterRecord
+    from scripts.agent.judge import Verdict
+    img = tmp_path / "win.png"; img.write_bytes(b"x")
+    v_best = Verdict(passed=False, score=0.8, issues=[])
+    v_last = Verdict(passed=False, score=0.3, issues=["worse"])
+    hist = [IterRecord(iter=0, seed=111, prompt="best prompt", verdict=v_best),
+            IterRecord(iter=1, seed=222, prompt="last prompt", verdict=v_last)]
+    res = LoopResult(best_image=str(img), best_verdict=v_best, passed=False, history=hist)
+    args = argparse.Namespace(brand=None, subject="s", backend="api", comfy_url="http://x")
+    _write_run_sidecar(res, args, tmp_path)
+    meta = json.loads(img.with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["winning_seed"] == 111
+    assert meta["winning_prompt"] == "best prompt"
+
+
 def test_local_backend_is_runnable_headless():
     # the local VLM judge is the autonomous path -> no guard, runs in a bare subprocess
     assert _backend_error("local") is None
