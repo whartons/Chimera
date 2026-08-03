@@ -15,15 +15,15 @@ from scripts.brandkit.manifest import load_manifest
 from scripts.brandkit.training import scan_dataset, build_config, TrainingError
 
 
-def main():
+def main(argv=None, repo_root=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--brand", required=True)
     ap.add_argument("--steps", type=int, default=1000)
     ap.add_argument("--backend", default="ai-toolkit")
     ap.add_argument("--run", action="store_true", help="actually invoke the backend (needs it installed)")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[1]
     brand_dir = repo_root / "brands" / args.brand
     m = load_manifest(brand_dir / "brand.yaml")
     try:
@@ -43,13 +43,19 @@ def main():
               "FLUX LoRA backend is installed.")
         return
 
-    backend_cli = shutil.which(args.backend) or shutil.which("ai-toolkit")
+    # ONLY the requested backend — a config built for backend X fed to tool Y trains garbage,
+    # so never silently substitute another installed trainer.
+    backend_cli = shutil.which(args.backend)
     if not backend_cli:
         print(f"ERROR: backend '{args.backend}' not found on PATH. Install it or use --dry-run.",
               file=sys.stderr); sys.exit(3)
     # Backend invocation is intentionally a single seam — adjust args to the chosen tool.
     print(f"invoking backend: {backend_cli} (config {cfg_path})")
-    subprocess.run([backend_cli, "run", str(cfg_path)], check=True)
+    try:
+        subprocess.run([backend_cli, "run", str(cfg_path)], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: backend '{args.backend}' exited {e.returncode} — check its output above; "
+              f"the config is at {cfg_path}", file=sys.stderr); sys.exit(4)
     print(f"if training produced {cfg['output_name']}.safetensors in {cfg['output_dir']}, "
           f"set lora.file in brand.yaml to use it.")
 

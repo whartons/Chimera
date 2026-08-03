@@ -112,7 +112,29 @@ def _sub(cls, data, key):
     if unknown:
         print(f"warning: brand.yaml '{key}' has unknown key(s) {unknown} — ignored "
               f"(valid: {sorted(allowed)})", file=sys.stderr)
-    return cls(**{k: v for k, v in raw.items() if k in allowed})
+    picked = {k: v for k, v in raw.items() if k in allowed}
+    # Type-check against the field defaults so a YAML mistake (e.g. a quoted number) fails HERE
+    # with the offending key named — not as an opaque TypeError deep inside a filler at render
+    # time. Every None-defaulted field in the sub-dataclasses is an optional string.
+    defaults = cls()
+    for k, v in picked.items():
+        d = getattr(defaults, k)
+        if isinstance(d, bool):
+            if not isinstance(v, bool):
+                raise ManifestError(f"'{key}.{k}' must be true/false (got {v!r})")
+        elif isinstance(d, int):
+            if isinstance(v, bool) or not isinstance(v, int):
+                raise ManifestError(f"'{key}.{k}' must be an integer (got {v!r} — "
+                                    "unquote numbers in brand.yaml)")
+        elif isinstance(d, float):
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ManifestError(f"'{key}.{k}' must be a number (got {v!r} — "
+                                    "unquote numbers in brand.yaml)")
+            picked[k] = float(v)
+        elif isinstance(d, str) or d is None:
+            if v is not None and not isinstance(v, str):
+                raise ManifestError(f"'{key}.{k}' must be a string (got {v!r})")
+    return cls(**picked)
 
 
 DEFAULT_BRANDLESS_MODEL = "z_image_turbo_nvfp4.safetensors"  # Z-Image is the documented default backend

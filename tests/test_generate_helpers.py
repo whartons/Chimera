@@ -125,6 +125,27 @@ def test_probe_video_without_pyav_returns_none_tuple(monkeypatch):
     assert _probe_video("anything.mp4") == (None, None, None, None)
 
 
+def test_probe_video_corrupt_file_returns_none_tuple(monkeypatch):
+    # the documented best-effort contract: an unreadable/corrupt media file degrades to
+    # (None,)*4 (callers fall back to defaults + a warning), never an escaped exception
+    import sys as _sys
+    def bad_open(p):
+        raise OSError("moov atom not found")
+    monkeypatch.setitem(_sys.modules, "av", types.SimpleNamespace(open=bad_open))
+    assert _probe_video("corrupt.mp4") == (None, None, None, None)
+
+
+def test_prepare_image_product_requires_asset(tmp_path):
+    # product mode must NOT silently fall back to the logo default searched under products/ —
+    # a products/ file that happens to share the logo's name would be used as the mockup source
+    brand_dir = tmp_path / "brands" / "b"
+    (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "primary.png").write_bytes(b"trap")  # same name as logo.default
+    with pytest.raises(_ApError, match="asset is required"):
+        generate._prepare_image(_args_ns(modality="image", mode="product", asset=None),
+                                M, brand_dir, _FakeUploadClient(), _StubAp())
+
+
 # ----------------------------------------------------- _resolve_model_used / _sidecar_inputs (B6/B5)
 def test_resolve_model_used_per_modality():
     rm = generate._resolve_model_used

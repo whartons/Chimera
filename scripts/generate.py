@@ -137,7 +137,10 @@ def _prepare_image(args, m, brand_dir, client, ap):
             fkw["canvas"] = sz
     if args.mode in ("logo", "product"):
         subdir = "logos" if args.mode == "logo" else "products"
-        asset_name = args.asset or (m.logo.default or "").split("/")[-1] or None
+        # only LOGO mode may fall back to logo.default; product must not silently pick up a
+        # products/ file that happens to share the logo's filename
+        logo_fallback = (m.logo.default or "").split("/")[-1] if args.mode == "logo" else None
+        asset_name = args.asset or logo_fallback or None
         asset_path = _resolve_asset(brand_dir, asset_name, (subdir,), ap, f"{args.mode} --asset")
         fkw["asset"] = client.upload_image(asset_path)
         if args.mode == "product":
@@ -171,7 +174,10 @@ def _probe_video(path):
         import av
     except ImportError:
         return None, None, None, None
-    c = av.open(str(path))
+    try:
+        c = av.open(str(path))
+    except Exception:                                 # corrupt / non-media file — best-effort
+        return None, None, None, None
     try:
         if not c.streams.video:                       # audio-only / no video track
             return None, None, None, None
@@ -181,6 +187,8 @@ def _probe_video(path):
         w, h = vs.codec_context.width, vs.codec_context.height
         dur = (frames / fr) if (frames and fr) else None
         return fr, dur, w, h
+    except Exception:                                 # unreadable stream metadata
+        return None, None, None, None
     finally:
         c.close()
 
