@@ -1,5 +1,6 @@
 import json, subprocess, types, pytest
 from scripts.brandkit import blender as B
+from scripts.brandkit import dcc as D
 
 
 def test_run_template_raises_on_timeout(tmp_path):
@@ -67,7 +68,7 @@ def test_run_template_no_manifest_surfaces_stderr(tmp_path):
 def test_find_blender_globs_newest_default_install(monkeypatch, tmp_path):
     # default Windows discovery must survive version drift (5.2+), like the FreeCAD runner's glob
     monkeypatch.delenv("BLENDER_BIN", raising=False)
-    monkeypatch.setattr(B.shutil, "which", lambda n: None)
+    monkeypatch.setattr(D.shutil, "which", lambda n: None)
     for ver in ("5.1", "5.2"):
         d = tmp_path / f"Blender {ver}"; d.mkdir()
         (d / "blender.exe").write_bytes(b"")
@@ -77,19 +78,19 @@ def test_find_blender_globs_newest_default_install(monkeypatch, tmp_path):
 
 def test_find_blender_prefers_env(monkeypatch):
     monkeypatch.setenv("BLENDER_BIN", "C:/custom/blender.exe")
-    monkeypatch.setattr(B.shutil, "which", lambda n: None)
+    monkeypatch.setattr(D.shutil, "which", lambda n: None)
     assert B.find_blender() == "C:/custom/blender.exe"
 
 
 def test_find_blender_uses_path(monkeypatch):
     monkeypatch.delenv("BLENDER_BIN", raising=False)
-    monkeypatch.setattr(B.shutil, "which", lambda n: "/usr/bin/blender")
+    monkeypatch.setattr(D.shutil, "which", lambda n: "/usr/bin/blender")
     assert B.find_blender() == "/usr/bin/blender"
 
 
 def test_find_blender_raises_when_absent(monkeypatch):
     monkeypatch.delenv("BLENDER_BIN", raising=False)
-    monkeypatch.setattr(B.shutil, "which", lambda n: None)
-    monkeypatch.setattr(B.glob, "glob", lambda p: [])
+    monkeypatch.setattr(D.shutil, "which", lambda n: None)
+    monkeypatch.setattr(D.glob, "glob", lambda p: [])
     with pytest.raises(B.BlenderJobError):
         B.find_blender()

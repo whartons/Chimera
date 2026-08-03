@@ -5,7 +5,7 @@ frame-source node + sink node serves image (`brand:decode`->`brand:save`), video
 (`brand:decode`->`brand:create_video`), and foley (`brand:components`->`brand:create_video`)
 graphs; the audio edge into CreateVideo is always left untouched."""
 from __future__ import annotations
-from .nodes import find_node_by_title
+from .nodes import assert_free_ids, find_node_by_title
 
 
 def logo_geometry(canvas, *, logo_px, scale, margin, position):
@@ -28,6 +28,7 @@ def _inject_watermark(wf, *, manifest, logo_name, canvas, logo_px, sink_title,
     the clean frames with the composite (blend_factor = opacity). Ids 90-97 are reserved."""
     if not logo_name:
         raise ValueError("watermark requested but no brand logo to stamp")
+    assert_free_ids(wf, "90", "91", "92", "93", "94", "95", "96", "97")
     w = manifest.watermark
     frames_id, _ = find_node_by_title(wf, frames_title)
     _, sink = find_node_by_title(wf, sink_title)

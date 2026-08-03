@@ -46,7 +46,8 @@ from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.manifest import load_manifest, default_manifest
 from scripts.brandkit.outputs import select_output, route_output, write_sidecar
-from scripts.generate import git_provenance
+from scripts.brandkit.comfy import DEFAULT_URL as DEFAULT_COMFY_URL
+from scripts.brandkit.provenance import git_provenance
 
 
 def _parse_seeds(raw):
@@ -174,7 +175,7 @@ def main():
                          "and prints a copy-paste retry command. Mutually exclusive with --texture.")
     ap.add_argument("--finalize-views", dest="finalize_views", type=int, default=4,
                     help="(mesh3d --finalize) ring views to generate + bake (1..7; default 4)")
-    ap.add_argument("--comfy-url", dest="comfy_url", default="http://127.0.0.1:8000")
+    ap.add_argument("--comfy-url", dest="comfy_url", default=DEFAULT_COMFY_URL)
     ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", default=None,
                     help="ComfyUI output dir: routes renders AND is where the Qwen judge drops verdicts. "
                          "Required except for `--pipeline cad --backend api` (no ComfyUI in that loop).")

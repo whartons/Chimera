@@ -3,6 +3,22 @@ model references, and it documents the recommended Ollama Qwen3-VL judge path (d
 not hardcoded — llm.py stays default-free, so the actual endpoint/model live in config)."""
 from __future__ import annotations
 import importlib
+import sys
+
+
+def test_agent_layer_does_not_import_the_cli_module():
+    # layering: the agent layer must not drag the 900-line CLI entrypoint (argparse + every
+    # modality filler) into its import graph just for the provenance helper
+    saved = {m: mod for m, mod in sys.modules.items() if m.startswith("scripts")}
+    try:
+        for m in list(sys.modules):
+            if m.startswith("scripts"):
+                del sys.modules[m]
+        importlib.import_module("scripts.agent.auto_generate")
+        importlib.import_module("scripts.agent.finalize")
+        assert "scripts.generate" not in sys.modules
+    finally:
+        sys.modules.update(saved)
 import inspect
 
 ag = importlib.import_module("scripts.agent.auto_generate")

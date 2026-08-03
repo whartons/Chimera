@@ -18,7 +18,7 @@ from scripts.brandkit.outputs import route_output, write_sidecar
 from scripts.brandkit.sidecar import build_render_meta
 from scripts.agent.rubric import build_rubric
 from scripts.agent.render_generate import RENDER_TEXTURE_SUFFIX
-from scripts.generate import git_provenance
+from scripts.brandkit.provenance import git_provenance
 
 # In-loop finalize knobs — the proven finalize-texture defaults. Fine-tuning / true retries happen
 # via the standalone `generate.py finalize-texture` CLI (the printed retry command).
