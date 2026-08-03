@@ -160,6 +160,20 @@ def test_prepare_image_passes_source_canvas_for_product_and_relight(monkeypatch,
         assert fkw["canvas"] == (1920, 1080), mode
 
 
+def test_check_repo_layout_errors_outside_a_checkout(tmp_path):
+    # a non-editable install (pip install . / a wheel) has no workflows/templates next to the
+    # package — fail fast with the editable-install hint instead of a template-not-found deep in
+    # a filler
+    class _Err(Exception):
+        pass
+    class _Ap:
+        def error(self, msg):
+            raise _Err(msg)
+    with pytest.raises(_Err, match="pip install -e"):
+        generate._check_repo_layout(tmp_path, _Ap())
+    generate._check_repo_layout(ROOT, _Ap())   # a real checkout passes silently
+
+
 def test_main_image_brandless_dispatches(monkeypatch):
     # --brand is now optional: `chimera image --subject ...` parses (brand=None) and dispatches
     captured = {}

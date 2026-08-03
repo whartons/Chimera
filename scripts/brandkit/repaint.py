@@ -95,12 +95,10 @@ def _mask_background(view_path, depth_path, out_path, *, thresh=12, fill=(128, 1
         from PIL import Image
         v = Image.open(view_path).convert("RGB")
         d = Image.open(depth_path).convert("L").resize(v.size)
-        vpx, dpx = v.load(), d.load()
-        w, h = v.size
-        for y in range(h):
-            for x in range(w):
-                if dpx[x, y] < thresh:
-                    vpx[x, y] = fill
+        # C-level equivalent of the old per-pixel loop (~1M PixelAccess calls per 1024^2 view):
+        # a background-selector mask (255 where depth < thresh), then paste the fill through it.
+        mask = d.point(lambda px: 255 if px < thresh else 0)
+        v.paste(fill, (0, 0), mask)
         v.save(out_path)
         return out_path
     except Exception:   # noqa: BLE001 - Pillow absent / unreadable -> fall back to the raw view
