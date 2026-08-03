@@ -24,7 +24,13 @@ def _repo_behind(repo_root):
     try:
         if git("rev-parse", "--is-inside-work-tree").returncode != 0:
             return None
-        git("fetch", "--quiet", "origin", "main")            # best-effort; offline is fine
+    except Exception:
+        return None
+    try:
+        git("fetch", "--quiet", "origin", "main")
+    except Exception:
+        pass   # hung/offline fetch is fine — compare against the last-known origin/main below
+    try:
         r = git("rev-list", "--count", "HEAD..origin/main")
         out = r.stdout.strip()
         return int(out) if r.returncode == 0 and out.isdigit() else None
@@ -72,9 +78,16 @@ def check_updates(client, repo_root, *, latest_comfyui=None):
     out.append(("info", "pip deps: Dependabot opens weekly update PRs on GitHub; "
                         "locally `pip install -U -e \".[dev]\"`"))
 
-    # 4. custom node packs — security-PINNED, never @latest
-    out.append(("info", "node packs (LTXVideo, HunyuanVideo-Foley, QwenVL): security-PINNED to audited "
-                        "commits - RE-AUDIT before bumping a pin; see docs/CATALOG.md"))
+    # 4. pinned third-party deps — security-PINNED, never @latest. Names come from
+    # update_report's tables (the same ones the weekly CI check reads) so this line can't drift.
+    try:
+        from scripts import update_report as _ur
+        pins = ", ".join(t[0].split(" (")[0]
+                         for t in (_ur.GIT_PACKS + _ur.GITEA_PACKS + _ur.NPM_PACKS))
+    except Exception:
+        pins = "see docs/STACK.md"
+    out.append(("info", f"pinned packs/bridges ({pins}): security-PINNED to audited "
+                        "versions - RE-AUDIT before bumping a pin; see docs/UPDATING.md"))
     return out
 
 
