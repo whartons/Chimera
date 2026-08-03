@@ -42,10 +42,10 @@ what you downloaded).
 | | |
 |---|---|
 | **Repo** | `https://github.com/Lightricks/ComfyUI-LTXVideo` |
-| **Audited commit** | `4f45fd6` — **pinned** (never `@latest`); re-scan before advancing the pin |
-| **Install** | Clone into `ComfyUI/custom_nodes/`, then `git checkout 4f45fd6`, then `pip install -r requirements.txt` |
+| **Audited commit** | `3b9c5cd` — **pinned** (never `@latest`); re-scan before advancing the pin |
+| **Install** | Clone into `ComfyUI/custom_nodes/`, then `git checkout 3b9c5cd`, then `pip install -r requirements.txt` |
 | **Setup.py** | None — cloning the repo runs no code; only `pip install` executes the pack's Python |
-| **Security** | Scan before adoption and on every update (same standard as the MCP bridge). Verdict for the reviewed revision (`4f45fd6`): safe for local use — **with the two exclusions below** |
+| **Security** | Scan before adoption and on every update (same standard as the MCP bridge). Verdict for the reviewed revision (`3b9c5cd`, re-audited `4f45fd6 → 3b9c5cd`: README/example-workflow additions + a behavior-preserving RoPE import-compat shim, no node/API changes): safe for local use — **with the two exclusions below** |
 
 ### Excluded nodes (do not use)
 - **`GemmaAPITextEncode`** — sends prompts to a Lightricks cloud endpoint. Use

@@ -5,7 +5,9 @@
       "args": ["/c", "npx", "-y", "comfyui-mcp@0.18.0"],
       "env": {
         "COMFYUI_URL": "${COMFYUI_URL:-http://127.0.0.1:8000}",
-        "NPM_CONFIG_INCLUDE": "optional"
+        "NPM_CONFIG_INCLUDE": "optional",
+        "COMFYUI_MCP_AUTOUPDATE": "0",
+        "COMFYUI_MCP_PANEL_AUTOINSTALL": "0"
       },
       "timeout": 600000
     },
@@ -20,7 +22,7 @@
     },
     "freecad": {
       "command": "cmd",
-      "args": ["/c", "uvx", "--from", "git+https://github.com/neka-nat/freecad-mcp@1697aff", "freecad-mcp", "--host", "127.0.0.1"],
+      "args": ["/c", "uvx", "--from", "git+https://github.com/neka-nat/freecad-mcp@4c3f2ef", "freecad-mcp", "--host", "127.0.0.1"],
       "timeout": 600000
     }
   }
