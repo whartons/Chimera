@@ -13,7 +13,8 @@
 > across 2D images, 3D meshes, and parametric CAD (where an LLM even writes and revises FreeCAD scripts
 > until the render passes).
 
-Run it two ways: as a pip-installable **`chimera`** CLI you drive yourself, or through pinned,
+Run it two ways: as a **`chimera`** CLI you drive yourself (editable install from this repo —
+`pip install -e .`; the workflow templates live in the checkout), or through pinned,
 security-audited **MCP bridges** that let an AI assistant drive the tools for you. Image, video, audio, 3D,
 Blender-render, and FreeCAD-CAD all run headless from one core — no brand and no assistant required
 (`chimera image --subject "…"` just works). The judge/codegen backend is provider-agnostic (any

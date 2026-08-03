@@ -219,6 +219,16 @@ def _prepare_3d(args, m, brand_dir, client, ap):
             "octree": args.octree, "model": args.model}
 
 
+def _check_repo_layout(repo_root, ap):
+    """Fail fast when running outside a repo checkout. The CLI resolves workflow templates and
+    brands/_template relative to its own file, which only works from a git clone / editable
+    install — a plain `pip install .` copies just the scripts package into site-packages."""
+    if not (Path(repo_root) / "workflows" / "templates").is_dir():
+        ap.error(f"no workflows/templates found at {repo_root} — chimera must run from a repo "
+                 "checkout: git clone + `pip install -e .` (a non-editable install doesn't "
+                 "package the templates)")
+
+
 def _supports_watermark(modality, mode):
     if modality == "image":
         return mode != "logo"
@@ -920,6 +930,7 @@ def main():
     args = ap.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
+    _check_repo_layout(repo_root, ap)
     if args.modality == "new-brand":
         from scripts.brandkit.scaffold import new_brand
         try:
