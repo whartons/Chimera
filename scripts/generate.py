@@ -29,8 +29,9 @@ from scripts.brandkit import workflow as image_filler
 from scripts.brandkit import video as video_filler
 from scripts.brandkit import audio as audio_filler
 from scripts.brandkit import threed as threed_filler
-from scripts.brandkit.comfy import ComfyClient
+from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.outputs import route_output, select_output, NoOutputError, write_sidecar
+from scripts.brandkit.provenance import git_provenance  # re-exported; historical home was here
 from scripts.brandkit.sidecar import build_meta
 import tempfile, shutil
 from scripts.brandkit import blender as blender_runner
@@ -96,7 +97,7 @@ def _add_common(sp):
     sp.add_argument("--brand", default=None,
                     help="optional brand (brands/<brand>/); omit to generate brandlessly -> outputs/")
     sp.add_argument("--seed", type=int, default=None)
-    sp.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    sp.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     sp.add_argument("--comfy-output-dir", default=None)
     sp.add_argument("--watermark", action="store_true", help="stamp the brand logo (opt-in)")
     sp.add_argument("--out-name", default=None, help="(reserved; output is named <brand>_<mode>_<seed>)")
@@ -239,25 +240,6 @@ def _supports_watermark(modality, mode):
     return False
 
 
-def git_provenance(repo_root):
-    """Best-effort short provenance of the pipeline repo at render time: the HEAD commit (short),
-    suffixed `-dirty` if the working tree has uncommitted changes. None when it isn't a git repo or
-    git is absent — so a tarball/non-git install still renders. Recorded in the sidecar so a render
-    traces back to the exact pipeline code that produced it. Best-effort: never raises."""
-    import subprocess
-    try:
-        rev = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
-                             capture_output=True, text=True, timeout=5)
-        if rev.returncode != 0:
-            return None
-        sha = rev.stdout.strip()
-        st = subprocess.run(["git", "-C", str(repo_root), "status", "--porcelain"],
-                            capture_output=True, text=True, timeout=5)
-        return sha + ("-dirty" if st.stdout.strip() else "")
-    except Exception:
-        return None
-
-
 def _resolve_model_used(args, m):
     """The model filename the graph ACTUALLY loaded — asked of the filler that decided it, so the
     sidecar can never drift from the built graph (single source of truth, B6). Pure."""
@@ -326,7 +308,7 @@ def _args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None
         mode=data.get("mode"),
         brand=data["brand"],
         seed=seed if seed is not None else data.get("seed"),
-        comfy_url=comfy_url or data.get("comfy_url") or "http://127.0.0.1:8000",
+        comfy_url=comfy_url or data.get("comfy_url") or DEFAULT_COMFY_URL,
         comfy_output_dir=comfy_output_dir,  # host path, not stored; only relocates if passed
         watermark=bool(data.get("watermark", False)),
         out_name=None, timeout=None, free_before=None,
@@ -883,7 +865,7 @@ def main():
                     help="(--auto-repaint) depth-ControlNet strength")
     ft.add_argument("--ip-weight", dest="ip_weight", type=float, default=0.8,
                     help="(--auto-repaint) IPAdapter weight (identity strength)")
-    ft.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    ft.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     ft.add_argument("--comfy-output-dir", default=None,
                     help="(--auto-repaint) where ComfyUI writes outputs (to collect repainted views)")
     cd = sub.add_parser("cad",
@@ -922,10 +904,10 @@ def main():
     lt.add_argument("--brand", required=True)
     dr = sub.add_parser("doctor", help="preflight: check ComfyUI, node packs, models, and a brand")
     dr.add_argument("--brand", default=None, help="also check this brand's manifest/assets/model")
-    dr.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    dr.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     uc = sub.add_parser("update-check",
                         help="report available updates (chimera repo, ComfyUI, pip deps, node packs)")
-    uc.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    uc.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     uc.add_argument("--no-network", action="store_true", help="skip the GitHub release lookup")
     args = ap.parse_args()
 

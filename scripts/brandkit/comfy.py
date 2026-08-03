@@ -3,9 +3,11 @@ from __future__ import annotations
 import json, time, urllib.error, urllib.request
 from pathlib import Path
 
+DEFAULT_URL = "http://127.0.0.1:8000"
+
 
 class ComfyClient:
-    def __init__(self, base_url="http://127.0.0.1:8000", timeout=30):
+    def __init__(self, base_url=DEFAULT_URL, timeout=30):
         self.base = base_url.rstrip("/")
         self.timeout = timeout
 

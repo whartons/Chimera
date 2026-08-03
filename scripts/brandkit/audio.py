@@ -2,17 +2,10 @@
 title. Dispatches on `mode`. LOCAL ONLY for foley — uses ONLY the registered HunyuanFoley nodes
 + safetensors weights, never the pack's bundled CLI scripts (torch.load pickle-RCE)."""
 from __future__ import annotations
-import json
-from pathlib import Path
-from copy import deepcopy
-from .nodes import find_node_by_title
+from .nodes import load_template as _load, node as _n
 
 DEFAULT_MUSIC_MODEL = "acestep_v1.5_xl_turbo_bf16.safetensors"
 DEFAULT_FOLEY_MODEL = "hunyuanvideo_foley_fp8_e4m3fn.safetensors"
-
-
-def _n(wf, title):
-    return find_node_by_title(wf, title)[1]
 
 
 def resolved_model(manifest, mode="music", model=None):
@@ -23,11 +16,6 @@ def resolved_model(manifest, mode="music", model=None):
     if mode == "foley":
         return model or a.foley_model or DEFAULT_FOLEY_MODEL
     return model or a.music_model or DEFAULT_MUSIC_MODEL
-
-
-def _load(repo_root, name):
-    p = Path(repo_root) / "workflows" / "templates" / name
-    return deepcopy(json.loads(p.read_text(encoding="utf-8")))
 
 
 def _build_music(repo_root, manifest, *, positive, seed, duration=None, bpm=None,
