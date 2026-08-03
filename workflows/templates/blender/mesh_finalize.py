@@ -2,7 +2,8 @@
 (_common.bake_multiview) -> export a textured GLB -> render orbit verification stills. Params:
 {mesh, view_images:[...], azimuths:[...], out_dir, stem, samples, res:[w,h], seed, elevation,
 back_fill, palette, texture_res}. The corrected views are supplied by the caller (an artist's paints,
-or — roadmap — the ComfyUI depth-ControlNet+IPAdapter repaint backend). Cycles only."""
+or the SHIPPED ComfyUI depth-ControlNet+IPAdapter auto-repaint backend — `finalize-texture
+--auto-repaint`, scripts/brandkit/repaint.py). Cycles only."""
 import bpy, sys, os, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as C

@@ -13,7 +13,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
         comfy["ComfyUI 0.26.2 (engine + models)"]
-        packs["pinned node packs: LTXVideo · Foley · QwenVL · IPAdapter"]
+        packs["pinned node packs: LTXVideo · Foley · IPAdapter"]
         comfy --- packs
     end
     subgraph chimera["chimera (this repo) — Python 3.12, pyyaml"]
@@ -41,7 +41,7 @@ The `chimera` package (**v0.4.0**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (515 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (552 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -118,13 +118,13 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 ## 6 · CI / GitHub Actions
 | Action | Version | Role |
 |--------|---------|------|
-| `actions/checkout` | `v6` | checkout |
+| `actions/checkout` | `v7` | checkout |
 | `actions/setup-python` | `v6` | Python 3.12 + pip cache |
 | `codecov/codecov-action` | `v7` | coverage upload (**non-blocking**; `continue-on-error`) |
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (515 tests local; 508 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (552 tests local; 545 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 
