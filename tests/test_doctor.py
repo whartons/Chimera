@@ -42,22 +42,55 @@ def test_available_models_extracts_dropdown_enum():
     assert doctor._available_models(oi) == {"a.safetensors", "b.safetensors"}
 
 
+def test_repaint_class_types_derived_from_builder():
+    # the Phase-4b auto-repaint graph is built inline (no tracked template) — its node types must
+    # be derivable for doctor, sourced from the builder itself so they can never drift
+    types = doctor._repaint_class_types()
+    assert "IPAdapterAdvanced" in types and "ControlNetApplyAdvanced" in types
+
+
+def test_doctor_checks_repaint_graph_nodes():
+    # a box with every TEMPLATE node type but no IPAdapter pack must warn — otherwise
+    # finalize-texture --auto-repaint dies mid-run after the Blender depth renders completed
+    types = doctor._template_class_types(ROOT)
+    results = doctor.run_checks(
+        FakeClient(stats={"system": {"comfyui_version": "v1"}}, object_info=_oi(types)), ROOT)
+    assert not any(lvl == "ok" and "node types are installed" in msg for lvl, msg in results)
+    assert any("IPAdapterAdvanced" in msg for _, msg in results)
+
+
+def test_doctor_loads_brand_manifest_once(monkeypatch):
+    # run_checks previously parsed brand.yaml twice (lint + model checks) — pin the single load
+    from scripts.brandkit import scaffold, manifest as mf
+    calls = []
+    real = mf.load_manifest
+    def counting(p):
+        calls.append(p)
+        return real(p)
+    monkeypatch.setattr(doctor, "load_manifest", counting)
+    monkeypatch.setattr(scaffold, "load_manifest", counting)
+    types = doctor._required_class_types(ROOT)
+    doctor.run_checks(FakeClient(stats={"system": {}}, object_info=_oi(types)), ROOT,
+                      brand="example-brand")
+    assert len(calls) == 1
+
+
 def test_doctor_unreachable_reports_fail_and_skips_node_check():
     results = doctor.run_checks(FakeClient(stats_raises=True), ROOT)
     assert results[0][0] == "fail" and "not reachable" in results[0][1]
     assert not any("node type" in msg for _, msg in results)   # node/model checks skipped
 
 
-def test_doctor_all_template_nodes_present_and_version_shown():
-    types = doctor._template_class_types(ROOT)
+def test_doctor_all_required_nodes_present_and_version_shown():
+    types = doctor._required_class_types(ROOT)   # templates + the inline repaint graph
     results = doctor.run_checks(
         FakeClient(stats={"system": {"comfyui_version": "v0.24.1"}}, object_info=_oi(types)), ROOT)
-    assert ("ok", "all workflow-template node types are installed") in results
+    assert ("ok", "all required workflow node types are installed") in results
     assert any(lvl == "ok" and "reachable (v0.24.1)" in msg for lvl, msg in results)
 
 
 def test_doctor_missing_node_type_warns():
-    types = doctor._template_class_types(ROOT)
+    types = doctor._required_class_types(ROOT)
     one = sorted(types)[0]
     results = doctor.run_checks(
         FakeClient(stats={"system": {}}, object_info=_oi(types - {one})), ROOT)

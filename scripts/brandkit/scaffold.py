@@ -34,15 +34,19 @@ def new_brand(repo_root, name) -> Path:
     return dest
 
 
-def lint_brand(repo_root, brand) -> list[tuple[str, str]]:
+def lint_brand(repo_root, brand, manifest=None) -> list[tuple[str, str]]:
     """Validate brands/<brand>/brand.yaml and check referenced assets. Returns a checklist of
-    (level, message) where level in {ok, warn, fail, info}. Reads files; never prints."""
+    (level, message) where level in {ok, warn, fail, info}. Reads files; never prints.
+    Pass an already-loaded `manifest` to skip re-parsing brand.yaml (doctor shares its load)."""
     brand_dir = Path(repo_root) / "brands" / brand
     yaml_path = brand_dir / "brand.yaml"
-    try:
-        m = load_manifest(yaml_path)
-    except ManifestError as e:
-        return [("fail", f"brand.yaml did not load: {e}")]
+    if manifest is not None:
+        m = manifest
+    else:
+        try:
+            m = load_manifest(yaml_path)
+        except ManifestError as e:
+            return [("fail", f"brand.yaml did not load: {e}")]
 
     out: list[tuple[str, str]] = [("ok", f"brand.yaml loaded (name: {m.name!r})")]
 

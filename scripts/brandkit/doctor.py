@@ -29,6 +29,22 @@ def _template_class_types(repo_root):
     return types
 
 
+def _repaint_class_types():
+    """Node class_types of the Phase-4b auto-repaint graph — built inline by repaint.build (no
+    tracked template), so derive them from a dummy build; they can never drift from the builder."""
+    from .repaint import build
+    wf = build(depth_image="d.png", concept_image="c.png", positive="p", seed=0,
+               prev_view_image="v.png")
+    return {n["class_type"] for n in wf.values()}
+
+
+def _required_class_types(repo_root):
+    """Everything a full pipeline run can queue: the tracked templates PLUS the inline
+    auto-repaint graph (finalize-texture --auto-repaint would otherwise fail mid-run on a box
+    doctor had just called healthy)."""
+    return _template_class_types(repo_root) | _repaint_class_types()
+
+
 def _available_models(object_info):
     """Every model filename ComfyUI offers across loader nodes — so a brand's model can be checked
     as actually installed. ComfyUI encodes a dropdown as [[choice, ...], {...}]; the first element
@@ -71,39 +87,40 @@ def run_checks(client, repo_root, brand=None):
         except Exception:
             out.append(("warn", "couldn't read /object_info - skipping node + model checks"))
     if object_info is not None:
-        missing = sorted(_template_class_types(repo_root) - set(object_info))
+        missing = sorted(_required_class_types(repo_root) - set(object_info))
         if missing:
-            out.append(("warn", f"{len(missing)} workflow-template node type(s) not installed - "
+            out.append(("warn", f"{len(missing)} required workflow node type(s) not installed - "
                                 "these belong to optional modality packs; install only the ones you "
                                 f"need (see docs/CATALOG.md): {', '.join(missing)}"))
         else:
-            out.append(("ok", "all workflow-template node types are installed"))
+            out.append(("ok", "all required workflow node types are installed"))
 
-    # 3. brand manifest + assets (reuse the lint checklist verbatim), then 4. its models
+    # 3. brand manifest + assets (reuse the lint checklist verbatim), then 4. its models.
+    # Load the manifest ONCE and share it with lint; on a load failure lint reports it.
     if brand:
-        out.extend(lint_brand(repo_root, brand))
-        if object_info is not None:
-            try:
-                m = load_manifest(Path(repo_root) / "brands" / brand / "brand.yaml")
-                avail = _available_models(object_info)
-                model = m.defaults.model
-                if model and model in avail:
-                    out.append(("ok", f"defaults.model installed in ComfyUI ({model})"))
-                elif model:
-                    out.append(("warn", f"defaults.model not found in ComfyUI ({model}) - download "
-                                        "it into the right models/ folder (see modules/image/models.md)"))
-                # also verify any explicitly-configured non-image modality models
-                for label, mdl in (("video", m.video.model), ("audio.music", m.audio.music_model),
-                                   ("audio.foley", m.audio.foley_model), ("3d", m.threed.model)):
-                    if not mdl:
-                        continue
-                    if mdl in avail:
-                        out.append(("ok", f"{label} model installed in ComfyUI ({mdl})"))
-                    else:
-                        out.append(("warn", f"{label} model not found in ComfyUI ({mdl}) - "
-                                            "needed only if you use this modality"))
-            except ManifestError:
-                pass  # lint_brand already reported the manifest problem
+        try:
+            m = load_manifest(Path(repo_root) / "brands" / brand / "brand.yaml")
+        except ManifestError:
+            m = None
+        out.extend(lint_brand(repo_root, brand, manifest=m))
+        if object_info is not None and m is not None:
+            avail = _available_models(object_info)
+            model = m.defaults.model
+            if model and model in avail:
+                out.append(("ok", f"defaults.model installed in ComfyUI ({model})"))
+            elif model:
+                out.append(("warn", f"defaults.model not found in ComfyUI ({model}) - download "
+                                    "it into the right models/ folder (see modules/image/models.md)"))
+            # also verify any explicitly-configured non-image modality models
+            for label, mdl in (("video", m.video.model), ("audio.music", m.audio.music_model),
+                               ("audio.foley", m.audio.foley_model), ("3d", m.threed.model)):
+                if not mdl:
+                    continue
+                if mdl in avail:
+                    out.append(("ok", f"{label} model installed in ComfyUI ({mdl})"))
+                else:
+                    out.append(("warn", f"{label} model not found in ComfyUI ({mdl}) - "
+                                        "needed only if you use this modality"))
 
     # 5. optional host helpers (used by generate.py; graceful fallbacks exist, so info not fail)
     for mod, pkg, why in (("PIL", "pillow", "non-PNG logo sizing"),
