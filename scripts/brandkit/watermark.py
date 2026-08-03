@@ -24,7 +24,8 @@ def logo_geometry(canvas, *, logo_px, scale, margin, position):
 def _inject_watermark(wf, *, manifest, logo_name, canvas, logo_px, sink_title,
                       sink_input="images", frames_title="brand:decode"):
     """Composite the brand logo (LoadImage mask, scaled) over the frame-source node, then rewire
-    the sink node's image input to the composite. Ids 90-96 are reserved for watermark nodes."""
+    the sink node's image input to the composite. watermark.opacity < 1.0 adds an ImageBlend of
+    the clean frames with the composite (blend_factor = opacity). Ids 90-97 are reserved."""
     if not logo_name:
         raise ValueError("watermark requested but no brand logo to stamp")
     w = manifest.watermark
@@ -44,7 +45,13 @@ def _inject_watermark(wf, *, manifest, logo_name, canvas, logo_px, sink_title,
     wf["96"] = {"class_type": "ImageCompositeMasked", "_meta": {"title": "brand:watermark_composite"},
                 "inputs": {"destination": [frames_id, 0], "source": ["91", 0],
                            "x": x, "y": y, "resize_source": False, "mask": ["95", 0]}}
-    sink["inputs"][sink_input] = ["96", 0]
+    out = ["96", 0]
+    if w.opacity < 1.0:
+        wf["97"] = {"class_type": "ImageBlend", "_meta": {"title": "brand:watermark_blend"},
+                    "inputs": {"image1": [frames_id, 0], "image2": ["96", 0],
+                               "blend_factor": w.opacity, "blend_mode": "normal"}}
+        out = ["97", 0]
+    sink["inputs"][sink_input] = out
     return wf
 
 
