@@ -156,6 +156,17 @@ def test_resolve_sidecar_inputs_video_uses_video_resolver():
     assert inp["upscale_model"] == video_filler.resolved_upscale_model(M, "cli.safetensors")
 
 
+def test_resolve_sidecar_inputs_video_records_resolved_dims_and_audio():
+    # with the CLI flags unset (None), the sidecar must record the RESOLVED values (manifest
+    # fallback chain) so replay reproduces the render even if the brand.yaml changes later
+    inp = generate._resolve_sidecar_inputs(
+        _args_ns(modality="video", mode="i2v", from_image="r.png", length=None, fps=None,
+                 width=None, height=None, audio=None), M)
+    assert inp["length"] == M.video.length and inp["fps"] == M.video.fps
+    assert inp["width"] == M.video.width and inp["height"] == M.video.height
+    assert inp["audio"] == M.video.audio
+
+
 def test_resolve_sidecar_inputs_3d_records_resolved_format():
     inp = generate._resolve_sidecar_inputs(
         _args_ns(modality="3d", mode="image", from_image="r.png", octree=256), M, fmt="stl")

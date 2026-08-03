@@ -45,16 +45,17 @@ The filler reads the active brand's `brand.yaml` `video:` block for defaults:
 
 ```yaml
 video:
-  model: ltx-2.3-22b-dev-nvfp4      # checkpoint name (no extension needed)
-  lora: ltx-2.3-22b-distilled-lora-384-1.1   # distilled LoRA
+  model: ltx-2.3-22b-dev-nvfp4.safetensors   # checkpoint FILENAME (passed verbatim to the loaders)
   width: 768
   height: 512
   length: 97                          # frames
   fps: 25
-  audio: true
+  audio: true                          # false = skip the synced-audio path (like --no-audio)
+  upscale_model: ltx-2.3-spatial-upscaler-x2-1.1.safetensors   # optional --upscale override
 ```
 
-Override any key on the CLI; the CLI flag always wins over `brand.yaml`.
+Override any key on the CLI; an explicit CLI flag always wins over `brand.yaml`, and a brand
+without a `video:` block falls back to the values above (768×512 · 97 frames · 25 fps · audio on).
 
 ## How it works
 
