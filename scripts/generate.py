@@ -382,12 +382,13 @@ def run(args, repo_root, ap):
     print(f"queued {pid} (modality={args.modality} brand={args.brand or '-'} mode={args.mode} seed={seed})")
     timeout = args.timeout or TIMEOUTS[args.modality]
     try:
-        client.wait(pid, max_wait=timeout)
+        hist = client.wait(pid, max_wait=timeout)
     except (RuntimeError, TimeoutError) as e:
         print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
     try:
-        # anchor on the graph's titled brand:save node, not output-dict order
-        fname, subfolder, _ = select_output(client, pid, wf)
+        # anchor on the graph's titled brand:save node, not output-dict order; reuse wait()'s
+        # history record instead of re-fetching it
+        fname, subfolder, _ = select_output(client, pid, wf, history=hist)
     except NoOutputError as e:
         print(str(e), file=sys.stderr); sys.exit(1)
 

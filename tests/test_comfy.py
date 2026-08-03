@@ -19,6 +19,30 @@ def test_queue_prompt_posts_and_returns_id(monkeypatch):
     assert captured["url"].endswith("/prompt")
     assert "prompt" in captured["body"]
 
+def test_queue_prompt_surfaces_validation_detail_on_http_400(monkeypatch):
+    # ComfyUI answers validation failures with HTTP 400 + per-node detail in the BODY; the
+    # client must surface that detail, not a bare urllib HTTPError
+    import urllib.error
+    body = json.dumps({"error": {"type": "prompt_outputs_failed_validation"},
+                       "node_errors": {"5": {"errors": [{"message": "value not in list"}]}}}).encode()
+    def fake_urlopen(req, timeout=0):
+        raise urllib.error.HTTPError("http://x/prompt", 400, "Bad Request", {}, io.BytesIO(body))
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError, match="value not in list"):
+        comfy.ComfyClient("http://x").queue_prompt({"1": {}})
+
+
+def test_output_files_by_node_reuses_passed_history(monkeypatch):
+    # wait() already returned the full history record — a caller passing it must not trigger
+    # a second /history fetch
+    hist = {"pid": {"outputs": {"9": {"images": [{"filename": "a.png"}]}}}}
+    def no_net(req, timeout=0):
+        raise AssertionError("must not re-fetch /history when history is passed")
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", no_net)
+    out = comfy.ComfyClient("http://x").output_files_by_node("pid", history=hist)
+    assert out == [("9", "a.png", "", "output")]
+
+
 def test_upload_image_posts_multipart_and_returns_name(monkeypatch, tmp_path):
     img = tmp_path / "primary.png"; img.write_bytes(b"\x89PNG\r\n\x1a\nDATA")
     captured = {}
