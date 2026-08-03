@@ -456,6 +456,13 @@ def run_render(args, repo_root, ap):
     brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
     if args.mode == "finish" and args.color == "project" and not args.project_image:
         ap.error("--color project needs --project-image <file>")
+    if args.mode == "finish":
+        # host-side validation like the cad path: mesh_finish.py only exports these — anything
+        # else would silently exit 0 with no export
+        bad = [f for f in (x.strip().lower() for x in args.formats.split(",")) if f and f not in ("stl", "glb")]
+        if bad:
+            ap.error(f"render --mode finish supports --formats stl,glb (got {','.join(bad)}); "
+                     "for step/obj use `generate.py cad --mode convert`")
     seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
     if args.mode in ("mesh", "finish"):
         subdirs = ("outputs/3d", "outputs", "products", "references")

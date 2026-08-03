@@ -14,14 +14,23 @@ scn.cycles.seed = int(p.get("seed", 0))
 scn.render.resolution_x, scn.render.resolution_y = int(p["res"][0]), int(p["res"][1])
 
 obj = C.import_mesh(p["mesh"])
-# CAD STLs (and any material-less import) carry no material -> Cycles renders them flat/near-black; give a
-# neutral clay so the judge sees clean geometry. Hunyuan GLBs keep their own (vertex-colour) material.
-if not obj.data.materials:
+
+
+def _apply_clay(o):
+    # Neutral grey clay so the judge sees clean geometry. Also the recovery material when a
+    # failed bake leaves a half-built emission node tree (which renders black).
+    o.data.materials.clear()
     _cm = bpy.data.materials.new("Clay"); _cm.use_nodes = True
     _cb = _cm.node_tree.nodes["Principled BSDF"]
     _cb.inputs["Base Color"].default_value = (0.72, 0.72, 0.74, 1)
     _cb.inputs["Roughness"].default_value = 0.6
-    obj.data.materials.append(_cm)
+    o.data.materials.append(_cm)
+
+
+# Material-less imports (CAD STLs AND Hunyuan3D GLBs — Hunyuan output has no materials, textures,
+# or vertex colors; see modules/threed/models.md) render flat/near-black in Cycles without this.
+if not obj.data.materials:
+    _apply_clay(obj)
 # centre the origin on the geometry bounds so Z-rotation orbits in place (stays framed/on floor)
 bpy.ops.object.select_all(action='DESELECT')
 obj.select_set(True)
@@ -87,6 +96,9 @@ if p.get("texture") and p.get("asset"):
         textured, textured_glb = True, glb
     except Exception as exc:  # bake is new bpy surface — fall back to grey clay, report it
         print("mesh_eval: bake_albedo failed, falling back to grey clay:", exc, file=sys.stderr)
+        # a partway-failed bake leaves a broken emission material on the mesh, which renders
+        # BLACK — actually restore the promised clay before the orbit stills
+        _apply_clay(obj)
 
 # --- N orbit stills (rotate the object about Z; origin is centred so it stays framed) ---
 views = int(p.get("views", 4))

@@ -29,6 +29,17 @@ def test_finish_project_passes_image():
     assert p["asset"] == "/x/c.png"
 
 
+def test_finish_rejects_unsupported_formats(monkeypatch):
+    # mesh_finish.py only exports stl/glb — an unsupported format must be a clean host-side
+    # ap.error (like the cad path), not a silent exit-0 run with no export
+    a = _args(mode="finish", formats="obj")
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: Path("/x/m.glb"))
+    monkeypatch.setattr(G.blender_runner, "run_template",
+                        lambda *x, **k: pytest.fail("blender must not run on invalid --formats"))
+    with pytest.raises(SystemExit):
+        G.run_render(a, Path("/tmp"), argparse.ArgumentParser())
+
+
 def test_finish_project_requires_image(monkeypatch):
     a = _args(mode="finish", color="project", project_image=None)
     monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: Path("/x/m.glb"))
