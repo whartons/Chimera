@@ -45,6 +45,36 @@ def test_run_template_raises_when_no_manifest(tmp_path):
         B.run_template(tmpl, {}, blender_bin="blender", _runner=runner)
 
 
+def test_run_template_wraps_corrupt_manifest_json(tmp_path):
+    # a corrupt/interleaved manifest line must surface as BlenderJobError (the runner contract),
+    # not escape as a raw JSONDecodeError — parity with the FreeCAD runner
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    runner = lambda argv, **kw: _fake_proc(stdout="@@CHIMERA_MANIFEST@@ {not json")
+    with pytest.raises(B.BlenderJobError, match="not valid JSON"):
+        B.run_template(tmpl, {}, blender_bin="blender", _runner=runner)
+
+
+def test_run_template_no_manifest_surfaces_stderr(tmp_path):
+    # blender prints script errors to stderr while exiting 0 — the no-manifest error must carry
+    # stderr so callers (and the mesh3d loop) can see WHY the template died
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    runner = lambda argv, **kw: _fake_proc(stdout="clean exit",
+                                           stderr="AttributeError: bad bpy call")
+    with pytest.raises(B.BlenderJobError, match="AttributeError"):
+        B.run_template(tmpl, {}, blender_bin="blender", _runner=runner)
+
+
+def test_find_blender_globs_newest_default_install(monkeypatch, tmp_path):
+    # default Windows discovery must survive version drift (5.2+), like the FreeCAD runner's glob
+    monkeypatch.delenv("BLENDER_BIN", raising=False)
+    monkeypatch.setattr(B.shutil, "which", lambda n: None)
+    for ver in ("5.1", "5.2"):
+        d = tmp_path / f"Blender {ver}"; d.mkdir()
+        (d / "blender.exe").write_bytes(b"")
+    monkeypatch.setattr(B, "_DEFAULT_GLOB", str(tmp_path / "Blender *" / "blender.exe"))
+    assert B.find_blender().replace("\\", "/").endswith("Blender 5.2/blender.exe")
+
+
 def test_find_blender_prefers_env(monkeypatch):
     monkeypatch.setenv("BLENDER_BIN", "C:/custom/blender.exe")
     monkeypatch.setattr(B.shutil, "which", lambda n: None)
@@ -60,6 +90,6 @@ def test_find_blender_uses_path(monkeypatch):
 def test_find_blender_raises_when_absent(monkeypatch):
     monkeypatch.delenv("BLENDER_BIN", raising=False)
     monkeypatch.setattr(B.shutil, "which", lambda n: None)
-    monkeypatch.setattr(B.os.path, "exists", lambda p: False)
+    monkeypatch.setattr(B.glob, "glob", lambda p: [])
     with pytest.raises(B.BlenderJobError):
         B.find_blender()
