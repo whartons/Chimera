@@ -264,6 +264,15 @@ def _resolve_sidecar_inputs(args, m, fmt=None):
                     else video_filler.resolved_upscale_model)
         inputs["upscale"] = True if args.upscale else None
         inputs["upscale_model"] = resolver(m, args.upscale_model) if args.upscale else None
+    if args.modality == "video":
+        # record RESOLVED dims/audio (CLI flag, else brand video: block, else filler default) so
+        # replay reproduces the render even if the brand.yaml changes later
+        v = m.video
+        inputs["length"] = args.length or v.length
+        inputs["fps"] = args.fps or v.fps
+        inputs["width"] = args.width or v.width
+        inputs["height"] = args.height or v.height
+        inputs["audio"] = v.audio if args.audio is None else args.audio
     if args.modality == "3d":
         inputs["format"] = fmt
     return inputs
@@ -762,11 +771,13 @@ def main():
     vid.add_argument("--from-image", dest="from_image", required=True,
                      help="start frame: a file in brands/<brand>/products/ or references/")
     vid.add_argument("--mode", choices=["i2v"], default="i2v")
-    vid.add_argument("--length", type=int, default=97)
-    vid.add_argument("--fps", type=int, default=25)
-    vid.add_argument("--width", type=int, default=768)
-    vid.add_argument("--height", type=int, default=512)
-    vid.add_argument("--audio", dest="audio", action="store_true", default=True)
+    # defaults stay None so the brand.yaml video: block wins; the filler falls back 97/25/768x512/on
+    vid.add_argument("--length", type=int, default=None, help="frames (default: brand video.length, else 97)")
+    vid.add_argument("--fps", type=int, default=None, help="default: brand video.fps, else 25")
+    vid.add_argument("--width", type=int, default=None, help="default: brand video.width, else 768")
+    vid.add_argument("--height", type=int, default=None, help="default: brand video.height, else 512")
+    vid.add_argument("--audio", dest="audio", action="store_true", default=None,
+                     help="force synced audio on (default: brand video.audio, else on)")
     vid.add_argument("--no-audio", dest="audio", action="store_false")
     vid.add_argument("--upscale", action="store_true",
                      help="2x LTX spatial latent upscale (temporally coherent; precedes watermark)")

@@ -52,7 +52,7 @@ def _inject_video_upscale(wf, model_name):
 
 
 def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
-          from_image=None, length=None, fps=None, audio=True, width=None, height=None,
+          from_image=None, length=None, fps=None, audio=None, width=None, height=None,
           model=None, watermark_logo=None, logo_px=None, upscale=False, upscale_model=None,
           **opts) -> dict:
     v = manifest.video
@@ -61,6 +61,7 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
     height = height or v.height
     length = length or v.length
     fps = fps or v.fps
+    audio = v.audio if audio is None else audio   # None = CLI gave no flag -> brand video.audio
     if not from_image:
         raise ValueError("video i2v requires from_image")
 

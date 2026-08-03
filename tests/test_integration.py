@@ -180,6 +180,18 @@ def test_main_dispatches_image_to_run(monkeypatch):
     assert captured == {"mod": "image", "subj": "a rover"}
 
 
+def test_main_video_flags_default_to_none_so_brand_video_block_wins(monkeypatch):
+    # the video subparser must NOT bake hard defaults (97/25/768/512/True): they'd shadow the
+    # documented brand.yaml video: block, making it dead config
+    captured = {}
+    monkeypatch.setattr(generate, "run", lambda args, repo_root, ap: captured.update(vars(args)))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "video", "--brand", "b", "--subject", "s",
+                                      "--from-image", "x.png"])
+    generate.main()
+    assert (captured["length"], captured["fps"], captured["width"], captured["height"],
+            captured["audio"]) == (None, None, None, None, None)
+
+
 def test_main_replay_reads_sidecar_then_runs(monkeypatch, tmp_path):
     sidecar = tmp_path / "s.json"
     sidecar.write_text(json.dumps({
