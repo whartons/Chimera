@@ -80,16 +80,19 @@ def first_output(files, prefer_node_id=None):
     return files[0]
 
 
-def select_output(client, prompt_id, wf, save_title="brand:save"):
+def select_output(client, prompt_id, wf, save_title="brand:save", history=None):
     """Pick the canonical output file for a finished prompt, anchored on the node titled
     `save_title` so a multi-save graph still routes the intended render rather than whatever
     ComfyUI listed first. Degrades to the legacy first-file behavior when the graph has no such
-    titled node. Returns (filename, subfolder, type) or raises NoOutputError."""
+    titled node. Returns (filename, subfolder, type) or raises NoOutputError. Pass the dict
+    wait() returned as `history` to spare a /history re-fetch (only forwarded when set, so
+    duck-typed test clients without the kwarg keep working)."""
+    hkw = {"history": history} if history else {}
     try:
         save_id, _ = find_node_by_title(wf, save_title)
     except NodeNotFound:
-        return first_output(client.output_filenames(prompt_id))
-    return first_output(client.output_files_by_node(prompt_id), prefer_node_id=save_id)
+        return first_output(client.output_filenames(prompt_id, **hkw))
+    return first_output(client.output_files_by_node(prompt_id, **hkw), prefer_node_id=save_id)
 
 
 def write_sidecar(output_path, meta: dict):
