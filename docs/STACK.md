@@ -119,7 +119,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | Action | Version | Role |
 |--------|---------|------|
 | `actions/checkout` | `v7` | checkout |
-| `actions/setup-python` | `v6` | Python 3.12 + pip cache |
+| `actions/setup-python` | `v7` | Python 3.12 + pip cache |
 | `codecov/codecov-action` | `v7` | coverage upload (**non-blocking**; `continue-on-error`) |
 | **CodeQL** | default setup | security scanning |
 
