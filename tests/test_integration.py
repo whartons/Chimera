@@ -131,6 +131,35 @@ def test_run_brandless_watermark_errors(tmp_path):
         generate.run(_img_args(brand=None, watermark=True), tmp_path, _Ap())
 
 
+def test_run_watermark_with_null_logo_default_errors(monkeypatch, tmp_path):
+    # the exact state new-brand scaffolds: logos/ DIR exists but logo.default is null.
+    # --watermark must produce the friendly ap.error, not a PermissionError on the directory.
+    class _Err(Exception):
+        pass
+    class _Ap:
+        def error(self, msg):
+            raise _Err(msg)
+    repo = _tmp_repo(tmp_path)
+    (repo / "brands" / "b" / "logos").mkdir()          # dir present, no logo file, no logo.default
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    with pytest.raises(_Err, match="logo"):
+        generate.run(_img_args(watermark=True), repo, _Ap())
+
+
+def test_prepare_image_passes_source_canvas_for_product_and_relight(monkeypatch, tmp_path):
+    # product/relight graphs render at the SOURCE image's native size (plain VAEEncode, no resize),
+    # so the watermark canvas must be the probed source size — not the brand defaults.
+    repo = _tmp_repo(tmp_path)
+    pdir = repo / "brands" / "b" / "products"; pdir.mkdir()
+    (pdir / "photo.png").write_bytes(b"fakepng")
+    monkeypatch.setattr(generate, "_image_size", lambda p: (1920, 1080))
+    m = generate.load_manifest(repo / "brands" / "b" / "brand.yaml")
+    for mode in ("product", "relight"):
+        fkw = generate._prepare_image(_img_args(mode=mode, asset="photo.png"),
+                                      m, repo / "brands" / "b", FakeComfy(), _StubAp())
+        assert fkw["canvas"] == (1920, 1080), mode
+
+
 def test_main_image_brandless_dispatches(monkeypatch):
     # --brand is now optional: `chimera image --subject ...` parses (brand=None) and dispatches
     captured = {}

@@ -132,11 +132,18 @@ def _prepare_image(args, m, brand_dir, client, ap):
         asset_path = _resolve_asset(brand_dir, args.asset,
                                     ("products", "references", "outputs/images"), ap, "relight --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        sz = _image_size(asset_path)
+        if sz:   # relight renders at the source's native size -> true watermark canvas
+            fkw["canvas"] = sz
     if args.mode in ("logo", "product"):
         subdir = "logos" if args.mode == "logo" else "products"
         asset_name = args.asset or (m.logo.default or "").split("/")[-1] or None
         asset_path = _resolve_asset(brand_dir, asset_name, (subdir,), ap, f"{args.mode} --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        if args.mode == "product":
+            sz = _image_size(asset_path)
+            if sz:   # product img2img renders at the source's native size -> true watermark canvas
+                fkw["canvas"] = sz
         if args.mode == "logo":
             sz = _image_size(asset_path)
             if sz:
@@ -346,8 +353,11 @@ def run(args, repo_root, ap):
     if do_watermark:
         logo_rel = (m.logo.default or "").split("/")[-1]
         logo_path = brand_dir / "logos" / logo_rel
-        if not logo_path.exists():
-            ap.error(f"--watermark needs a brand logo at brands/{args.brand}/logos/{logo_rel}")
+        # is_file(), not exists(): with logo.default unset logo_rel is "" and pathlib's empty
+        # join makes logo_path the logos/ DIRECTORY itself, which exists on every scaffolded brand
+        if not logo_rel or not logo_path.is_file():
+            ap.error(f"--watermark needs logo.default set in brand.yaml and the file present at "
+                     f"brands/{args.brand}/logos/ (logo.default is {m.logo.default!r})")
         fkw["watermark_logo"] = client.upload_image(logo_path)
         sz = _image_size(logo_path)
         if sz:
