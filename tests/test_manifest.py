@@ -122,3 +122,33 @@ def test_threed_defaults(tmp_path):
     p = tmp_path / "b.yaml"; p.write_text("name: B\n")
     t = load_manifest(p).threed
     assert t.model is None and t.format == "glb" and t.octree == 256 and t.steps == 30 and t.cfg == 5.0
+
+
+def test_subsection_wrong_type_raises_manifest_error(tmp_path):
+    # a YAML-quoted number must fail LOUDLY at load (and therefore in lint), not TypeError
+    # deep inside a filler at render time
+    p = tmp_path / "b.yaml"
+    p.write_text('name: B\ndefaults: { width: "1024" }\n', encoding="utf-8")
+    with pytest.raises(ManifestError, match="defaults.width"):
+        load_manifest(p)
+
+
+def test_subsection_bool_field_rejects_string(tmp_path):
+    p = tmp_path / "b.yaml"
+    p.write_text('name: B\nvideo: { audio: "yes" }\n', encoding="utf-8")
+    with pytest.raises(ManifestError, match="video.audio"):
+        load_manifest(p)
+
+
+def test_subsection_optional_str_field_rejects_number(tmp_path):
+    p = tmp_path / "b.yaml"
+    p.write_text("name: B\nvideo: { model: 3 }\n", encoding="utf-8")
+    with pytest.raises(ManifestError, match="video.model"):
+        load_manifest(p)
+
+
+def test_subsection_int_accepted_for_float_field(tmp_path):
+    # YAML `guidance: 4` (an int) is a valid float value — must load, coerced
+    p = tmp_path / "b.yaml"
+    p.write_text("name: B\ndefaults: { guidance: 4 }\n", encoding="utf-8")
+    assert load_manifest(p).defaults.guidance == 4.0

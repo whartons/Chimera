@@ -29,8 +29,9 @@ from scripts.brandkit import workflow as image_filler
 from scripts.brandkit import video as video_filler
 from scripts.brandkit import audio as audio_filler
 from scripts.brandkit import threed as threed_filler
-from scripts.brandkit.comfy import ComfyClient
+from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.outputs import route_output, select_output, NoOutputError, write_sidecar
+from scripts.brandkit.provenance import git_provenance  # re-exported; historical home was here
 from scripts.brandkit.sidecar import build_meta
 import tempfile, shutil
 from scripts.brandkit import blender as blender_runner
@@ -96,7 +97,7 @@ def _add_common(sp):
     sp.add_argument("--brand", default=None,
                     help="optional brand (brands/<brand>/); omit to generate brandlessly -> outputs/")
     sp.add_argument("--seed", type=int, default=None)
-    sp.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    sp.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     sp.add_argument("--comfy-output-dir", default=None)
     sp.add_argument("--watermark", action="store_true", help="stamp the brand logo (opt-in)")
     sp.add_argument("--out-name", default=None, help="(reserved; output is named <brand>_<mode>_<seed>)")
@@ -132,11 +133,21 @@ def _prepare_image(args, m, brand_dir, client, ap):
         asset_path = _resolve_asset(brand_dir, args.asset,
                                     ("products", "references", "outputs/images"), ap, "relight --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        sz = _image_size(asset_path)
+        if sz:   # relight renders at the source's native size -> true watermark canvas
+            fkw["canvas"] = sz
     if args.mode in ("logo", "product"):
         subdir = "logos" if args.mode == "logo" else "products"
-        asset_name = args.asset or (m.logo.default or "").split("/")[-1] or None
+        # only LOGO mode may fall back to logo.default; product must not silently pick up a
+        # products/ file that happens to share the logo's filename
+        logo_fallback = (m.logo.default or "").split("/")[-1] if args.mode == "logo" else None
+        asset_name = args.asset or logo_fallback or None
         asset_path = _resolve_asset(brand_dir, asset_name, (subdir,), ap, f"{args.mode} --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        if args.mode == "product":
+            sz = _image_size(asset_path)
+            if sz:   # product img2img renders at the source's native size -> true watermark canvas
+                fkw["canvas"] = sz
         if args.mode == "logo":
             sz = _image_size(asset_path)
             if sz:
@@ -164,7 +175,10 @@ def _probe_video(path):
         import av
     except ImportError:
         return None, None, None, None
-    c = av.open(str(path))
+    try:
+        c = av.open(str(path))
+    except Exception:                                 # corrupt / non-media file — best-effort
+        return None, None, None, None
     try:
         if not c.streams.video:                       # audio-only / no video track
             return None, None, None, None
@@ -174,6 +188,8 @@ def _probe_video(path):
         w, h = vs.codec_context.width, vs.codec_context.height
         dur = (frames / fr) if (frames and fr) else None
         return fr, dur, w, h
+    except Exception:                                 # unreadable stream metadata
+        return None, None, None, None
     finally:
         c.close()
 
@@ -204,6 +220,16 @@ def _prepare_3d(args, m, brand_dir, client, ap):
             "octree": args.octree, "model": args.model}
 
 
+def _check_repo_layout(repo_root, ap):
+    """Fail fast when running outside a repo checkout. The CLI resolves workflow templates and
+    brands/_template relative to its own file, which only works from a git clone / editable
+    install — a plain `pip install .` copies just the scripts package into site-packages."""
+    if not (Path(repo_root) / "workflows" / "templates").is_dir():
+        ap.error(f"no workflows/templates found at {repo_root} — chimera must run from a repo "
+                 "checkout: git clone + `pip install -e .` (a non-editable install doesn't "
+                 "package the templates)")
+
+
 def _supports_watermark(modality, mode):
     if modality == "image":
         return mode != "logo"
@@ -212,25 +238,6 @@ def _supports_watermark(modality, mode):
     if modality == "audio":
         return mode == "foley"   # music has no visual canvas
     return False
-
-
-def git_provenance(repo_root):
-    """Best-effort short provenance of the pipeline repo at render time: the HEAD commit (short),
-    suffixed `-dirty` if the working tree has uncommitted changes. None when it isn't a git repo or
-    git is absent — so a tarball/non-git install still renders. Recorded in the sidecar so a render
-    traces back to the exact pipeline code that produced it. Best-effort: never raises."""
-    import subprocess
-    try:
-        rev = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--short", "HEAD"],
-                             capture_output=True, text=True, timeout=5)
-        if rev.returncode != 0:
-            return None
-        sha = rev.stdout.strip()
-        st = subprocess.run(["git", "-C", str(repo_root), "status", "--porcelain"],
-                            capture_output=True, text=True, timeout=5)
-        return sha + ("-dirty" if st.stdout.strip() else "")
-    except Exception:
-        return None
 
 
 def _resolve_model_used(args, m):
@@ -257,6 +264,15 @@ def _resolve_sidecar_inputs(args, m, fmt=None):
                     else video_filler.resolved_upscale_model)
         inputs["upscale"] = True if args.upscale else None
         inputs["upscale_model"] = resolver(m, args.upscale_model) if args.upscale else None
+    if args.modality == "video":
+        # record RESOLVED dims/audio (CLI flag, else brand video: block, else filler default) so
+        # replay reproduces the render even if the brand.yaml changes later
+        v = m.video
+        inputs["length"] = args.length or v.length
+        inputs["fps"] = args.fps or v.fps
+        inputs["width"] = args.width or v.width
+        inputs["height"] = args.height or v.height
+        inputs["audio"] = v.audio if args.audio is None else args.audio
     if args.modality == "3d":
         inputs["format"] = fmt
     return inputs
@@ -292,7 +308,7 @@ def _args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None
         mode=data.get("mode"),
         brand=data["brand"],
         seed=seed if seed is not None else data.get("seed"),
-        comfy_url=comfy_url or data.get("comfy_url") or "http://127.0.0.1:8000",
+        comfy_url=comfy_url or data.get("comfy_url") or DEFAULT_COMFY_URL,
         comfy_output_dir=comfy_output_dir,  # host path, not stored; only relocates if passed
         watermark=bool(data.get("watermark", False)),
         out_name=None, timeout=None, free_before=None,
@@ -346,8 +362,11 @@ def run(args, repo_root, ap):
     if do_watermark:
         logo_rel = (m.logo.default or "").split("/")[-1]
         logo_path = brand_dir / "logos" / logo_rel
-        if not logo_path.exists():
-            ap.error(f"--watermark needs a brand logo at brands/{args.brand}/logos/{logo_rel}")
+        # is_file(), not exists(): with logo.default unset logo_rel is "" and pathlib's empty
+        # join makes logo_path the logos/ DIRECTORY itself, which exists on every scaffolded brand
+        if not logo_rel or not logo_path.is_file():
+            ap.error(f"--watermark needs logo.default set in brand.yaml and the file present at "
+                     f"brands/{args.brand}/logos/ (logo.default is {m.logo.default!r})")
         fkw["watermark_logo"] = client.upload_image(logo_path)
         sz = _image_size(logo_path)
         if sz:
@@ -363,12 +382,13 @@ def run(args, repo_root, ap):
     print(f"queued {pid} (modality={args.modality} brand={args.brand or '-'} mode={args.mode} seed={seed})")
     timeout = args.timeout or TIMEOUTS[args.modality]
     try:
-        client.wait(pid, max_wait=timeout)
+        hist = client.wait(pid, max_wait=timeout)
     except (RuntimeError, TimeoutError) as e:
         print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
     try:
-        # anchor on the graph's titled brand:save node, not output-dict order
-        fname, subfolder, _ = select_output(client, pid, wf)
+        # anchor on the graph's titled brand:save node, not output-dict order; reuse wait()'s
+        # history record instead of re-fetching it
+        fname, subfolder, _ = select_output(client, pid, wf, history=hist)
     except NoOutputError as e:
         print(str(e), file=sys.stderr); sys.exit(1)
 
@@ -437,6 +457,13 @@ def run_render(args, repo_root, ap):
     brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
     if args.mode == "finish" and args.color == "project" and not args.project_image:
         ap.error("--color project needs --project-image <file>")
+    if args.mode == "finish":
+        # host-side validation like the cad path: mesh_finish.py only exports these — anything
+        # else would silently exit 0 with no export
+        bad = [f for f in (x.strip().lower() for x in args.formats.split(",")) if f and f not in ("stl", "glb")]
+        if bad:
+            ap.error(f"render --mode finish supports --formats stl,glb (got {','.join(bad)}); "
+                     "for step/obj use `generate.py cad --mode convert`")
     seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
     if args.mode in ("mesh", "finish"):
         subdirs = ("outputs/3d", "outputs", "products", "references")
@@ -752,11 +779,13 @@ def main():
     vid.add_argument("--from-image", dest="from_image", required=True,
                      help="start frame: a file in brands/<brand>/products/ or references/")
     vid.add_argument("--mode", choices=["i2v"], default="i2v")
-    vid.add_argument("--length", type=int, default=97)
-    vid.add_argument("--fps", type=int, default=25)
-    vid.add_argument("--width", type=int, default=768)
-    vid.add_argument("--height", type=int, default=512)
-    vid.add_argument("--audio", dest="audio", action="store_true", default=True)
+    # defaults stay None so the brand.yaml video: block wins; the filler falls back 97/25/768x512/on
+    vid.add_argument("--length", type=int, default=None, help="frames (default: brand video.length, else 97)")
+    vid.add_argument("--fps", type=int, default=None, help="default: brand video.fps, else 25")
+    vid.add_argument("--width", type=int, default=None, help="default: brand video.width, else 768")
+    vid.add_argument("--height", type=int, default=None, help="default: brand video.height, else 512")
+    vid.add_argument("--audio", dest="audio", action="store_true", default=None,
+                     help="force synced audio on (default: brand video.audio, else on)")
     vid.add_argument("--no-audio", dest="audio", action="store_false")
     vid.add_argument("--upscale", action="store_true",
                      help="2x LTX spatial latent upscale (temporally coherent; precedes watermark)")
@@ -836,7 +865,7 @@ def main():
                     help="(--auto-repaint) depth-ControlNet strength")
     ft.add_argument("--ip-weight", dest="ip_weight", type=float, default=0.8,
                     help="(--auto-repaint) IPAdapter weight (identity strength)")
-    ft.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    ft.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     ft.add_argument("--comfy-output-dir", default=None,
                     help="(--auto-repaint) where ComfyUI writes outputs (to collect repainted views)")
     cd = sub.add_parser("cad",
@@ -875,14 +904,15 @@ def main():
     lt.add_argument("--brand", required=True)
     dr = sub.add_parser("doctor", help="preflight: check ComfyUI, node packs, models, and a brand")
     dr.add_argument("--brand", default=None, help="also check this brand's manifest/assets/model")
-    dr.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    dr.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     uc = sub.add_parser("update-check",
                         help="report available updates (chimera repo, ComfyUI, pip deps, node packs)")
-    uc.add_argument("--comfy-url", default="http://127.0.0.1:8000")
+    uc.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     uc.add_argument("--no-network", action="store_true", help="skip the GitHub release lookup")
     args = ap.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
+    _check_repo_layout(repo_root, ap)
     if args.modality == "new-brand":
         from scripts.brandkit.scaffold import new_brand
         try:

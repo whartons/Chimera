@@ -131,6 +131,49 @@ def test_run_brandless_watermark_errors(tmp_path):
         generate.run(_img_args(brand=None, watermark=True), tmp_path, _Ap())
 
 
+def test_run_watermark_with_null_logo_default_errors(monkeypatch, tmp_path):
+    # the exact state new-brand scaffolds: logos/ DIR exists but logo.default is null.
+    # --watermark must produce the friendly ap.error, not a PermissionError on the directory.
+    class _Err(Exception):
+        pass
+    class _Ap:
+        def error(self, msg):
+            raise _Err(msg)
+    repo = _tmp_repo(tmp_path)
+    (repo / "brands" / "b" / "logos").mkdir()          # dir present, no logo file, no logo.default
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    with pytest.raises(_Err, match="logo"):
+        generate.run(_img_args(watermark=True), repo, _Ap())
+
+
+def test_prepare_image_passes_source_canvas_for_product_and_relight(monkeypatch, tmp_path):
+    # product/relight graphs render at the SOURCE image's native size (plain VAEEncode, no resize),
+    # so the watermark canvas must be the probed source size — not the brand defaults.
+    repo = _tmp_repo(tmp_path)
+    pdir = repo / "brands" / "b" / "products"; pdir.mkdir()
+    (pdir / "photo.png").write_bytes(b"fakepng")
+    monkeypatch.setattr(generate, "_image_size", lambda p: (1920, 1080))
+    m = generate.load_manifest(repo / "brands" / "b" / "brand.yaml")
+    for mode in ("product", "relight"):
+        fkw = generate._prepare_image(_img_args(mode=mode, asset="photo.png"),
+                                      m, repo / "brands" / "b", FakeComfy(), _StubAp())
+        assert fkw["canvas"] == (1920, 1080), mode
+
+
+def test_check_repo_layout_errors_outside_a_checkout(tmp_path):
+    # a non-editable install (pip install . / a wheel) has no workflows/templates next to the
+    # package — fail fast with the editable-install hint instead of a template-not-found deep in
+    # a filler
+    class _Err(Exception):
+        pass
+    class _Ap:
+        def error(self, msg):
+            raise _Err(msg)
+    with pytest.raises(_Err, match="pip install -e"):
+        generate._check_repo_layout(tmp_path, _Ap())
+    generate._check_repo_layout(ROOT, _Ap())   # a real checkout passes silently
+
+
 def test_main_image_brandless_dispatches(monkeypatch):
     # --brand is now optional: `chimera image --subject ...` parses (brand=None) and dispatches
     captured = {}
@@ -149,6 +192,18 @@ def test_main_dispatches_image_to_run(monkeypatch):
                         ["generate.py", "image", "--brand", "b", "--subject", "a rover", "--seed", "5"])
     generate.main()
     assert captured == {"mod": "image", "subj": "a rover"}
+
+
+def test_main_video_flags_default_to_none_so_brand_video_block_wins(monkeypatch):
+    # the video subparser must NOT bake hard defaults (97/25/768/512/True): they'd shadow the
+    # documented brand.yaml video: block, making it dead config
+    captured = {}
+    monkeypatch.setattr(generate, "run", lambda args, repo_root, ap: captured.update(vars(args)))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "video", "--brand", "b", "--subject", "s",
+                                      "--from-image", "x.png"])
+    generate.main()
+    assert (captured["length"], captured["fps"], captured["width"], captured["height"],
+            captured["audio"]) == (None, None, None, None, None)
 
 
 def test_main_replay_reads_sidecar_then_runs(monkeypatch, tmp_path):

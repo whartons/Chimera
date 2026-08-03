@@ -5,7 +5,7 @@ frame-source node + sink node serves image (`brand:decode`->`brand:save`), video
 (`brand:decode`->`brand:create_video`), and foley (`brand:components`->`brand:create_video`)
 graphs; the audio edge into CreateVideo is always left untouched."""
 from __future__ import annotations
-from .nodes import find_node_by_title
+from .nodes import assert_free_ids, find_node_by_title
 
 
 def logo_geometry(canvas, *, logo_px, scale, margin, position):
@@ -24,9 +24,11 @@ def logo_geometry(canvas, *, logo_px, scale, margin, position):
 def _inject_watermark(wf, *, manifest, logo_name, canvas, logo_px, sink_title,
                       sink_input="images", frames_title="brand:decode"):
     """Composite the brand logo (LoadImage mask, scaled) over the frame-source node, then rewire
-    the sink node's image input to the composite. Ids 90-96 are reserved for watermark nodes."""
+    the sink node's image input to the composite. watermark.opacity < 1.0 adds an ImageBlend of
+    the clean frames with the composite (blend_factor = opacity). Ids 90-97 are reserved."""
     if not logo_name:
         raise ValueError("watermark requested but no brand logo to stamp")
+    assert_free_ids(wf, "90", "91", "92", "93", "94", "95", "96", "97")
     w = manifest.watermark
     frames_id, _ = find_node_by_title(wf, frames_title)
     _, sink = find_node_by_title(wf, sink_title)
@@ -44,7 +46,13 @@ def _inject_watermark(wf, *, manifest, logo_name, canvas, logo_px, sink_title,
     wf["96"] = {"class_type": "ImageCompositeMasked", "_meta": {"title": "brand:watermark_composite"},
                 "inputs": {"destination": [frames_id, 0], "source": ["91", 0],
                            "x": x, "y": y, "resize_source": False, "mask": ["95", 0]}}
-    sink["inputs"][sink_input] = ["96", 0]
+    out = ["96", 0]
+    if w.opacity < 1.0:
+        wf["97"] = {"class_type": "ImageBlend", "_meta": {"title": "brand:watermark_blend"},
+                    "inputs": {"image1": [frames_id, 0], "image2": ["96", 0],
+                               "blend_factor": w.opacity, "blend_mode": "normal"}}
+        out = ["97", 0]
+    sink["inputs"][sink_input] = out
     return wf
 
 

@@ -1,6 +1,7 @@
 import json, subprocess, types, pytest
 from pathlib import Path
 from scripts.brandkit import freecad as F
+from scripts.brandkit import dcc as D
 
 
 def _fake_proc(returncode=0, stdout="", stderr=""):
@@ -95,20 +96,20 @@ def test_run_template_raises_on_malformed_manifest_json(tmp_path):
 
 def test_find_freecad_prefers_explicit_then_env(monkeypatch):
     monkeypatch.setenv("FREECAD_BIN", "C:/x/FreeCADCmd.exe")
-    monkeypatch.setattr(F.shutil, "which", lambda n: None)
+    monkeypatch.setattr(D.shutil, "which", lambda n: None)
     assert F.find_freecad("C:/explicit/FreeCADCmd.exe") == "C:/explicit/FreeCADCmd.exe"
     assert F.find_freecad() == "C:/x/FreeCADCmd.exe"
 
 
 def test_find_freecad_uses_path(monkeypatch):
     monkeypatch.delenv("FREECAD_BIN", raising=False)
-    monkeypatch.setattr(F.shutil, "which", lambda n: "/usr/bin/freecadcmd" if n == "freecadcmd" else None)
+    monkeypatch.setattr(D.shutil, "which", lambda n: "/usr/bin/freecadcmd" if n == "freecadcmd" else None)
     assert F.find_freecad() == "/usr/bin/freecadcmd"
 
 
 def test_find_freecad_raises_when_absent(monkeypatch):
     monkeypatch.delenv("FREECAD_BIN", raising=False)
-    monkeypatch.setattr(F.shutil, "which", lambda n: None)
-    monkeypatch.setattr(F.glob, "glob", lambda p: [])
+    monkeypatch.setattr(D.shutil, "which", lambda n: None)
+    monkeypatch.setattr(D.glob, "glob", lambda p: [])
     with pytest.raises(F.FreeCADJobError):
         F.find_freecad()

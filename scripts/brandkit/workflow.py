@@ -1,11 +1,10 @@
 """Load a brand workflow template and fill it from a manifest + render args.
 Nodes are addressed by stable _meta.title (see nodes.find_node_by_title), not numeric id."""
 from __future__ import annotations
-import json
 from pathlib import Path
-from copy import deepcopy
 from .manifest import BrandManifest
-from .nodes import find_node_by_title, NodeNotFound
+from .nodes import find_node_by_title, NodeNotFound, assert_free_ids, load_template, node as _n
+from .watermark import logo_geometry
 
 _TEMPLATES = {
     "flux2": {"txt2img": "brand-txt2img.json", "logo": "brand-logo-overlay.json",
@@ -35,12 +34,7 @@ def _load_template(repo_root: Path, family: str, mode: str) -> dict:
     fam = _TEMPLATES[family]
     if mode not in fam:
         raise ValueError(f"unknown mode {mode!r}; expected one of {list(fam)}")
-    p = Path(repo_root) / "workflows" / "templates" / fam[mode]
-    return json.loads(p.read_text(encoding="utf-8"))
-
-
-def _n(wf, title):
-    return find_node_by_title(wf, title)[1]
+    return load_template(repo_root, fam[mode])
 
 
 def _apply_common(wf: dict, m: BrandManifest, positive: str, negative: str, seed: int, model: str):
@@ -124,6 +118,7 @@ def _inject_lora(wf: dict, m: BrandManifest):
     if not m.lora.file:
         return
     lora_name = m.lora.file.split("/")[-1]
+    assert_free_ids(wf, "99")
     unet_id, _ = find_node_by_title(wf, "brand:unet")
     # Splice the LoRA onto the unet's MODEL edge generically: rewire whatever currently reads
     # [unet_id, 0] (the sampler for FLUX; ModelSamplingAuraFlow for Z-Image) to read the LoRA,
@@ -144,6 +139,7 @@ def _inject_upscale(wf, model_name):
     """Splice an ESRGAN upscale just before brand:save: take over whatever currently feeds
     brand:save (the decoded image, or the watermark composite if watermark ran first) and
     rewire save to read the upscaled image. Order-independent w.r.t. watermark. Ids 80-81."""
+    assert_free_ids(wf, "80", "81")
     _, save = find_node_by_title(wf, "brand:save")
     src = save["inputs"]["images"]            # current source: [decode,0] or [composite,0]
     wf["80"] = {"class_type": "UpscaleModelLoader", "_meta": {"title": "brand:upscale_model"},
@@ -155,25 +151,17 @@ def _inject_upscale(wf, model_name):
 
 
 def _place_logo(wf: dict, m: BrandManifest, logo_px=None):
-    # logo image AND its mask are scaled by logo.scale (both must match, or the
-    # composite misaligns); x/y from position + margin against the canvas.
-    cw, ch = m.defaults.width, m.defaults.height
-    s, marg = m.logo.scale, m.logo.margin
+    # logo image AND its mask are scaled by logo.scale (both must match, or the composite
+    # misaligns); x/y geometry is shared with the watermark injector (logo_geometry), so the
+    # two placements can never drift apart.
+    s = m.logo.scale
     _n(wf, "brand:logo_scale")["inputs"]["scale_by"] = s
     _n(wf, "brand:logo_mask_scale")["inputs"]["scale_by"] = s
-    if logo_px:
-        lw, lh = logo_px
-    else:
-        lw, lh = int(cw * s), int(ch * s)
-    mx, my = int(cw * marg), int(ch * marg)
-    pos = m.logo.position
-    x = mx if "left" in pos else (cw - lw - mx)
-    y = my if "top" in pos else (ch - lh - my)
-    if pos == "center":
-        x, y = (cw - lw) // 2, (ch - lh) // 2
+    x, y, _scale = logo_geometry((m.defaults.width, m.defaults.height), logo_px=logo_px,
+                                 scale=s, margin=m.logo.margin, position=m.logo.position)
     comp = _n(wf, "brand:logo_composite")
-    comp["inputs"]["x"] = max(0, x)
-    comp["inputs"]["y"] = max(0, y)
+    comp["inputs"]["x"] = x
+    comp["inputs"]["y"] = y
 
 
 def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negative: str,
@@ -185,7 +173,7 @@ def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negati
     # zimage/relight one). resolve_image_model is a passthrough for normal FLUX.2/Z-Image runs.
     resolved = resolve_image_model(mode, variant, model)
     family = _family(resolved)
-    wf = deepcopy(_load_template(Path(repo_root), family, mode))
+    wf = _load_template(Path(repo_root), family, mode)   # fresh parse per call — mutation-safe
     if family == "zimage":
         _apply_zimage(wf, m, positive, seed, mode, variant, model)
     else:

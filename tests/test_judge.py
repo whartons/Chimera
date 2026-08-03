@@ -106,6 +106,30 @@ def test_overall_fail_line_not_collected_as_issue():
     assert any("palette" in i.lower() for i in v.issues)
 
 
+def test_parse_verdict_final_overall_line_beats_criterion_mention():
+    # a criterion whose reason says 'overall ... passed' must not hijack the verdict from the
+    # real trailing 'Overall: FAIL' line the rubric asks for
+    v = parse_verdict("1. MET - overall composition passed muster\nOverall: FAIL\nscore: 0.3")
+    assert v.passed is False
+    assert v.score == 0.3
+
+
+def test_parse_verdict_keeps_notmet_line_that_mentions_overall():
+    # 'overall proportions' is natural VLM phrasing — the NOT-MET/FIX line must still be
+    # threaded back to the expander; only the verdict line itself is excluded from issues
+    v = parse_verdict("1. NOT-MET - the overall proportions are stretched. "
+                      "FIX: add correct proportions; avoid stretched limbs\n"
+                      "Overall: FAIL\nscore: 0.4")
+    assert any("proportions" in i for i in v.issues)
+
+
+def test_parse_verdict_score_line_beats_prose_score_mention():
+    # 'scored 7 criteria' must not clamp to 1.0 over the real trailing 'score: 0.55' line
+    v = parse_verdict("The model scored 7 criteria as MET out of 8.\n"
+                      "1. NOT-MET - palette absent\nOverall: FAIL\nscore: 0.55")
+    assert v.score == 0.55
+
+
 def test_issues_only_collects_not_met_lines():
     # MET lines that happen to contain 'avoids'/'missing' must NOT be collected as issues;
     # only the genuine NOT-MET line is threaded back to the expander.

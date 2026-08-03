@@ -13,7 +13,8 @@
 > across 2D images, 3D meshes, and parametric CAD (where an LLM even writes and revises FreeCAD scripts
 > until the render passes).
 
-Run it two ways: as a pip-installable **`chimera`** CLI you drive yourself, or through pinned,
+Run it two ways: as a **`chimera`** CLI you drive yourself (editable install from this repo —
+`pip install -e .`; the workflow templates live in the checkout), or through pinned,
 security-audited **MCP bridges** that let an AI assistant drive the tools for you. Image, video, audio, 3D,
 Blender-render, and FreeCAD-CAD all run headless from one core — no brand and no assistant required
 (`chimera image --subject "…"` just works). The judge/codegen backend is provider-agnostic (any
@@ -105,7 +106,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it exactly | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check`; a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **515 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **552 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |

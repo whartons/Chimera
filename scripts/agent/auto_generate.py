@@ -46,7 +46,8 @@ from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.manifest import load_manifest, default_manifest
 from scripts.brandkit.outputs import select_output, route_output, write_sidecar
-from scripts.generate import git_provenance
+from scripts.brandkit.comfy import DEFAULT_URL as DEFAULT_COMFY_URL
+from scripts.brandkit.provenance import git_provenance
 
 
 def _parse_seeds(raw):
@@ -101,7 +102,10 @@ def _write_run_sidecar(result, args, repo_root):
     """Write a sidecar next to the winning image summarizing the self-correction run."""
     if result.best_image is None:
         return
-    last = result.history[-1]
+    # the record that produced best_image: match on the best verdict's identity — on exhaustion
+    # the best iteration is often NOT the last one, and the sidecar must describe its neighbor file
+    last = next((r for r in result.history if r.verdict is result.best_verdict),
+                result.history[-1])
     meta = {
         # `kind` discriminator: this is a run summary, NOT a replayable render sidecar
         # (no inputs/model/negative) — generate.py replay refuses it on this key.
@@ -171,7 +175,7 @@ def main():
                          "and prints a copy-paste retry command. Mutually exclusive with --texture.")
     ap.add_argument("--finalize-views", dest="finalize_views", type=int, default=4,
                     help="(mesh3d --finalize) ring views to generate + bake (1..7; default 4)")
-    ap.add_argument("--comfy-url", dest="comfy_url", default="http://127.0.0.1:8000")
+    ap.add_argument("--comfy-url", dest="comfy_url", default=DEFAULT_COMFY_URL)
     ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", default=None,
                     help="ComfyUI output dir: routes renders AND is where the Qwen judge drops verdicts. "
                          "Required except for `--pipeline cad --backend api` (no ComfyUI in that loop).")

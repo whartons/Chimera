@@ -34,6 +34,28 @@ def test_video_audio_off_drops_create_video_audio_edge():
     cv = find_node_by_title(wf, "brand:create_video")[1]["inputs"]
     assert "audio" not in cv
 
+def test_video_build_falls_back_to_manifest_video_block(tmp_path):
+    # brand.yaml video: {} is the documented per-brand default — with the CLI passing None
+    # (no explicit flags), every knob must fall back to the manifest, including audio: false
+    p = tmp_path / "brand.yaml"
+    p.write_text('name: "V"\nvideo: { width: 1024, height: 576, length: 121, fps: 30, audio: false }\n',
+                 encoding="utf-8")
+    mv = load_manifest(p)
+    wf = build(ROOT, mv, positive="x", negative="", seed=1, watermark=False,
+               from_image="r.png", length=None, fps=None, audio=None, width=None, height=None)
+    vl = find_node_by_title(wf, "brand:video_latent")[1]["inputs"]
+    assert vl["width"] == 1024 and vl["height"] == 576 and vl["length"] == 121
+    assert find_node_by_title(wf, "brand:cond")[1]["inputs"]["frame_rate"] == 30
+    assert "audio" not in find_node_by_title(wf, "brand:create_video")[1]["inputs"]
+
+def test_video_build_audio_none_keeps_audio_by_default():
+    # audio=None (CLI gave no flag) + no video block -> Video.audio default True keeps the edge;
+    # only an explicit --no-audio (False) or manifest audio: false may drop it
+    m = load_manifest(FIX)
+    wf = build(ROOT, m, positive="x", negative="", seed=1, watermark=False,
+               from_image="r.png", length=None, fps=None, audio=None, width=None, height=None)
+    assert "audio" in find_node_by_title(wf, "brand:create_video")[1]["inputs"]
+
 def test_video_model_override_from_arg():
     m = load_manifest(FIX)
     wf = build(ROOT, m, positive="x", negative="", seed=1, watermark=False,

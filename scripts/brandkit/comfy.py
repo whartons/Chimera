@@ -1,11 +1,13 @@
 """Minimal ComfyUI HTTP client: queue a prompt, poll, list output files."""
 from __future__ import annotations
-import json, time, urllib.request
+import json, time, urllib.error, urllib.request
 from pathlib import Path
+
+DEFAULT_URL = "http://127.0.0.1:8000"
 
 
 class ComfyClient:
-    def __init__(self, base_url="http://127.0.0.1:8000", timeout=30):
+    def __init__(self, base_url=DEFAULT_URL, timeout=30):
         self.base = base_url.rstrip("/")
         self.timeout = timeout
 
@@ -52,8 +54,18 @@ class ComfyClient:
         body = json.dumps({"prompt": workflow}).encode()
         req = urllib.request.Request(self.base + "/prompt", data=body,
                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
-            data = json.loads(r.read())
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                data = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            # ComfyUI answers validation failures with HTTP 400 and the per-node detail in the
+            # BODY — read it so callers see WHICH node/input was rejected, not a bare 400.
+            try:
+                detail = json.loads(e.read())
+            except Exception:
+                raise RuntimeError(f"ComfyUI rejected the prompt (HTTP {e.code})") from e
+            raise RuntimeError("ComfyUI validation errors: "
+                               f"{detail.get('node_errors') or detail.get('error') or detail}") from e
         if data.get("node_errors"):
             raise RuntimeError(f"ComfyUI validation errors: {data['node_errors']}")
         return data["prompt_id"]
@@ -101,13 +113,14 @@ class ComfyClient:
             time.sleep(poll)
         raise TimeoutError(f"prompt {prompt_id} did not finish in {max_wait}s")
 
-    def output_files_by_node(self, prompt_id: str):
+    def output_files_by_node(self, prompt_id: str, history=None):
         """Every saved output file for a prompt, tagged with the node id that produced it:
         (node_id, filename, subfolder, type) tuples. Scans all list-valued output keys
         (images, gifs, videos, audio, …) so any extension is captured, not just images.
         Keeping the node id lets callers anchor on the canonical save node (by title) instead
-        of trusting output-dict order — see outputs.select_output."""
-        hist = self._get(f"/history/{prompt_id}")
+        of trusting output-dict order — see outputs.select_output. Pass the dict wait()
+        returned as `history` to skip a redundant /history re-fetch."""
+        hist = history if history is not None else self._get(f"/history/{prompt_id}")
         rec = hist.get(prompt_id, {})
         out = []
         for node_id, node in rec.get("outputs", {}).items():
@@ -122,8 +135,8 @@ class ComfyClient:
                                     item.get("subfolder", ""), item.get("type", "output")))
         return out
 
-    def output_filenames(self, prompt_id: str):
+    def output_filenames(self, prompt_id: str, history=None):
         """Every saved output file for a prompt as (filename, subfolder, type) tuples (node id
         dropped). Format-agnostic — mp4 / webm / mov / gif / webp / wav are all captured, not
         just images. See output_files_by_node when the producing node matters."""
-        return [t[1:] for t in self.output_files_by_node(prompt_id)]
+        return [t[1:] for t in self.output_files_by_node(prompt_id, history=history)]

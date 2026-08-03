@@ -142,3 +142,19 @@ def test_build_contract_txt2img():
     assert sampler["inputs"]["seed"] == 5
     _, pos = find_node_by_title(wf, "brand:positive")
     assert pos["inputs"]["text"] == "hello"
+
+
+def test_splice_injector_refuses_reserved_id_collision(monkeypatch):
+    # the splice injectors write fixed reserved node ids (99 lora, 80-81 upscale, 90-97
+    # watermark, 70-71 video-upscale); a template that already uses one must fail LOUDLY
+    # instead of having its node silently overwritten by dict assignment
+    import scripts.brandkit.workflow as W
+    m = load_manifest(FIX)  # lora.file set -> _inject_lora runs and claims id 99
+    real = W._load_template
+    def poisoned(repo_root, family, mode):
+        wf = real(repo_root, family, mode)
+        wf["99"] = {"class_type": "Whatever", "_meta": {"title": "custom"}, "inputs": {}}
+        return wf
+    monkeypatch.setattr(W, "_load_template", poisoned)
+    with pytest.raises(ValueError, match="reserved node id"):
+        build_workflow(ROOT, m, mode="txt2img", positive="p", negative="n", seed=1)

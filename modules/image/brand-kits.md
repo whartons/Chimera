@@ -29,8 +29,11 @@ covers the whole core offline.
 
 **① Prompt injection — always on.** `build_prompt()` composes
 `prefix → subject → style → palette → suffix` into the positive prompt and uses the
-manifest `negative`. Zero downloads; works for every brand immediately. This is the
-backbone — even brands with no logo/LoRA get consistent look from style + palette words.
+manifest `negative` **on the FLUX.2 graphs**. The Z-Image templates hard-wire
+`ConditioningZeroOut` as their negative (the validated recipe for that family), so a
+brand's `negative` text only takes effect on FLUX.2 (`--model flux2_*`). Zero downloads;
+works for every brand immediately. This is the backbone — even brands with no logo/LoRA
+get consistent look from style + palette words.
 
 **② IP-Adapter style/subject reference — V2, opt-in (deferred).** The manifest already
 carries an `ip_adapter{}` block (parsed, `enabled: false` by default). FLUX.2 IP-Adapter

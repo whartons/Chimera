@@ -61,8 +61,11 @@ The interactive MCP bridge requires a live FreeCAD GUI window. For unattended ge
 authoring, **`generate.py cad`** shells out to `FreeCADCmd` — for example:
 
 ```
-C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe  <template.py>  <params.json>
+CHIMERA_CAD_PARAMS=<params.json>  "C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe"  <template.py>
 ```
+
+(The params-JSON path rides the `$CHIMERA_CAD_PARAMS` env var, never argv — FreeCAD 1.1.x
+opens a trailing file argument as a document and a `.json` crashes its FEM importer.)
 
 `FreeCADCmd` emits **geometry only** (STEP / STL / OBJ — **no headless renderer, and
 glTF is GUI-only**). The `cad` subcommand authors parametric primitives and converts

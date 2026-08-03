@@ -88,6 +88,12 @@ def test_correction_brandless_has_no_empty_brand_lead():
     assert "plain lion tail" in neg                   # avoid term still augments the negative
 
 
+def test_strip_terms_respects_word_boundaries():
+    # an avoid term that is a SUBSTRING of a subject word must leave the word intact
+    from scripts.agent.expander import _strip_terms
+    assert _strip_terms("a toyota land rover, rugged", ["toy"]) == "a toyota land rover, rugged"
+
+
 def test_strip_terms_removes_avoid_and_tidies():
     from scripts.agent.expander import _strip_terms
     out = _strip_terms("a glossy plastic toy rover, candy colors, six wheels",
