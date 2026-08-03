@@ -50,7 +50,7 @@ models — see [`docs/SETUP.md`](docs/SETUP.md) and each module's `models.md`.
 
 ## Testing
 
-- The GPU-free suite (`python -m pytest -q`) **must stay green**. CI (when enabled) runs it on every
+- The GPU-free suite (`python -m pytest -q`) **must stay green**. CI runs it on every
   PR.
 - **Add tests for new logic.** Pure logic lives in `scripts/brandkit/` and `scripts/agent/` and is
   testable without a server; follow the existing patterns (mocked `ComfyClient`, title-addressed

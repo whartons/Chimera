@@ -55,9 +55,12 @@ chimera/
 │   └── BLACKWELL-TUNING.md  # RTX 50-series / cu130 tuning guide (measured numbers)
 ├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent, blender, cad
 ├── scripts/
-│   ├── generate.py      # unified brand-aware CLI: image/video/audio/3d + replay/new-brand/lint
-│   ├── brandkit/        # shared core: manifest, prompt, fillers, watermark, outputs, sidecar, mesh, comfy
-│   └── agent/           # self-correction loop: rubric, expander, judge, loop, auto_generate
+│   ├── generate.py      # unified brand-aware CLI: image/video/audio/3d + render/cad/finalize-texture
+│   │                    #   + replay/new-brand/lint/doctor/update-check
+│   ├── brandkit/        # shared core: manifest, prompt, fillers, watermark, outputs, sidecar, mesh,
+│   │                    #   comfy, nodes, provenance, dcc (shared Blender/FreeCAD runner core)
+│   └── agent/           # self-correction loop: rubric, expander, judge, loop, llm, geometry,
+│                        #   auto_generate, cad_generate, render_generate, finalize
 ├── brands/              # Brand Kits — pattern public, brand DATA gitignored
 │   ├── _template/  example-brand/   # tracked starter + public showcase brand (incl. its outputs/)
 │   └── <your-brand>/    # GITIGNORED: private brands

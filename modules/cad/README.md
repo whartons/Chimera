@@ -66,9 +66,10 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 
 The MCP bridge is GUI-only (all work is marshaled onto FreeCAD's Qt thread; the RPC
 server starts from a toolbar button). For **unattended geometry authoring**, use the
-headless `cad` subcommand instead — it shells `FreeCADCmd <template> <params.json>` as a
-normal CLI subprocess (no per-call approval), exactly as `generate.py render` does for
-Blender. Runner: [`../../scripts/brandkit/freecad.py`](../../scripts/brandkit/freecad.py);
+headless `cad` subcommand instead — it shells `FreeCADCmd <template.py>` as a normal CLI
+subprocess (no per-call approval), handing the params-JSON path via the
+`$CHIMERA_CAD_PARAMS` env var (FreeCAD 1.1.x opens a trailing file argument as a
+document, so params never ride argv), exactly as `generate.py render` does for Blender. Runner: [`../../scripts/brandkit/freecad.py`](../../scripts/brandkit/freecad.py);
 templates: [`../../workflows/templates/freecad/`](../../workflows/templates/freecad/).
 
 ```bash

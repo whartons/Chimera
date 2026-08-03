@@ -6,7 +6,62 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Watermark path repaired three ways** (from the 2026-08-03 deep-dive audit; all
+  adversarially verified). Branded `--watermark` with `logo.default` unset now errors cleanly
+  instead of crashing with a PermissionError on the scaffolded `logos/` directory; product/relight
+  watermarks are placed against the **probed source-image size** (those graphs render at source
+  size, not brand defaults); and `watermark.opacity < 1.0` finally works — the filler splices a
+  `brand:watermark_blend` ImageBlend (blend factor = opacity) instead of silently ignoring the knob.
+- **The brand.yaml `video:` block is honored through the CLI.** The video subparser's hard
+  defaults (97 frames / 25 fps / 768×512 / audio on) always shadowed the documented per-brand
+  block; flags now default to None so the manifest fallbacks run, `video.audio` is consumed, and
+  the sidecar records the RESOLVED dims/audio so replay stays exact if the brand.yaml changes.
+- **`parse_verdict` heuristics hardened** (same bug class as the earlier thinking-judge fix): the
+  verdict comes from the trailing line STARTING with "overall" (a criterion reason like
+  "overall composition passed" can no longer flip a FAIL to PASS), the score prefers the dedicated
+  trailing `score:` line (prose like "scored 7 criteria" no longer clamps to 1.0), and a NOT-MET
+  line phrased "overall proportions…" keeps its FIX feedback. `expander._strip_terms` is
+  word-boundaried (avoid "toy" no longer guts "toyota").
+- **Agent run sidecar records the BEST iteration's seed/prompt** (matched by verdict identity),
+  not the last iteration's — on exhaustion they often differ.
+- **DCC edge paths:** the Blender runner wraps corrupt-manifest JSON in `BlenderJobError`,
+  surfaces stderr in the no-manifest error, and discovers the default Windows install via a
+  version glob (5.2+-safe); `render --mode finish` rejects unsupported `--formats` host-side
+  instead of exiting 0 with no export; `mesh_eval.py` actually restores the grey-clay material
+  after a failed Phase-4a bake (a half-built emission tree rendered the judge stills black).
+- **`doctor` preflights the inline auto-repaint graph's node types** (derived from
+  `repaint.build` itself — a missing IPAdapter pack is caught before the Blender depth renders),
+  loads brand.yaml once, and `update-check`'s pinned-deps line is sourced from
+  `update_report`'s tables; a hung `git fetch` no longer reports "not a git checkout".
+- **ComfyUI client:** HTTP-400 validation failures surface ComfyUI's per-node detail from the
+  response body (the old `node_errors` check was dead code); renders reuse `wait()`'s history
+  record instead of re-fetching `/history`.
+- **brand.yaml sub-sections are type-checked at load** — `width: "1024"` fails in lint/load with
+  the key named instead of a TypeError deep in a filler (ints still coerce where floats are
+  expected). `_probe_video` honors its best-effort contract on corrupt files; `image --mode
+  product` requires `--asset` (no silent logo-default substitution);
+  `train_brand_lora.py --run` invokes only the requested backend and exits cleanly on failure.
+- **Perf:** `repaint._mask_background` uses Pillow's C-level `point()`+`paste(mask)` instead of
+  a ~1M-op per-view Python pixel loop. The CLI fails fast with a `pip install -e .` hint when
+  run outside a repo checkout (a non-editable install doesn't package the templates).
+
 ### Changed
+- **Brandkit layering + shared plumbing** (deep-dive modularization, tier 1): `git_provenance`
+  moved to `scripts/brandkit/provenance.py` (the agent layer no longer imports the CLI module —
+  pinned by an import-graph test); `nodes.py` hosts the shared `node()`, `load_template()`, and
+  `assert_free_ids()` helpers (splice injectors now fail loudly on reserved-id collisions,
+  ids 70–99); logo and watermark placement share one geometry (`logo_geometry`); a new
+  `dcc.py` provides the common Blender/FreeCAD runner core so the two can't drift apart again;
+  the ComfyUI URL literal is deduped behind `comfy.DEFAULT_URL`. Tier 2 (extracting
+  generate.py's ~330-line render/cad/finalize orchestration into brandkit) is deferred to its
+  own PR.
+- **Docs truth sweep:** test counts 515 → **552** (README/STACK), STACK's CI table (checkout v7)
+  and mermaid pack list (QwenVL retired), CONTRIBUTING's "CI (when enabled)" hedge, CLAUDE.md's
+  structure comment (all shipped subcommands + agent modules), the Z-Image negative-prompt
+  caveat in brand-kits.md, the FreeCADCmd `$CHIMERA_CAD_PARAMS` invocation in the cad docs,
+  the video README `video:` example (real filename, no unsupported `lora:` key), and
+  mesh_finalize's stale "roadmap" claim for the shipped auto-repaint backend.
 - **`ComfyUI-LTXVideo` `4f45fd6 → 3b9c5cd`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
   resolves the LTXVideo item on weekly report #42). 4 upstream commits: README/example-workflow
   additions (Pixel Spatial Upscaler IC-LoRA docs + an inert example JSON whose `GemmaAPITextEncode`
