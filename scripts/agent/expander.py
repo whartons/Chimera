@@ -57,7 +57,8 @@ def _strip_terms(subject, avoid):
     resulting whitespace/commas. This is what removes 'toy/glossy plastic' from the positive prompt."""
     s = subject
     for t in avoid:
-        s = re.sub(re.escape(t), "", s, flags=re.IGNORECASE)
+        # word-boundaried: 'toy' must not gut 'toyota'
+        s = re.sub(r"\b" + re.escape(t) + r"\b", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s+", " ", s)
     s = re.sub(r"\s*,\s*", ", ", s)
     s = re.sub(r"(,\s*)+", ", ", s)
