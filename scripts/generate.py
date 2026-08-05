@@ -67,6 +67,7 @@ _CONVERT_SRC_EXTS = {".step", ".stp", ".iges", ".igs", ".brep", ".stl", ".obj"}
 
 # The sidecar-inputs/replay contract lives in brandkit beside sidecar.py; the old private
 # names stay importable from here (tests + any external callers).
+from scripts.brandkit.replay import SIDECAR_INPUT_KEYS  # noqa: E402,F401 (re-export)
 from scripts.brandkit.replay import (  # noqa: E402
     args_from_sidecar as _args_from_sidecar,
     resolve_model_used as _resolve_model_used,
