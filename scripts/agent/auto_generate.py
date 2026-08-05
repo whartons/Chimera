@@ -45,7 +45,7 @@ from scripts.agent.render_generate import make_render_generate
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.manifest import load_manifest, default_manifest
-from scripts.brandkit.outputs import select_output, route_output, write_sidecar
+from scripts.brandkit.outputs import route_output, run_graph_to_file, write_sidecar
 from scripts.brandkit.comfy import DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.provenance import git_provenance
 
@@ -89,11 +89,8 @@ def _make_generate(args, repo_root, manifest, client):
     def generate(pos, neg, seed):
         wf = image_filler.build(repo_root, manifest, positive=pos, negative=neg, seed=seed,
                                 mode="txt2img", variant=args.variant, model=args.model)
-        pid = client.queue_prompt(wf)
-        client.wait(pid, max_wait=args.timeout)
-        fname, subfolder, _ = select_output(client, pid, wf)
-        dest = route_output(repo_root, args.brand, out_dir / subfolder / fname, "agent", seed)
-        return str(dest)
+        local = run_graph_to_file(client, wf, out_dir, timeout=args.timeout)
+        return str(route_output(repo_root, args.brand, local, "agent", seed))
 
     return generate
 

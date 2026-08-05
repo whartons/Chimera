@@ -11,13 +11,27 @@ from pathlib import Path
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit import threed as threed_filler
 from scripts.brandkit import montage
-from scripts.brandkit.outputs import select_output, route_output
+from scripts.brandkit.outputs import route_output, run_graph_to_file
 from scripts.brandkit.blender import run_template
 from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
 
 _MESH_EVAL = "mesh_eval.py"
 _BLENDER_TIMEOUT = 1800  # mesh render + 4 stills + bmesh probe
 RENDER_TEXTURE_SUFFIX = ".texture.json"
+
+
+def eval_contact_sheet(mesh, tmp, stem, *, template, samples, res, seed, blender_runner,
+                       blender_bin=None, timeout, views=4, extra=None):
+    """Run mesh_eval headless on `mesh` and montage its orbit stills into tmp/sheet.png.
+    Returns (blender_manifest, sheet_tmp). The shared render-for-the-judge stage of the mesh3d
+    and cad generators (extra= carries the mesh3d texture params)."""
+    params = {"mesh": str(Path(mesh).resolve()), "out_dir": str(tmp), "stem": stem,
+              "samples": samples, "res": list(res), "seed": seed, "views": views}
+    params.update(extra or {})
+    mani = blender_runner(template, params, blender_bin=blender_bin, timeout=timeout)
+    sheet_tmp = Path(tmp) / "sheet.png"
+    montage.contact_sheet([Path(s) for s in mani.get("outputs", [])], sheet_tmp, cols=2)
+    return mani, sheet_tmp
 
 
 def make_render_generate(args, repo_root, manifest, client, *, blender_runner=run_template):
@@ -45,10 +59,7 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             return client.upload_image(local), local
         wf = image_filler.build(repo_root, manifest, positive=pos, negative=neg, seed=seed,
                                 mode="txt2img", variant=args.variant, model=args.model)
-        pid = client.queue_prompt(wf)
-        client.wait(pid, max_wait=comfy_timeout)
-        fname, subfolder, _ = select_output(client, pid, wf)
-        local = out_dir / subfolder / fname
+        local = run_graph_to_file(client, wf, out_dir, timeout=comfy_timeout)
         return client.upload_image(local), local
 
     def generate(pos, neg, seed):
@@ -61,28 +72,20 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         # render succeeds, so a failed Blender job doesn't orphan a meshless GLB in outputs/3d.
         wf3d = threed_filler.build(repo_root, manifest, from_image=uploaded, seed=seed,
                                    octree=args.octree, model=args.model)
-        pid = client.queue_prompt(wf3d)
-        client.wait(pid, max_wait=comfy_timeout)
-        gname, gsub, _ = select_output(client, pid, wf3d)
-        glb_src = out_dir / gsub / gname
+        glb_src = run_graph_to_file(client, wf3d, out_dir, timeout=comfy_timeout)
 
-        # Stage C: render 4 orbit stills + geometry checks (+ Phase-4a: bake + textured GLB).
+        # Stage C+D: render 4 orbit stills + geometry checks (+ Phase-4a: bake + textured GLB),
+        # then montage them into the judged contact sheet — the shared eval_contact_sheet stage.
         tmp = Path(tempfile.mkdtemp(prefix="chimera_eval_"))
         try:
             stem = f"{args.brand or 'agent'}_{seed}"
-            mani = blender_runner(
-                template,
-                {"mesh": str(glb_src.resolve()), "out_dir": str(tmp), "stem": stem,
-                 "samples": args.samples, "res": list(args.res), "seed": seed, "views": 4,
-                 "texture": texture, "asset": str(Path(concept_path).resolve()),
-                 "back_fill": back_fill, "palette": palette, "texture_res": texture_res},
-                blender_bin=args.blender_bin, timeout=blender_timeout)
-            stills = mani.get("outputs", [])
+            mani, sheet_tmp = eval_contact_sheet(
+                glb_src, tmp, stem, template=template, samples=args.samples, res=args.res,
+                seed=seed, blender_runner=blender_runner, blender_bin=args.blender_bin,
+                timeout=blender_timeout,
+                extra={"texture": texture, "asset": str(Path(concept_path).resolve()),
+                       "back_fill": back_fill, "palette": palette, "texture_res": texture_res})
             checks = mani.get("checks", {})
-
-            # Stage D: montage the 4 stills into one contact sheet (in tmp).
-            sheet_tmp = tmp / "sheet.png"
-            montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
             # Stage E: render succeeded — route the mesh (textured GLB if present, else raw) + sheet.
             glb_out = mani.get("textured_glb") or str(glb_src)
             glb_dest = route_output(repo_root, args.brand, Path(glb_out), "agent", seed)

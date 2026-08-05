@@ -114,8 +114,13 @@ def test_generate_views_orchestration(tmp_path, monkeypatch):
         assert "m.glb" in params["mesh"] and params["azimuths"] == [0.0, 180.0]
         return {"outputs": [str(tmp_path / "d0.png"), str(tmp_path / "d1.png")]}
 
-    seq = iter([("v0.png", "", ""), ("v1.png", "", "")])
-    monkeypatch.setattr(repaint, "select_output", lambda c, pid, wf: next(seq))
+    seq = iter(["v0.png", "v1.png"])
+
+    def fake_run_graph(c, wf, out_dir, *, timeout=None):
+        c.queue_prompt(wf)   # keep the queued-count pin honest
+        return Path(out_dir) / next(seq)
+
+    monkeypatch.setattr(repaint, "run_graph_to_file", fake_run_graph)
     views, depths = repaint.generate_views(
         FakeClient(), mesh=str(tmp_path / "m.glb"), concept_path=str(tmp_path / "c.png"),
         subject="a rover", azimuths=[0.0, 180.0], comfy_output_dir=str(tmp_path / "out"),

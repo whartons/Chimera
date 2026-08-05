@@ -267,10 +267,10 @@ def _finalize_views(args):
 
 
 def _finalize_azimuths(args, n):
-    """Camera azimuths (deg) for the N views: explicit --azimuths CSV, else evenly spaced from front=0."""
+    """Camera azimuths (deg) for the N views: explicit --azimuths CSV, else the shared even ring."""
     if args.azimuths:
         return [float(a) for a in args.azimuths.split(",") if a.strip()]
-    return [360.0 * i / n for i in range(n)]
+    return finalize_core.even_azimuths(n)
 
 
 def _finalize_params(args, mesh, view_paths, azimuths, tmp, seed, palette):

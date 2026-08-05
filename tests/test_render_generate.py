@@ -33,9 +33,13 @@ def _wire(monkeypatch, tmp_path, client):
 
     monkeypatch.setattr(rg.image_filler, "build", lambda *a, **k: {"g": "txt2img"})
     monkeypatch.setattr(rg.threed_filler, "build", lambda *a, **k: {"g": "mesh"})
-    monkeypatch.setattr(rg, "select_output",
-                        lambda c, pid, wf, **k: ("concept.png", "", "output")
-                        if wf.get("g") == "txt2img" else ("mesh.glb", "", "output"))
+    def fake_run_graph(c, wf, out_dir, *, timeout=None):
+        # still queue on the (fake) client so the tests' queued-graph counts keep pinning
+        # how many ComfyUI round-trips a loop iteration costs
+        c.queue_prompt(wf)
+        return Path(out_dir) / ("concept.png" if wf.get("g") == "txt2img" else "mesh.glb")
+
+    monkeypatch.setattr(rg, "run_graph_to_file", fake_run_graph)
 
     def fake_route(root, brand, src, mode, seed, **kw):
         sub = "images" if Path(src).suffix == ".png" else "3d"

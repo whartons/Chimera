@@ -124,3 +124,25 @@ def test_write_sidecar_records_model_and_seed(tmp_path):
     assert side == out.with_suffix(".json") and side.exists()
     data = _json.loads(side.read_text())
     assert data["model"] == "z_image_bf16.safetensors" and data["seed"] == 7
+
+
+def test_run_graph_to_file_queues_waits_selects_and_reuses_history(tmp_path):
+    # the queue -> wait -> select -> local-path dance every generator hand-rolled; must anchor
+    # on brand:save and reuse wait()'s history record (no /history re-fetch)
+    from pathlib import Path as _P
+    from scripts.brandkit.outputs import run_graph_to_file
+    wf = {"9": {"class_type": "SaveImage", "_meta": {"title": "brand:save"}, "inputs": {}}}
+    class C:
+        def queue_prompt(self, w):
+            return "pid1"
+        def wait(self, pid, max_wait=None):
+            assert max_wait == 123
+            return {"pid1": {"outputs": {"9": {"images": [{"filename": "a.png",
+                                                           "subfolder": "sub"}]}}}}
+        def output_files_by_node(self, pid, history=None):
+            assert history is not None, "must reuse wait()'s history"
+            rec = history[pid]
+            return [(nid, i["filename"], i.get("subfolder", ""), "output")
+                    for nid, n in rec["outputs"].items() for i in n["images"]]
+    p = run_graph_to_file(C(), wf, tmp_path, timeout=123)
+    assert p == _P(tmp_path) / "sub" / "a.png"

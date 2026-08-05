@@ -9,7 +9,7 @@ addressed by stable _meta.title so re-saving can't break the filler (same conven
 fillers). Exact cubiq node input names are verified live against get_node_info before first use."""
 from __future__ import annotations
 from pathlib import Path
-from scripts.brandkit.outputs import select_output
+from scripts.brandkit.outputs import run_graph_to_file
 
 DEFAULT_SDXL = "sd_xl_base_1.0.safetensors"
 DEFAULT_IPADAPTER = "ip-adapter-plus_sdxl_vit-h.safetensors"
@@ -128,10 +128,7 @@ def generate_views(client, *, mesh, concept_path, subject, azimuths, comfy_outpu
                    positive=f"{subject}, full object, clean studio render, plain solid background",
                    negative=negative, seed=seed + 1 + i, width=res, height=res,
                    cn_strength=cn_strength, ip_weight=ip_weight)
-        pid = client.queue_prompt(wf)
-        client.wait(pid, max_wait=comfy_timeout)
-        fname, subfolder, _ = select_output(client, pid, wf)
-        raw = out / subfolder / fname
+        raw = run_graph_to_file(client, wf, out, timeout=comfy_timeout)
         # strip the concept's background using the depth silhouette so it can't bleed onto edges
         masked = _mask_background(str(raw), str(dp), str(raw.with_name(raw.stem + "_masked.png")))
         views.append(str(masked))

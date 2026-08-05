@@ -95,6 +95,17 @@ def select_output(client, prompt_id, wf, save_title="brand:save", history=None):
     return first_output(client.output_files_by_node(prompt_id, **hkw), prefer_node_id=save_id)
 
 
+def run_graph_to_file(client, wf, out_dir, *, timeout=900):
+    """Queue a built graph, wait for it, and return the produced file's LOCAL path under
+    `out_dir` (the host's ComfyUI output dir). Anchors on the graph's brand:save node via
+    select_output and reuses wait()'s history record (no /history re-fetch) — the
+    queue -> wait -> select -> local-path dance every generator was hand-rolling."""
+    pid = client.queue_prompt(wf)
+    hist = client.wait(pid, max_wait=timeout)
+    fname, subfolder, _ = select_output(client, pid, wf, history=hist)
+    return Path(out_dir) / subfolder / fname
+
+
 def write_sidecar(output_path, meta: dict):
     """Write a <output>.json reproducibility sidecar next to a routed output. Records the
     resolved model filename, seed, mode, prompts, etc. — so months later you know which

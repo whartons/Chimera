@@ -16,6 +16,12 @@ class FinalizeError(RuntimeError):
     """Raised when view generation under-produces, or the bake yields no textured GLB."""
 
 
+def even_azimuths(n):
+    """N camera azimuths (deg) evenly spaced from front=0 — the one definition of the default
+    view ring (the CLI and the in-loop finalize both used to re-implement it)."""
+    return [360.0 * i / n for i in range(n)]
+
+
 def finalize_params(*, mesh, view_paths, azimuths, brand, seed, elevation, back_fill, palette,
                     texture_res, samples, res, out_dir) -> dict:
     """Single source of truth for the mesh_finalize.py Blender job params (CLI + loop both build this)."""

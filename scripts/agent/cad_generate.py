@@ -8,10 +8,11 @@ from __future__ import annotations
 import re, shutil, tempfile
 from pathlib import Path
 
-from scripts.brandkit import montage
+from scripts.brandkit import montage  # noqa: F401 (seam: tests patch montage.contact_sheet here)
 from scripts.brandkit.outputs import route_output
 from scripts.brandkit.freecad import run_template as fc_run
 from scripts.brandkit.blender import run_template as bl_run
+from scripts.agent.render_generate import eval_contact_sheet
 
 _FC_TIMEOUT = 600
 _BL_TIMEOUT = 1800
@@ -69,14 +70,11 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
             stl = next((o for o in cad_mani.get("outputs", []) if str(o).lower().endswith(".stl")), None)
             if not stl:
                 raise RuntimeError("cad code-gen produced no STL")
-            # 3. render a 4-view contact sheet (Blender) for the judge
-            mani = blender_runner(eval_tmpl,
-                                  {"mesh": str(Path(stl).resolve()), "out_dir": str(tmp), "stem": stem,
-                                   "samples": args.samples, "res": list(args.res), "seed": seed, "views": 4},
-                                  blender_bin=args.blender_bin, timeout=bl_timeout)
-            stills = mani.get("outputs", [])
-            sheet_tmp = tmp / "sheet.png"
-            montage.contact_sheet([Path(s) for s in stills], sheet_tmp, cols=2)
+            # 3. render a 4-view contact sheet (Blender) for the judge — shared eval stage
+            _mani, sheet_tmp = eval_contact_sheet(
+                stl, tmp, stem, template=eval_tmpl, samples=args.samples, res=args.res,
+                seed=seed, blender_runner=blender_runner, blender_bin=args.blender_bin,
+                timeout=bl_timeout)
             # 4. route the judged sheet + the STL artifact out of tmp before cleanup
             sheet = route_output(repo_root, args.brand, sheet_tmp, "cad", seed)
             route_output(repo_root, args.brand, Path(stl), "cad", seed)
