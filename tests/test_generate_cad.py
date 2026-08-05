@@ -1,6 +1,7 @@
 import json, argparse, pytest
 from pathlib import Path
-import scripts.generate as G
+import scripts.brandkit.dcc_cli as G
+from scripts.generate import _args_from_sidecar
 
 
 def _cad(**kw):
@@ -201,4 +202,4 @@ def test_run_cad_job_error_exits(tmp_path, monkeypatch):
 
 def test_replay_refuses_cad_sidecar():
     with pytest.raises(ValueError, match="cad"):
-        G._args_from_sidecar({"schema": 2, "kind": "cad", "modality": "cad"})
+        _args_from_sidecar({"schema": 2, "kind": "cad", "modality": "cad"})

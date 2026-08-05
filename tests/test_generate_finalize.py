@@ -1,6 +1,6 @@
 import json, argparse, pytest
 from pathlib import Path
-import scripts.generate as G
+import scripts.brandkit.dcc_cli as G
 
 
 def _ft(**kw):

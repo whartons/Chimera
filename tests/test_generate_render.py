@@ -1,6 +1,7 @@
 import json, argparse, pytest
 from pathlib import Path
-import scripts.generate as G
+import scripts.brandkit.dcc_cli as G
+from scripts.generate import _args_from_sidecar
 
 
 def test_render_params_comfy_scene():
@@ -11,7 +12,7 @@ def test_render_params_comfy_scene():
 
 def test_replay_refuses_render_sidecar():
     with pytest.raises(ValueError, match="render"):
-        G._args_from_sidecar({"schema": 2, "kind": "render", "modality": "render"})
+        _args_from_sidecar({"schema": 2, "kind": "render", "modality": "render"})
 
 
 def _args(**kw):
