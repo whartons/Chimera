@@ -64,7 +64,7 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
         return None
     palette = list(getattr(manifest, "palette", []) or [])
     views = max(1, min(7, int(getattr(args, "finalize_views", 4))))
-    azimuths = [360.0 * i / views for i in range(views)]
+    azimuths = finalize_core.even_azimuths(views)
     texture_res = int(getattr(args, "texture_res", 1024))
     tmp = Path(tempfile.mkdtemp(prefix="chimera_finalize_"))
 

@@ -53,9 +53,20 @@ All notable changes to Chimera are documented here. The format follows
   `assert_free_ids()` helpers (splice injectors now fail loudly on reserved-id collisions,
   ids 70–99); logo and watermark placement share one geometry (`logo_geometry`); a new
   `dcc.py` provides the common Blender/FreeCAD runner core so the two can't drift apart again;
-  the ComfyUI URL literal is deduped behind `comfy.DEFAULT_URL`. Tier 2 (extracting
-  generate.py's ~330-line render/cad/finalize orchestration into brandkit) is deferred to its
-  own PR.
+  the ComfyUI URL literal is deduped behind `comfy.DEFAULT_URL`.
+- **Modularization tier 2 — generate.py is now a parse+dispatch CLI (938 → 508 lines).**
+  The render/cad/finalize-texture orchestration (run_render/run_cad/run_finalize_texture +
+  validators, params builders, and the shared `_resolve_asset` locator) moved to
+  `scripts/brandkit/dcc_cli.py` beside the runners it drives; the sidecar-inputs/replay
+  contract (`SIDECAR_INPUT_KEYS`, `resolve_model_used`, `resolve_sidecar_inputs`,
+  `args_from_sidecar`) moved to `scripts/brandkit/replay.py` beside `sidecar.py` (generate.py
+  re-exports the old names). New shared stages replace hand-rolled copies:
+  `outputs.run_graph_to_file` (the queue→wait→select→local-path dance in the image loop, both
+  mesh3d stages, and the auto-repaint view generator — now also reusing `wait()`'s history),
+  `render_generate.eval_contact_sheet` (the mesh_eval + contact-sheet stage shared by the
+  mesh3d and cad generators), and `finalize.even_azimuths` (one view-ring definition). The
+  previously untested `update_report` GitHub/npm/ComfyUI checker arms gained coverage
+  (515 → 560 tests across the two batches).
 - **Docs truth sweep:** test counts 515 → **552** (README/STACK), STACK's CI table (checkout v7)
   and mermaid pack list (QwenVL retired), CONTRIBUTING's "CI (when enabled)" hedge, CLAUDE.md's
   structure comment (all shipped subcommands + agent modules), the Z-Image negative-prompt

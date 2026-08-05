@@ -57,3 +57,11 @@ def test_repaint_views_underproduction_raises(monkeypatch, tmp_path):
         F.repaint_views(_FakeClient(), mesh="m", concept="c", subject="s", azimuths=[0.0, 180.0],
                         comfy_output_dir=str(tmp_path), repo_root=tmp_path,
                         blender_runner=lambda *a, **k: {}, seed=1)
+
+
+def test_even_azimuths_shared_default_ring():
+    # the one definition of "evenly spaced from front=0" — dcc_cli and the in-loop finalize
+    # both previously re-implemented it
+    from scripts.brandkit.finalize import even_azimuths
+    assert even_azimuths(4) == [0.0, 90.0, 180.0, 270.0]
+    assert even_azimuths(1) == [0.0]
