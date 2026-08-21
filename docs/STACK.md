@@ -12,7 +12,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 ```mermaid
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
-        comfy["ComfyUI 0.26.2 (engine + models)"]
+        comfy["ComfyUI 0.33.3 (engine + models)"]
         packs["pinned node packs: LTXVideo · Foley · IPAdapter"]
         comfy --- packs
     end
@@ -35,13 +35,13 @@ flowchart TD
 ---
 
 ## 1 · Language & Python packages
-The `chimera` package (**v0.4.0**, MIT) is pure Python with one required runtime dependency.
+The `chimera` package (**v0.5.0**, MIT) is pure Python with one required runtime dependency.
 
 | Package | Version | Scope | Used for |
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (560 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (566 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -52,7 +52,7 @@ The `chimera` package (**v0.4.0**, MIT) is pure Python with one required runtime
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **ComfyUI** (Desktop) | **0.26.2** (reference) · **≥0.24.x** required | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
+| **ComfyUI** (Desktop) | **0.33.3** (reference; smoke-validated 2026-08-20: image · video · 3d · render · cad) · **≥0.24.x** required | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
 
 ## 3 · Third-party ComfyUI node packs (pinned + security-audited)
 Every pack is **pinned by commit** (never `@latest`) and read-through audited before adoption; a
@@ -124,7 +124,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (560 tests local; 553 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (566 tests local; 559 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

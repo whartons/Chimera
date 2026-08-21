@@ -153,3 +153,43 @@ def test_gh_does_not_retry_4xx(monkeypatch):
     with pytest.raises(urllib.error.HTTPError):
         ur._gh("/repos/o/r")
     assert calls["n"] == 1   # a rate limit won't clear in seconds — don't burn more quota
+
+
+def test_gh_sends_bearer_token_when_env_set(monkeypatch):
+    import io, json as _json
+    seen = {}
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    def capture(req, timeout=0):
+        seen["auth"] = req.get_header("Authorization")
+        return Resp(_json.dumps({}).encode())
+    monkeypatch.setenv("GITHUB_TOKEN", "tok123")
+    monkeypatch.setattr(ur.urllib.request, "urlopen", capture)
+    ur._gh("/repos/o/r")
+    assert seen["auth"] == "Bearer tok123"
+
+
+def test_failure_rows_carry_errname_across_all_checkers(monkeypatch):
+    # npm / comfyui / gitea failure paths all degrade to an info row labeled with _errname
+    def boom(*a, **k):
+        raise OSError("offline")
+    monkeypatch.setattr(ur.urllib.request, "urlopen", boom)
+    lvl, msg = ur.check_npm("N", "pkg", "1.0.0")
+    assert lvl == "info" and "OSError" in msg
+    monkeypatch.setattr(ur, "_gh", boom)
+    lvl, msg = ur.check_comfyui()
+    assert lvl == "info" and "OSError" in msg
+    monkeypatch.setattr(ur, "_gitea", boom)
+    lvl, msg = ur.check_gitea_pack("G", "https://host", "o", "r", "abc")
+    assert lvl == "info" and "OSError" in msg
+
+
+def test_gather_composes_all_pin_rows(monkeypatch):
+    monkeypatch.setattr(ur, "check_git_pack", lambda *a: ("ok", "git"))
+    monkeypatch.setattr(ur, "check_gitea_pack", lambda *a: ("ok", "gitea"))
+    monkeypatch.setattr(ur, "check_npm", lambda *a: ("ok", "npm"))
+    monkeypatch.setattr(ur, "check_comfyui", lambda: ("info", "comfy"))
+    rows = ur.gather()
+    assert len(rows) == len(ur.GIT_PACKS) + len(ur.GITEA_PACKS) + len(ur.NPM_PACKS) + 1
+    assert rows[-1] == ("info", "comfy")

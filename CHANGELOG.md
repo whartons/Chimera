@@ -6,6 +6,16 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.5.0] - 2026-08-20
+
+The hardening release: a 53-finding adversarially-verified repo audit fixed end-to-end (21 bugs,
+modularization tiers 1–2 — generate.py is now a 508-line parse+dispatch CLI over a shared brandkit
+core), three re-audited dependency bumps, an extended comfyui-mcp security hold with
+defense-in-depth opt-outs, a resilient weekly update checker, and the whole stack re-validated
+live on ComfyUI Desktop 0.33.3. 566 GPU-free tests.
+
 ### Fixed
 - **Weekly update-report resilience (from report #50's blind week).** All four GitHub pin checks
   degraded to an untriageable "could not check upstream (HTTPError)" — hiding two real
@@ -60,6 +70,10 @@ All notable changes to Chimera are documented here. The format follows
   `modules/agent/README.md` and `docs/STACK.md`.
 
 ### Changed
+- **Reference build ComfyUI Desktop `0.26.2` → `0.33.3`** — the Desktop app self-updated; the full
+  stack was smoke-validated live on it 2026-08-20 (image txt2img, LTX video i2v, Hunyuan3D mesh +
+  Blender clay eval + Ollama Qwen3-VL judge via the mesh3d loop, headless Blender render, headless
+  FreeCAD cad). The `≥0.24.x` floor is unchanged. `COMFY_REF`/STACK updated.
 - **`ComfyUI-LTXVideo` `3b9c5cd → 15d09ab`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
   resolves the item hidden behind report #50's failed check). 4 upstream commits: LTX-2.5 example
   workflows (inert JSON), the legacy RoPE helpers made self-contained in a new pure-math
@@ -558,7 +572,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/whartons/Chimera/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/whartons/Chimera/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/whartons/Chimera/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/whartons/Chimera/compare/v0.2.1...v0.2.2
