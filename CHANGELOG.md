@@ -6,6 +6,12 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.5.1] - 2026-08-20
+
+Patch release: the blender_mcp bridge works again on fresh environments.
+
 ### Fixed
 - **blender_mcp bridge dead on a fresh environment (`MCP error -32000: Connection closed`).**
   The pin bump to `4309a396` gave uvx a fresh env, which resolved the **unbounded** transitive
@@ -580,7 +586,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/whartons/Chimera/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/whartons/Chimera/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/whartons/Chimera/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/whartons/Chimera/compare/v0.2.2...v0.3.0
