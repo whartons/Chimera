@@ -25,7 +25,7 @@ you choose. For unattended geometry authoring there is a **second, headless path
 | **Tools** | 15: parametric object ops, FEM, doc/view introspection, dispatch health, code-exec |
 
 > **Why `neka-nat/freecad-mcp` and not the alternatives?** It is the de-facto
-> community standard: actively maintained, MIT, no telemetry, and ~14 tools
+> community standard: actively maintained, MIT, no telemetry, and ~15 tools
 > including FEM via CalculiX. Rejected alternatives in brief:
 > `contextform/freecad-mcp` has the best install UX and a guard-railed 45-tool
 > surface, but code has been quiet for approximately 10 months; `jango-blockchained/mcp-freecad`
