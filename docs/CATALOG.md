@@ -99,9 +99,9 @@ through the FLUX.2 templates instead.
 **Recommended default (mid-2026): LTX-2.3 22B**
 
 Node pack: `https://github.com/Lightricks/ComfyUI-LTXVideo` — **pinned at audited
-commit `3b9c5cd`** (re-scan before advancing the pin). Provides MultimodalGuider,
+commit `15d09ab`** (re-scan before advancing the pin). Provides MultimodalGuider,
 normalizing sampler, 2-stage spatial upscaler nodes, and IC-LoRA support — install
-via ComfyUI-Manager, then `git checkout 3b9c5cd`, before using the models below.
+via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
@@ -330,8 +330,8 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
 
 | Tool | Server | Pin | Bridge license | Socket |
 |------|--------|-----|----------------|--------|
-| **Blender** | official `lab/blender_mcp` (Blender Foundation, Gitea) | `98b0e49d` (v1.0.0 +1, docs-only) | GPL-3.0-or-later | `127.0.0.1:9876` |
-| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `4c3f2ef` (v0.1.19) | MIT | `127.0.0.1:9875` |
+| **Blender** | official `lab/blender_mcp` (Blender Foundation, Gitea) | `4309a396` (v1.0.0 +5) | GPL-3.0-or-later | `127.0.0.1:9876` |
+| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `3745ff9` (v0.1.22) | MIT | `127.0.0.1:9875` |
 
 > The **Bridge license** column is the MCP server's own license, **not** the host application's. The host
 > apps are licensed separately: **Blender** GPL-3.0-or-later, **FreeCAD** LGPL-2.1 (LGPL-2.0-or-later).

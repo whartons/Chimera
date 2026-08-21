@@ -19,13 +19,13 @@ import urllib.request
 
 # Source of truth for the pins is docs/STACK.md — keep this table in sync (see CLAUDE.md docs rule).
 GIT_PACKS = [
-    ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "3b9c5cd"),
+    ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "15d09ab"),
     ("ComfyUI-HunyuanVideo-Foley", "phazei", "ComfyUI-HunyuanVideo-Foley", "afd2960"),
     ("ComfyUI_IPAdapter_plus", "cubiq", "ComfyUI_IPAdapter_plus", "a0f451a"),
-    ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "4c3f2ef"),
+    ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "3745ff9"),
 ]
 # blender_mcp lives on Blender's Gitea (not GitHub) — checked via the Gitea compare API.
-GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "98b0e49d")]
+GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "4309a396")]
 NPM_PACKS = [("comfyui-mcp (MCP bridge)", "comfyui-mcp", "0.18.0")]
 COMFY_REF = "0.26.2"   # the reference build documented in docs/STACK.md / SETUP.md
 MARK = {"ok": "✅", "warn": "⚠️", "info": "ℹ️"}

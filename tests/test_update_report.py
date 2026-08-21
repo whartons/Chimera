@@ -47,8 +47,8 @@ def test_comfyui_qwenvl_not_auto_pinned():
 
 
 def test_freecad_pinned_via_github_git_pack():
-    # FreeCAD MCP is on GitHub -> tracked by check_git_pack (GIT_PACKS), pinned to commit 4c3f2ef.
-    assert any(owner == "neka-nat" and repo == "freecad-mcp" and pin == "4c3f2ef"
+    # FreeCAD MCP is on GitHub -> tracked by check_git_pack (GIT_PACKS), pinned to commit 3745ff9.
+    assert any(owner == "neka-nat" and repo == "freecad-mcp" and pin == "3745ff9"
                for _, owner, repo, pin in ur.GIT_PACKS)
 
 
