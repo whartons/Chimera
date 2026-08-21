@@ -13,7 +13,7 @@
     },
     "blender": {
       "command": "cmd",
-      "args": ["/c", "uvx", "--with", "mcp[cli]<2", "--from", "git+https://projects.blender.org/lab/blender_mcp@4309a39646e644261624bfcd2bca669b343b7621#subdirectory=mcp", "blender-mcp"],
+      "args": ["/c", "uvx", "--with", "mcp[cli]~=1.12", "--from", "git+https://projects.blender.org/lab/blender_mcp@4309a39646e644261624bfcd2bca669b343b7621#subdirectory=mcp", "blender-mcp"],
       "env": {
         "BLENDER_MCP_HOST": "127.0.0.1",
         "BLENDER_MCP_PORT": "9876"

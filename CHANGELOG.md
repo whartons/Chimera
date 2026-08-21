@@ -11,8 +11,9 @@ All notable changes to Chimera are documented here. The format follows
   The pin bump to `4309a396` gave uvx a fresh env, which resolved the **unbounded** transitive
   `mcp[cli]` dependency to the new **MCP SDK 2.x** — upstream imports `mcp.server.fastmcp`
   (an SDK-1.x path that 2.x renamed), so the server died at import before ever reaching
-  Blender's socket. `.mcp.json` now launches with `uvx --with "mcp[cli]<2"`, pinning the SDK
-  at our layer until upstream ships a 2.x shim (freecad-mcp v0.1.22 already carries one; it is
+  Blender's socket. `.mcp.json` now launches with `uvx --with "mcp[cli]~=1.12"` (≥ 1.12, < 2 — written `~=`
+  because the args transit `cmd /c`, where a literal `<` is a redirection character), pinning the
+  SDK at our layer until upstream ships a 2.x shim (freecad-mcp v0.1.22 already carries one; it is
   unaffected). The old pin only worked because its cached env predated SDK 2.x.
 
 ## [0.5.0] - 2026-08-20
