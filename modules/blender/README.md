@@ -48,7 +48,7 @@ System → Network → Allow Online Access`).
 2. **Register the MCP server.** The server entry lives in
    [`../../.mcp.json`](../../.mcp.json) and is launched by Claude Code as:
    ```
-   uvx --from "git+https://projects.blender.org/lab/blender_mcp@4309a39646e644261624bfcd2bca669b343b7621#subdirectory=mcp" blender-mcp
+   uvx --with "mcp[cli]<2" --from "git+https://projects.blender.org/lab/blender_mcp@4309a39646e644261624bfcd2bca669b343b7621#subdirectory=mcp" blender-mcp
    ```
    The `#subdirectory=mcp` is required — the server package lives in the repo's `mcp/`
    subdir (the root has no installable package). Never use the **bare** `uvx blender-mcp`:
