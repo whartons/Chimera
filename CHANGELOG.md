@@ -7,6 +7,10 @@ All notable changes to Chimera are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Weekly update-report resilience (from report #50's blind week).** All four GitHub pin checks
+  degraded to an untriageable "could not check upstream (HTTPError)" — hiding two real
+  behind-upstream warnings. Failure rows now carry the HTTP status (e.g. `HTTPError 403`), and the
+  GitHub client retries a transient 5xx once (never a 4xx — a rate limit won't clear in seconds).
 - **Watermark path repaired three ways** (from the 2026-08-03 deep-dive audit; all
   adversarially verified). Branded `--watermark` with `logo.default` unset now errors cleanly
   instead of crashing with a PermissionError on the scaffolded `logos/` directory; product/relight
@@ -46,7 +50,34 @@ All notable changes to Chimera are documented here. The format follows
   a ~1M-op per-view Python pixel loop. The CLI fails fast with a `pip install -e .` hint when
   run outside a repo checkout (a non-editable install doesn't package the templates).
 
+### Security
+- **`comfyui-mcp` hold extended through `0.50.x` (resolves #49).** The 0.50.93 gatekeeper scan
+  confirms the default-on startup self-update + panel auto-install persist and adds a material
+  escalation: **`npx` installs are now auto-update-ELIGIBLE** — the exact launch mode this repo
+  uses would silently `npm install` latest at startup were the opt-outs unset. The pin stays on
+  the audited `0.18.0`; the `COMFYUI_MCP_AUTOUPDATE=0` + `COMFYUI_MCP_PANEL_AUTOINSTALL=0`
+  opt-outs added for #44 now guard against exactly this. Hold documented in
+  `modules/agent/README.md` and `docs/STACK.md`.
+
 ### Changed
+- **`ComfyUI-LTXVideo` `3b9c5cd → 15d09ab`** (re-audited per [`docs/UPDATING.md`](docs/UPDATING.md);
+  resolves the item hidden behind report #50's failed check). 4 upstream commits: LTX-2.5 example
+  workflows (inert JSON), the legacy RoPE helpers made self-contained in a new pure-math
+  `rope_utils.py` (the old pin's legacy branch imported fork-only names from core), and Gemma-loader
+  fixes (config.json-anchored dir resolution + LEFT padding for decoder-only generation). **No new
+  nodes, deps, or network**; nothing used by `brand-video-i2v.json` is touched.
+- **`blender_mcp` `98b0e49d → 4309a396`** (v1.0.0 +5; re-audited clean — resolves the blender item
+  on report #50). 4 upstream commits: screenshot size-limit headroom for the JSON envelope, tool
+  docstrings + readme restructure, lint config. No new tools, deps, or network; gates unchanged.
+- **`freecad-mcp` `4c3f2ef → 3745ff9`** (v0.1.22; re-audited clean — 27 upstream commits). Adds a
+  **new read-only `get_rpc_status` health tool** (Tier 3, ungated — reports stuck GUI dispatch
+  without touching the GUI thread), stuck-task fail-fast, per-call `include_screenshot`/`view_name`
+  params on existing tools, a 1024px auto-cap on screenshots, Wayland framebuffer capture (with
+  legacy fallback), actual-name reporting, socket stop/close fixes, and an mcp 1.x/2.x import shim.
+  **No new runtime deps, no new exec/network surface**; the Tier-1/2 gates are unchanged (tool
+  count 14 → 15). Most changes are addon-side — **re-copy `addon/FreeCADMCP/` into FreeCAD's
+  `Mod/` dir and restart FreeCAD** after updating.
+
 - **Brandkit layering + shared plumbing** (deep-dive modularization, tier 1): `git_provenance`
   moved to `scripts/brandkit/provenance.py` (the agent layer no longer imports the CLI module —
   pinned by an import-graph test); `nodes.py` hosts the shared `node()`, `load_template()`, and

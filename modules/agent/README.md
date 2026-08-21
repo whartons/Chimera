@@ -21,7 +21,7 @@ custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
 | | |
 |---|---|
 | **Server** | [`artokun/comfyui-mcp`](https://github.com/artokun/comfyui-mcp) (npm: `comfyui-mcp`) |
-| **Pinned** | `comfyui-mcp@0.18.0` (0.20.x–0.48.x held — see the audit below) |
+| **Pinned** | `comfyui-mcp@0.18.0` (0.20.x–0.50.x held — see the audit below) |
 | **License** | MIT · **runs 100% locally** (only talks to your ComfyUI over `127.0.0.1`) |
 | **Transport** | stdio — Claude Code / Claude Desktop launch it directly |
 | **Tools** | ~100: node introspection, arbitrary API-format workflow exec, queue/poll/interrupt, image up/download, model + custom-node management, VRAM control, plus 0.18.0 graph-panel / Civitai helpers |
@@ -96,16 +96,17 @@ their (optional) packages are installed they **stay inert** unless you explicitl
 > real controls. After changing this, **fully restart the IDE** (a window reload may keep the stale MCP
 > subprocess), and if it persists clear the `~/.npm/_npx` cache once.
 
-> **0.20.x–0.48.x held (issues #38, #41, #44).** 0.20.9's compiled client imports
+> **0.20.x–0.50.x held (issues #38, #41, #44, #49).** 0.20.9's compiled client imports
 > `@stable-canvas/comfyui-client/dist/main.modern.mjs`, which does not exist in client `1.5.9` (the
 > only version its `^1.5.9` range allows) — so it **fails to start** on a clean install. From 0.24.5
-> onward (re-confirmed in 0.48.1) the default stdio path also runs **two default-on startup
-> behaviors** that are antithetical to the pin-and-audit model: a **self-update** that phones
+> onward (re-confirmed in 0.48.1 and 0.50.93) the default stdio path also runs **two default-on
+> startup behaviors** that are antithetical to the pin-and-audit model: a **self-update** that phones
 > `registry.npmjs.org` every launch and, for global/local installs, replaces the on-disk package
 > with un-audited `@latest`; and a **panel auto-install** that mutates the ComfyUI install from an
-> unpinned "nightly" channel. 0.48.x additionally grows a large multi-provider LLM/agent
-> orchestrator with many out-of-allowlist network endpoints (incl. an author-controlled apps
-> registry). Since none of that is anything this repo uses, the pin **stays on the working, audited
+> unpinned "nightly" channel. 0.48.x+ additionally grows a large multi-provider LLM/agent
+> orchestrator with many out-of-allowlist network endpoints (incl. author-controlled Cloudflare
+> Workers), and **0.50.x makes `npx` installs auto-update-ELIGIBLE** — the exact launch mode this
+> repo uses would silently `npm install` latest at startup were the opt-outs unset. Since none of that is anything this repo uses, the pin **stays on the working, audited
 > 0.18.0** — and as defense-in-depth [`../../.mcp.json`](../../.mcp.json) now sets
 > **`COMFYUI_MCP_AUTOUPDATE=0`** and **`COMFYUI_MCP_PANEL_AUTOINSTALL=0`** (inert on 0.18.0, which
 > predates both features; they neutralize both startup behaviors if the pin ever drifts to a held

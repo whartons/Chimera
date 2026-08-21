@@ -23,12 +23,12 @@ FreeCAD must be running with its GUI active for MCP-assisted work (see [README.m
 | | |
 |---|---|
 | **Package** | `neka-nat/freecad-mcp` |
-| **Pinned commit** | `4c3f2ef` (v0.1.19) |
+| **Pinned commit** | `3745ff9` (v0.1.22) |
 | **Source** | <https://github.com/neka-nat/freecad-mcp> |
 | **License** | MIT |
 | **Console script** | `freecad-mcp` → `freecad_mcp.server:main` |
 | **Runtime deps** | `mcp[cli]`, `validators` |
-| **Launcher** | `uvx --from git+https://github.com/neka-nat/freecad-mcp@4c3f2ef freecad-mcp --host 127.0.0.1` |
+| **Launcher** | `uvx --from git+https://github.com/neka-nat/freecad-mcp@3745ff9 freecad-mcp --host 127.0.0.1` |
 
 The server is launched via [`../../.mcp.json`](../../.mcp.json) using Astral's `uv`
 (`uvx`) so no manual install step is needed — `uv` resolves the pinned git ref on
@@ -36,7 +36,7 @@ first use.
 
 ### FreeCAD addon
 
-The repo ships a companion addon at `addon/FreeCADMCP/` (same commit `4c3f2ef`).
+The repo ships a companion addon at `addon/FreeCADMCP/` (same commit `3745ff9`).
 
 | | |
 |---|---|
@@ -83,7 +83,7 @@ This module has no ML weights, no diffusion checkpoints, and no Hugging Face
 dependencies. The only artifacts to acquire are:
 
 1. FreeCAD 1.0 or 1.1 (from <https://www.freecad.org/downloads.php>).
-2. The `addon/FreeCADMCP/` directory from the pinned commit `4c3f2ef` (copy to
+2. The `addon/FreeCADMCP/` directory from the pinned commit `3745ff9` (copy to
    your FreeCAD `Mod/` directory as described above).
 
 `uv` / `uvx` handles the Python server package automatically at launch time from

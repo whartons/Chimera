@@ -13,7 +13,7 @@
     },
     "blender": {
       "command": "cmd",
-      "args": ["/c", "uvx", "--from", "git+https://projects.blender.org/lab/blender_mcp@98b0e49d98321d321c7e631389200f513f765d59#subdirectory=mcp", "blender-mcp"],
+      "args": ["/c", "uvx", "--from", "git+https://projects.blender.org/lab/blender_mcp@4309a39646e644261624bfcd2bca669b343b7621#subdirectory=mcp", "blender-mcp"],
       "env": {
         "BLENDER_MCP_HOST": "127.0.0.1",
         "BLENDER_MCP_PORT": "9876"
@@ -22,7 +22,7 @@
     },
     "freecad": {
       "command": "cmd",
-      "args": ["/c", "uvx", "--from", "git+https://github.com/neka-nat/freecad-mcp@4c3f2ef", "freecad-mcp", "--host", "127.0.0.1"],
+      "args": ["/c", "uvx", "--from", "git+https://github.com/neka-nat/freecad-mcp@3745ff9", "freecad-mcp", "--host", "127.0.0.1"],
       "timeout": 600000
     }
   }

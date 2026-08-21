@@ -79,7 +79,7 @@ The Python MCP servers launch via Astral's `uv`. Install once:
 1. Install **Blender ≥ 5.1.0** (winget `BlenderFoundation.Blender` or blender.org) and enable
    **online access** (Edit → Preferences → System) — the addon requires it.
 2. Install the **`lab/blender_mcp` addon** (`addon/blender_mcp_addon/` from the pinned commit
-   `98b0e49d`) as a Blender extension and enable it. The socket **auto-starts on enable**
+   `4309a396`) as a Blender extension and enable it. The socket **auto-starts on enable**
    (`127.0.0.1:9876`).
 3. The server is launched by Claude via `.mcp.json`
    (`uvx --from "git+…@<sha>#subdirectory=mcp" blender-mcp` — the server package is in the repo's
@@ -89,7 +89,7 @@ The Python MCP servers launch via Astral's `uv`. Install once:
 
 ### FreeCAD
 1. Install **FreeCAD 1.0 or 1.1** (winget `FreeCAD.FreeCAD` or freecad.org).
-2. Copy the **`FreeCADMCP` addon** (`addon/FreeCADMCP/` at commit `4c3f2ef`) into FreeCAD's user
+2. Copy the **`FreeCADMCP` addon** (`addon/FreeCADMCP/` at commit `3745ff9`) into FreeCAD's user
    `Mod/` dir. **FreeCAD 1.1 uses a versioned data dir** — Windows: `%APPDATA%\FreeCAD\v1-1\Mod\`
    (1.0 omits the `v1-1`). Unsure? In FreeCAD use **Tools → Open user data directory** and copy into
    the `Mod/` there. Then **fully restart FreeCAD** and select the **"MCP Addon" workbench**.

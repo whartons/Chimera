@@ -19,13 +19,13 @@ you choose. For unattended geometry authoring there is a **second, headless path
 | | |
 |---|---|
 | **Server** | `neka-nat/freecad-mcp` (GitHub) |
-| **Pinned** | commit `4c3f2ef` (v0.1.19) — server + addon share the commit |
+| **Pinned** | commit `3745ff9` (v0.1.22) — server + addon share the commit |
 | **License** | MIT · runs 100% locally (loopback XML-RPC `127.0.0.1:9875`) |
 | **Transport** | stdio (Claude launches it) → XML-RPC → FreeCAD addon |
-| **Tools** | 14: parametric object ops, FEM, doc/view introspection, code-exec |
+| **Tools** | 15: parametric object ops, FEM, doc/view introspection, dispatch health, code-exec |
 
 > **Why `neka-nat/freecad-mcp` and not the alternatives?** It is the de-facto
-> community standard: actively maintained, MIT, no telemetry, and ~14 tools
+> community standard: actively maintained, MIT, no telemetry, and ~15 tools
 > including FEM via CalculiX. Rejected alternatives in brief:
 > `contextform/freecad-mcp` has the best install UX and a guard-railed 45-tool
 > surface, but code has been quiet for approximately 10 months; `jango-blockchained/mcp-freecad`
@@ -40,7 +40,7 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 `PATH`; **FreeCAD 1.0 or 1.1** (Python 3.12).
 
 1. **Install the FreeCAD addon.** Copy the `addon/FreeCADMCP/` directory from the
-   pinned commit `4c3f2ef` into FreeCAD's user `Mod/` directory. **FreeCAD 1.1 uses a
+   pinned commit `3745ff9` into FreeCAD's user `Mod/` directory. **FreeCAD 1.1 uses a
    versioned data dir** — on Windows that is `%APPDATA%\FreeCAD\v1-1\Mod\FreeCADMCP\`
    (1.0 omits the `v1-1`). If unsure, use **Tools → Open user data directory** in FreeCAD
    and copy into the `Mod/` there. Fully restart FreeCAD.
@@ -53,12 +53,12 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 3. **Register the MCP server.** The server entry lives in
    [`../../.mcp.json`](../../.mcp.json) and is launched by Claude Code as:
    ```
-   uvx --from git+https://github.com/neka-nat/freecad-mcp@4c3f2ef freecad-mcp --host 127.0.0.1
+   uvx --from git+https://github.com/neka-nat/freecad-mcp@3745ff9 freecad-mcp --host 127.0.0.1
    ```
 
 4. **Approve and confirm.** In Claude Code run **`/mcp`** and approve the `freecad`
    server (project-scoped servers require a one-time approval). Confirm: `/mcp`
-   should show `freecad` **Connected** with 14 tools. Smoke-test by calling
+   should show `freecad` **Connected** with 15 tools. Smoke-test by calling
    `get_objects` or `list_documents` (Tier 3, read-only) — either should return the
    active FreeCAD document's contents, proving the bridge reached the addon.
 
@@ -153,9 +153,9 @@ from the FreeCAD error it feeds back, so a decent coder recovers in a couple of 
 **Still roadmap:** sketch/constraint modeling, FEM headless, and assemblies. Keep a FreeCAD window open
 with the addon active for live MCP-assisted editing.
 
-## Security audit (commit `4c3f2ef`) & per-tool gates
+## Security audit (commit `3745ff9`) & per-tool gates
 
-**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `4c3f2ef` (MIT) has a
+**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `3745ff9` (MIT) has a
 clean minimal dep set (`mcp[cli]`, `validators`) with **no telemetry/Supabase/pickle/torch**
 and no outbound network; the sole transport is loopback XML-RPC to FreeCAD on
 hardcoded `:9875`, a default `127.0.0.1` bind that flips to `0.0.0.0` only on
@@ -175,7 +175,7 @@ source.
 |---|---|---|
 | **1 — always per-call approval (RCE / unbounded mutation)** | require explicit approval on every call | `execute_code`, `execute_code_async`, `create_object`, `edit_object`, `delete_object` |
 | **2 — approval + path/host allowlist** | require approval; path/host must be explicitly vetted | `insert_part_from_library` (no path-traversal guard), `run_fem_analysis` |
-| **3 — auto-allow (read-only)** | frictionless; no side-effects | `create_document`, `get_view`, `get_objects`, `get_object`, `get_parts_list`, `list_documents`, `reload_document` |
+| **3 — auto-allow (read-only)** | frictionless; no side-effects | `create_document`, `get_view`, `get_objects`, `get_object`, `get_parts_list`, `list_documents`, `reload_document`, `get_rpc_status` |
 
 Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.json).
 
@@ -187,7 +187,7 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
 - **Path-allowlist `insert_part_from_library`.** The tool has no path-traversal
   guard; scope library paths to a known safe directory before approving any call.
 - **Pin from commit, never floating tag.** Always launch from the pinned git ref
-  `4c3f2ef` so the server cannot change under you.
+  `3745ff9` so the server cannot change under you.
 - **Re-audit on every pin bump.** When the pin is advanced, re-run the full audit
   against the diff before committing. Runbook:
   [`../../docs/UPDATING.md`](../../docs/UPDATING.md).
@@ -202,7 +202,7 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
 
 ## Tool surface (highlights)
 
-The server exposes exactly **14 tools**, grouped as:
+The server exposes exactly **15 tools**, grouped as:
 
 - **Parametric ops (Tier 1 — mutation):** `create_object`, `edit_object`,
   `delete_object`
