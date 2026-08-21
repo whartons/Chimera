@@ -111,3 +111,45 @@ def test_check_comfyui_is_reference_info_not_behind_verdict(monkeypatch):
     lvl, msg = ur.check_comfyui()
     assert lvl == "info"
     assert ur.COMFY_REF in msg and "`0.99.0`" in msg and "update-check" in msg
+
+
+def test_check_git_pack_failure_includes_http_status(monkeypatch):
+    # 'could not check upstream (HTTPError)' told us nothing when all four GitHub rows failed
+    # in the 2026-08-10 report — the row must carry the status code for after-the-fact triage
+    import urllib.error
+    def boom(path):
+        raise urllib.error.HTTPError("https://api.github.com" + path, 403, "rate limited", {}, None)
+    monkeypatch.setattr(ur, "_gh", boom)
+    lvl, msg = ur.check_git_pack("PackX", "owner", "repo", "abc1234")
+    assert lvl == "info" and "HTTPError 403" in msg
+
+
+def test_gh_retries_transient_5xx_once(monkeypatch):
+    import io, urllib.error
+    calls = {"n": 0}
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    def flaky(req, timeout=0):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.HTTPError(req.full_url, 502, "bad gateway", {}, None)
+        return Resp(b'{"default_branch": "main"}')
+    monkeypatch.setattr(ur.urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(ur.time, "sleep", lambda s: None)
+    assert ur._gh("/repos/o/r") == {"default_branch": "main"}
+    assert calls["n"] == 2
+
+
+def test_gh_does_not_retry_4xx(monkeypatch):
+    import urllib.error
+    calls = {"n": 0}
+    def limited(req, timeout=0):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(req.full_url, 403, "rate limited", {}, None)
+    monkeypatch.setattr(ur.urllib.request, "urlopen", limited)
+    monkeypatch.setattr(ur.time, "sleep", lambda s: None)
+    import pytest
+    with pytest.raises(urllib.error.HTTPError):
+        ur._gh("/repos/o/r")
+    assert calls["n"] == 1   # a rate limit won't clear in seconds — don't burn more quota

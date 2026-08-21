@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
 
 # Source of truth for the pins is docs/STACK.md — keep this table in sync (see CLAUDE.md docs rule).
@@ -29,15 +31,31 @@ COMFY_REF = "0.26.2"   # the reference build documented in docs/STACK.md / SETUP
 MARK = {"ok": "✅", "warn": "⚠️", "info": "ℹ️"}
 
 
-def _gh(path):
+def _errname(e):
+    """Exception label for the report rows: type name + HTTP status when there is one, so a
+    failed week reads 'HTTPError 403' (triageable) instead of a bare 'HTTPError'."""
+    code = getattr(e, "code", None)
+    return f"{type(e).__name__} {code}" if code else type(e).__name__
+
+
+def _gh(path, _retries=1):
     req = urllib.request.Request(
         "https://api.github.com" + path,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "chimera-update"})
     tok = os.environ.get("GITHUB_TOKEN")
     if tok:
         req.add_header("Authorization", f"Bearer {tok}")   # higher rate limit in CI
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.loads(r.read())
+    for attempt in range(_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            # retry a transient 5xx once; a 4xx (403 rate limit etc.) won't clear in seconds,
+            # so don't burn more quota on it
+            if attempt < _retries and e.code >= 500:
+                time.sleep(2)
+                continue
+            raise
 
 
 def _gitea(host, path):
@@ -59,7 +77,7 @@ def check_gitea_pack(name, host, owner, repo, pin):
         return ("warn", f"**{name}** — pin `{pin}` is **{ahead} commit(s) behind** `{branch}`. "
                         f"RE-AUDIT the diff before bumping (see UPDATING.md).")
     except Exception as e:
-        return ("info", f"**{name}** — could not check Gitea ({type(e).__name__}).")
+        return ("info", f"**{name}** — could not check Gitea ({_errname(e)}).")
 
 
 def check_git_pack(name, owner, repo, pin):
@@ -74,7 +92,7 @@ def check_git_pack(name, owner, repo, pin):
         return ("warn", f"**{name}** — pin `{pin}` is **{ahead} commit(s) behind** `{branch}` "
                         f"(newest `{newest}`). RE-AUDIT the diff before bumping (see UPDATING.md).")
     except Exception as e:
-        return ("info", f"**{name}** — could not check upstream ({type(e).__name__}).")
+        return ("info", f"**{name}** — could not check upstream ({_errname(e)}).")
 
 
 def check_npm(name, pkg, pin):
@@ -85,7 +103,7 @@ def check_npm(name, pkg, pin):
             return ("warn", f"**{name}** — pinned `{pin}`, latest npm `{latest}`. RE-AUDIT before bumping.")
         return ("ok", f"**{name}** — pinned `{pin}` is the latest.")
     except Exception as e:
-        return ("info", f"**{name}** — could not check npm ({type(e).__name__}).")
+        return ("info", f"**{name}** — could not check npm ({_errname(e)}).")
 
 
 def check_comfyui():
@@ -100,7 +118,7 @@ def check_comfyui():
                         "independently — run `chimera update-check` against your running instance for the "
                         "authoritative check, then smoke-render each modality after any update.")
     except Exception as e:
-        return ("info", f"**ComfyUI** — could not check latest release ({type(e).__name__}).")
+        return ("info", f"**ComfyUI** — could not check latest release ({_errname(e)}).")
 
 
 def gather():
