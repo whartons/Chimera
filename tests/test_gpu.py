@@ -307,3 +307,51 @@ def test_unload_others_keeps_the_runs_own_models():
     done = gpu.unload_others("http://o", keep={"qwen3-vl:8b-instruct"}, _opener=_server(_OLLAMA, log))
     assert done == [("qwen3.6-27b", 20_000_000_000)]
     assert [b for m, p, b in log if m == "POST"] == [{"model": "qwen3.6-27b", "keep_alive": 0}]
+
+
+
+_BIG_CTX_SHOW = {"model_info": {"general.architecture": "qwen35", "qwen35.block_count": 64,
+                                "qwen35.attention.head_count": 24, "qwen35.attention.head_count_kv": 4,
+                                "qwen35.attention.key_length": 256, "qwen35.attention.value_length": 256,
+                                "qwen35.context_length": 262144},
+                 "parameters": "num_ctx                        196608\nnum_predict                    4096"}
+_JUDGE_SHOW = {"model_info": {"general.architecture": "qwen3vl", "qwen3vl.block_count": 36,
+                              "qwen3vl.attention.head_count": 32, "qwen3vl.attention.head_count_kv": 8,
+                              "qwen3vl.attention.key_length": 128, "qwen3vl.attention.value_length": 128,
+                              "qwen3vl.context_length": 262144},
+               "parameters": "temperature 1"}
+
+
+def test_the_context_cache_is_sized_like_ollama_does(monkeypatch):
+    # real metadata (2026-10-15): Ollama logged a 1296 MiB q4_0 cache for the judge at its 32k default; a
+    # 27B model with a 192k-token context came to ~33 GB resident on an 18.7 GB file
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH", raising=False)
+    assert abs(gpu._kv_cache_bytes(_JUDGE_SHOW) / 2**20 - 1296) < 1
+    assert 13 < gpu._kv_cache_bytes(_BIG_CTX_SHOW) / 2**30 < 14
+    monkeypatch.delenv("OLLAMA_KV_CACHE_TYPE")                      # f16 cache: four times the bytes, roughly
+    assert gpu._kv_cache_bytes(_JUDGE_SHOW) / 2**20 > 4000
+    assert gpu._kv_cache_bytes({"model_info": {}}) is None
+
+
+def test_vram_need_counts_the_context_cache(monkeypatch):
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    size = int(18.66 * 2**30)
+    routes = {("GET", "/api/tags"): {"models": [{"name": "coder:27b-192k", "size": size}]},
+              ("POST", "/api/show"): _BIG_CTX_SHOW}
+    need = gpu.vram_need("http://o", "coder:27b-192k", _opener=_server(routes, []))
+    assert need > 32 * 2**30          # more than the card: make_room must empty ComfyUI, not just trim it
+    no_show = {("GET", "/api/tags"): routes[("GET", "/api/tags")]}
+    assert gpu.vram_need("http://o", "coder:27b-192k", _opener=_server(no_show, [])) == int(size * 1.2) + 2 * 2**30
+
+
+def test_a_model_bigger_than_the_card_empties_comfyui_and_then_loads():
+    now, sleep = _clock()
+
+    class _Full(_Card):
+        def system_stats(self):
+            s = super().system_stats()
+            s["devices"][0]["vram_total"] = 31.8 * 2**30
+            return s
+    card = _Full(free_gb=27.5, after_free_gb=30.0)                  # ComfyUI holds 4 GB
+    assert gpu.make_room(card, 35 * 2**30, _sleep=sleep, _clock=now) is True and card.freed == 1

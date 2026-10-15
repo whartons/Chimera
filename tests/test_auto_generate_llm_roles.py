@@ -242,10 +242,10 @@ def test_the_loop_unloads_other_ollama_models_before_its_first_render(monkeypatc
     monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     monkeypatch.setattr(AG.gpu, "unload_others",
-                        lambda root, keep: unloaded.append((root, set(keep))) or [("sports:latest", 18 * 2**30)])
+                        lambda root, keep: unloaded.append((root, set(keep))) or [("other-tool:latest", 18 * 2**30)])
     AG._clear_other_ollama_models([None, judge, None])
     assert unloaded == [("http://127.0.0.1:11434", {"qwen3-vl:8b-instruct"})]
-    assert "unloaded sports:latest (18.0 GB)" in capsys.readouterr().err
+    assert "unloaded other-tool:latest (18.0 GB)" in capsys.readouterr().err
     monkeypatch.setenv("CHIMERA_KEEP_LLM_LOADED", "1")
     unloaded.clear()
     AG._clear_other_ollama_models([judge])

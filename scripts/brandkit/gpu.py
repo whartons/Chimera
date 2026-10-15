@@ -10,6 +10,7 @@ best-effort and never raises, because a stopped Ollama (or ComfyUI) is a normal 
 from __future__ import annotations
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -84,17 +85,48 @@ def unload(root, model, _opener=urllib.request.urlopen):
         return False
 
 
+_KV_BYTES = {"q4_0": 0.5625, "q8_0": 1.0625}   # per cached element (block scale included); else f16 = 2
+_DEFAULT_CTX = 32768                             # Ollama 0.40's context on a 24 GB+ card when num_ctx is unset
+
+
+def _kv_cache_bytes(show):
+    """The context cache Ollama allocates for a model, from /api/show: layers x KV heads x (key + value
+    dims) x context x bytes per element. None when the architecture keys are missing."""
+    info = show.get("model_info") or {}
+    arch = info.get("general.architecture")
+    layers, kv_heads = info.get(f"{arch}.block_count"), info.get(f"{arch}.attention.head_count_kv")
+    if not layers or not kv_heads:
+        return None
+    heads = info.get(f"{arch}.attention.head_count") or 1
+    dims = (info.get(f"{arch}.attention.key_length") or info.get(f"{arch}.embedding_length", 0) // heads) + \
+        (info.get(f"{arch}.attention.value_length") or info.get(f"{arch}.embedding_length", 0) // heads)
+    per_token = (sum(kv_heads) if isinstance(kv_heads, list) else kv_heads * layers) * dims
+    m = re.search(r"\bnum_ctx\s+(\d+)", show.get("parameters") or "")
+    ctx = int(m.group(1)) if m else (int(os.environ.get("OLLAMA_CONTEXT_LENGTH") or 0) or _DEFAULT_CTX)
+    ctx = min(ctx, info.get(f"{arch}.context_length") or ctx)
+    per_elem = _KV_BYTES.get(os.environ.get("OLLAMA_KV_CACHE_TYPE", "").strip().lower(), 2.0)
+    return int(per_token * ctx * per_elem)
+
+
 def vram_need(root, model, _opener=urllib.request.urlopen):
-    """Bytes of GPU memory `model` needs to load in Ollama, estimated from its file size plus room for the
-    context cache and the CUDA context; None when Ollama doesn't list it."""
+    """Bytes of GPU memory `model` takes once loaded in Ollama: its weights plus its context cache (from
+    /api/show; a 192k-token context added 13.5 GB to an 18.7 GB model) plus compute buffers. Falls back to
+    the file size x 1.2 + 2 GB when the cache can't be sized; None when Ollama doesn't list the model."""
     try:
         models = _call(root + "/api/tags", _opener=_opener).get("models") or []
     except Exception:
         return None
-    for m in models:
-        if (m.get("name") or m.get("model")) == model and m.get("size"):
-            return int(int(m["size"]) * 1.2) + 2 * _GB
-    return None
+    size = next((int(m["size"]) for m in models
+                 if (m.get("name") or m.get("model")) == model and m.get("size")), None)
+    if size is None:
+        return None
+    try:
+        kv = _kv_cache_bytes(_call(root + "/api/show", {"model": model}, timeout=20, _opener=_opener))
+    except Exception:
+        kv = None
+    if kv is None:
+        return int(size * 1.2) + 2 * _GB
+    return int(size * 1.1) + kv + int(1.5 * _GB)
 
 
 def make_room(comfy_client, need_bytes, *, wait=30.0, poll=1.0, _sleep=time.sleep, _clock=time.monotonic):
@@ -106,12 +138,21 @@ def make_room(comfy_client, need_bytes, *, wait=30.0, poll=1.0, _sleep=time.slee
     Ollama can't do this itself on Windows: it doesn't see ComfyUI's allocations (it reported 30 GB free
     while ComfyUI held 15), so it loads onto a full card, and the driver pages GPU memory to system RAM.
     On 2026-10-15 ComfyUI held all but 0.1 GB after a day of renders; the judge loaded anyway, crawled
-    past its 180 s timeout, nvidia-smi hung, and the PC froze. ComfyUI does see its own holdings."""
-    def free_outside_comfy():
+    past its 180 s timeout, nvidia-smi hung, and the PC froze. ComfyUI does see its own holdings.
+
+    A model bigger than the card needs ComfyUI emptied rather than trimmed: the target is capped at the
+    card minus 3 GB for the desktop. Past that, Ollama's own fitting puts the overflow on the CPU, which is
+    safe once nothing it can't see holds the card."""
+    def card():
         dev = (comfy_client.system_stats().get("devices") or [{}])[0]
-        return (dev.get("vram_free") or 0) - (dev.get("torch_vram_free") or 0)
+        return (dev.get("vram_free") or 0) - (dev.get("torch_vram_free") or 0), dev.get("vram_total") or 0
+
+    def free_outside_comfy():
+        return card()[0]
     try:
-        free = free_outside_comfy()
+        free, total = card()
+        if total:
+            need_bytes = min(need_bytes, total - 3 * _GB)
         if free >= need_bytes:
             return True
         print(f"[gpu] ComfyUI leaves {free / _GB:.1f} GB of the card free and the local LLM needs about "

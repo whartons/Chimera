@@ -1,6 +1,6 @@
 """Migration guard for the Qwen3 agent upgrade: the orchestrator carries no stale Qwen2.5 or personal
-model references, and it documents the recommended Ollama Qwen3-VL judge path (delivered via .env/docs,
-not hardcoded — llm.py stays default-free, so the actual endpoint/model live in config)."""
+model references, and it documents the Ollama Qwen3-VL judge path (the judge's local default; any other
+endpoint or model comes from config)."""
 from __future__ import annotations
 import importlib
 import sys

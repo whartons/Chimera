@@ -120,8 +120,8 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
   RAM. The judge crawled past its 180 s timeout, `nvidia-smi` hung, and the machine went down. The loops now
   keep the two apps apart:
   - before a local Ollama model loads, ComfyUI (which does see its own memory) is asked how much of the card it
-    leaves free. When that's less than the model needs, ComfyUI unloads its models and the loop waits for the
-    room, and if the room never comes the model is not loaded;
+    leaves free. When that's less than the model needs (weights plus context cache, read from Ollama), ComfyUI
+    unloads its models and the loop waits for the room, and if the room never comes the model is not loaded;
   - Ollama models the run didn't load are unloaded before its first render (the loops already unloaded their
     own before every render);
   - the CAD loop unloads its codegen model before Blender renders.

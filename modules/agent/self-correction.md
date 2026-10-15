@@ -552,9 +552,11 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
 `/api/version`), the loops keep the two apps apart:
 
 - **Before a model loads** (judge, rewriter, CAD codegen), the client asks ComfyUI, which does see its own
-  memory, how much of the card it leaves free. If that is less than the model needs (estimated from its size
-  in Ollama), ComfyUI unloads its models (`/free`) and the loop waits up to 30 s for the memory. If the room
-  never comes, the model is **not** loaded: the iteration fails with "the GPU has no room for it".
+  memory, how much of the card it leaves free. If that is less than the model needs (its weights plus its
+  context cache, read from Ollama: a 192k-token context adds about 13.5 GB to a 27B model), ComfyUI unloads its
+  models (`/free`) and the loop waits up to 30 s for the memory. A model bigger than the card gets ComfyUI
+  emptied, and Ollama puts the overflow on the CPU. If the room never comes, the model is **not** loaded: the
+  iteration fails with "the GPU has no room for it".
 - **Before every ComfyUI render** and **when the run ends**, even on failure, the loops unload their own
   resident models (`LLMClient.release`, Ollama's `keep_alive: 0`); the CAD loop also unloads its codegen
   before Blender renders.
