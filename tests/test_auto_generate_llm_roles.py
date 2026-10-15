@@ -10,7 +10,7 @@ class _Stop(Exception):
 
 def _capture(argv, monkeypatch):
     calls, captured = [], {}
-    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: calls.append((role, kw)) or object())
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: calls.append((role, kw)) or _Releasable([], role))
 
     def fake_loop(**kw):
         captured.update(kw); raise _Stop()
@@ -58,6 +58,91 @@ def test_rewrite_prompts_selects_llmexpander(monkeypatch):
                                 "--rewriter-model", "C", "--llm-base-url", "http://x/v1"], monkeypatch)
     assert _role(calls, "rewriter")["cli_model"] == "C"
     assert type(captured["expander"]).__name__ == "LLMExpander"
+
+
+def test_reasoning_effort_flags_reach_each_role(monkeypatch):
+    calls, _ = _capture(["--pipeline", "cad", "--backend", "api", "--subject", "a bracket",
+                         "--llm-base-url", "http://x/v1", "--llm-model", "Z",
+                         "--llm-reasoning-effort", "none", "--codegen-reasoning-effort", "low"], monkeypatch)
+    assert _role(calls, "codegen")["cli_reasoning"] == "low"
+    assert _role(calls, "judge")["cli_reasoning"] is None
+    assert _role(calls, "judge")["shared_cli_reasoning"] == "none"
+
+
+class _Releasable:
+    def __init__(self, log, name):
+        self.log, self.name = log, name
+
+    def release(self):
+        self.log.append(("release", self.name))
+
+
+def test_image_loop_hands_the_gpu_back_before_each_render(monkeypatch):
+    # unload the run's Ollama models before every ComfyUI render (keep_alive 0), so a resident LLM
+    # never starves ComfyUI on a single GPU
+    log, captured = [], {}
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: _Releasable(log, role))
+    monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda p, n, s: log.append(("render", s)) or "x.png"))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+
+    def fake_loop(**kw):
+        captured.update(kw)
+        raise _Stop()
+    monkeypatch.setattr(AG, "run_loop", fake_loop)
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "image", "--backend", "api",
+                                      "--subject", "a knight", "--comfy-output-dir", "/tmp/o",
+                                      "--rewrite-prompts", "--llm-base-url", "http://x/v1", "--llm-model", "Z"])
+    with pytest.raises(_Stop):
+        AG.main()
+    log.clear()   # drop the end-of-run releases; this checks the per-render hand-off
+    captured["generate"]("p", "n", 7)
+    assert log == [("release", "judge"), ("release", "rewriter"), ("render", 7)]
+
+
+class _Result:
+    def __init__(self, passed):
+        self.passed, self.history, self.best_image, self.best_verdict = passed, [], None, None
+
+
+def test_every_run_releases_its_llms_when_it_ends(monkeypatch):
+    # 2026-10-14: a finished CAD run left its 27B codegen model resident (Ollama keep-alive) and the next
+    # ComfyUI job hung. Every run now hands the GPU back on the way out — even when the loop raises.
+    log = []
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: _Releasable(log, role))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+
+    def boom(**kw):
+        raise RuntimeError("render failed")
+    monkeypatch.setattr(AG, "run_loop", boom)
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "cad", "--backend", "api",
+                                      "--subject", "a bracket", "--llm-base-url", "http://x/v1",
+                                      "--llm-model", "Z"])
+    with pytest.raises(RuntimeError):
+        AG.main()
+    assert sorted(log) == [("release", "codegen"), ("release", "judge")]
+
+
+def _run_to_end(passed, monkeypatch):
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: _Releasable([], role))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: _Result(passed))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+    monkeypatch.setattr(AG, "_print_summary", lambda r: None)
+    monkeypatch.setattr(AG, "_write_run_sidecar", lambda *a, **k: None)
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "cad", "--backend", "api",
+                                      "--subject", "a bracket", "--llm-base-url", "http://x/v1",
+                                      "--llm-model", "Z"])
+    AG.main()
+
+
+def test_exit_status_nonzero_when_nothing_passed(monkeypatch):
+    # scripts/CI can tell a failed run from a passing one (the 2026-10-14 smoke exited 0 on a total failure)
+    with pytest.raises(SystemExit) as e:
+        _run_to_end(False, monkeypatch)
+    assert e.value.code == 1
+
+
+def test_exit_status_zero_when_passed(monkeypatch):
+    _run_to_end(True, monkeypatch)   # returns normally
 
 
 def test_no_rewrite_uses_templated_expander(monkeypatch):

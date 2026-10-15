@@ -39,7 +39,9 @@ class _Rub:
 
 def _clear_env(mp):
     for k in ("CHIMERA_LLM_BASE_URL", "CHIMERA_LLM_MODEL", "CHIMERA_LLM_API_KEY",
-              "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+              "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CHIMERA_LLM_REASONING_EFFORT",
+              "CHIMERA_CODEGEN_REASONING_EFFORT", "CHIMERA_JUDGE_REASONING_EFFORT",
+              "CHIMERA_REWRITER_REASONING_EFFORT"):
         mp.delenv(k, raising=False)
 
 
@@ -115,6 +117,79 @@ def test_chat_empty_content_from_thinking_model_explains_cause(monkeypatch):
                              "message": {"content": "", "reasoning": "let me think... " * 50}}]}
     with pytest.raises(LLMError, match="thinking.*instruct"):
         c.chat([{"role": "user", "content": "x"}], _opener=_opener(thinking))
+
+
+# --- reasoning_effort: hybrid-thinking models (Ollama >= 0.40 serves Qwen3.x thinking ON by default) ---
+_THINKING = {"choices": [{"finish_reason": "length",
+                          "message": {"content": "", "reasoning": "let me think... " * 50}}]}
+
+
+def _seq_opener(payloads, bodies):
+    it = iter(payloads)
+
+    def open_(req, timeout=None):
+        bodies.append(json.loads(req.data))
+        return _Resp(next(it))
+    return open_
+
+
+def test_chat_omits_reasoning_effort_by_default(monkeypatch):
+    # provider-agnostic: never send the knob unless configured (OpenAI non-reasoning models reject it)
+    _clear_env(monkeypatch)
+    c = LLMClient(base_url="http://x/v1", model="m")
+    cap = {}
+    c.chat([{"role": "user", "content": "x"}], _opener=_opener(_msg("ok"), cap))
+    assert "reasoning_effort" not in cap["body"]
+
+
+def test_chat_sends_configured_reasoning_effort(monkeypatch):
+    _clear_env(monkeypatch)
+    c = LLMClient(base_url="http://x/v1", model="m", reasoning_effort="none")
+    cap = {}
+    c.chat([{"role": "user", "content": "x"}], _opener=_opener(_msg("ok"), cap))
+    assert cap["body"]["reasoning_effort"] == "none"
+
+
+def test_reasoning_effort_reads_env(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("CHIMERA_LLM_REASONING_EFFORT", "low")
+    assert LLMClient(base_url="http://x/v1", model="m").reasoning_effort == "low"
+
+
+def test_thinking_exhaustion_retries_once_with_reasoning_off_and_sticks(monkeypatch):
+    # One retry with reasoning_effort="none" recovers; the client keeps it so later calls skip the
+    # wasted thinking pass (the 2026-10-14 smoke: Qwen3.6 codegen on Ollama 0.40 thought until max_tokens).
+    _clear_env(monkeypatch)
+    c = LLMClient(base_url="http://x/v1", model="m")
+    bodies = []
+    assert c.chat([{"role": "user", "content": "x"}], _opener=_seq_opener([_THINKING, _msg("code")], bodies)) == "code"
+    assert "reasoning_effort" not in bodies[0] and bodies[1]["reasoning_effort"] == "none"
+    assert c.reasoning_effort == "none"
+    c.chat([{"role": "user", "content": "y"}], _opener=_seq_opener([_msg("again")], bodies))
+    assert len(bodies) == 3 and bodies[2]["reasoning_effort"] == "none"
+
+
+def test_thinking_retry_rejected_by_provider_reports_original_cause(monkeypatch):
+    import io, urllib.error
+    _clear_env(monkeypatch)
+    c = LLMClient(base_url="http://x/v1", model="m")
+
+    def open_(req, timeout=None):
+        if "reasoning_effort" in json.loads(req.data):
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(b'{"error":"unknown field"}'))
+        return _Resp(_THINKING)
+    with pytest.raises(LLMError, match="thinking.*instruct"):
+        c.chat([{"role": "user", "content": "x"}], _opener=open_)
+    assert c.reasoning_effort is None   # nothing learned from a failed retry
+
+
+def test_explicit_reasoning_effort_is_respected_not_retried(monkeypatch):
+    _clear_env(monkeypatch)
+    c = LLMClient(base_url="http://x/v1", model="m", reasoning_effort="high")
+    bodies = []
+    with pytest.raises(LLMError, match="thinking"):
+        c.chat([{"role": "user", "content": "x"}], _opener=_seq_opener([_THINKING], bodies))
+    assert len(bodies) == 1 and bodies[0]["reasoning_effort"] == "high"
 
 
 class _FakeClient:
@@ -195,6 +270,19 @@ def test_client_for_role_key_role_beats_generic(monkeypatch):
     assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "ok"
     monkeypatch.setenv("CHIMERA_JUDGE_API_KEY", "jk")
     assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "jk"
+
+
+def test_client_for_role_reasoning_effort_precedence(monkeypatch):
+    # specific-wins, same as base_url/model: role CLI > role env > shared CLI > shared env
+    _clear_env(monkeypatch)
+    kw = dict(shared_cli_base="http://x/v1", shared_cli_model="m")
+    assert client_for_role("judge", **kw).reasoning_effort is None
+    monkeypatch.setenv("CHIMERA_LLM_REASONING_EFFORT", "medium")
+    assert client_for_role("judge", **kw).reasoning_effort == "medium"
+    assert client_for_role("judge", shared_cli_reasoning="low", **kw).reasoning_effort == "low"
+    monkeypatch.setenv("CHIMERA_JUDGE_REASONING_EFFORT", "none")
+    assert client_for_role("judge", shared_cli_reasoning="low", **kw).reasoning_effort == "none"
+    assert client_for_role("judge", cli_reasoning="minimal", shared_cli_reasoning="low", **kw).reasoning_effort == "minimal"
 
 
 def test_client_for_role_tagged_error_with_hint(monkeypatch):

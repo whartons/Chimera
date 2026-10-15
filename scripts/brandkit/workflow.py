@@ -85,6 +85,14 @@ def resolve_image_model(mode, variant, model):
     return model
 
 
+def needs_free_before(mode, variant, model):
+    """True when the image graph loads FLUX.2: its ~33 GB bf16 text encoder (beside a ~32 GB fp8
+    diffusion model) is disk-streamed by ComfyUI 0.40's comfy-aimdo, and that load fails with Windows
+    error 1450 ("HostBuffer.read_file_slice failed") while other models are still staged — freeing
+    first fixes it (2026-10-14 smoke). Z-Image graphs keep the fast back-to-back default."""
+    return _family(resolve_image_model(mode, variant, model)) == "flux2"
+
+
 def resolved_upscale_model(manifest, upscale_model=None):
     """The ESRGAN upscaler the image --upscale pass will load: explicit override, else the brand's
     defaults.upscale_model, else DEFAULT_UPSCALE_MODEL. Single source of truth shared by build()

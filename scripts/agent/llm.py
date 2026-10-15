@@ -13,6 +13,10 @@ Config (env, with CLI overrides; no hardcoded vendor default):
   CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen3.6-27b | qwen3-vl:8b-instruct | ...
                         (use a NON-thinking '-instruct' VLM as the judge: a thinking model spends the
                         token budget on reasoning and returns empty content — see chat() empty guard)
+  CHIMERA_LLM_REASONING_EFFORT  optional `reasoning_effort` sent with every request (none | low | medium |
+                        high; per role: CHIMERA_<ROLE>_REASONING_EFFORT). Unset = not sent. When a reply is
+                        all reasoning and no content, chat() retries once with "none" and keeps it — the
+                        fix for hybrid-thinking models served thinking-ON (e.g. Qwen3.x on Ollama >= 0.40).
 """
 from __future__ import annotations
 import os, json, base64, urllib.request, urllib.error
@@ -20,6 +24,7 @@ from pathlib import Path
 
 from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict
 from scripts.agent.expander import PromptExpander, TemplatedExpander
+from scripts.brandkit import gpu
 
 
 class LLMConfigError(RuntimeError):
@@ -30,15 +35,22 @@ class LLMError(RuntimeError):
     pass
 
 
+class _ThinkingExhausted(LLMError):
+    """Empty content because a thinking model spent the whole budget on reasoning (triggers the retry)."""
+
+
 class LLMClient:
     """OpenAI-compatible chat client over stdlib HTTP. `_opener` is the test seam (urlopen)."""
 
-    def __init__(self, *, base_url=None, api_key=None, model=None, timeout=180):
+    def __init__(self, *, base_url=None, api_key=None, model=None, timeout=180, reasoning_effort=None):
         self.base_url = (base_url or os.environ.get("CHIMERA_LLM_BASE_URL") or "").rstrip("/")
         self.api_key = (api_key or os.environ.get("CHIMERA_LLM_API_KEY")
                         or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
         self.model = model or os.environ.get("CHIMERA_LLM_MODEL")
         self.timeout = timeout
+        effort = (reasoning_effort or os.environ.get("CHIMERA_LLM_REASONING_EFFORT") or "").strip().lower()
+        self.reasoning_effort = effort or None
+        self._ollama = None   # is base_url a local Ollama? probed once, by release()
         if not self.base_url:
             raise LLMConfigError(
                 "set CHIMERA_LLM_BASE_URL (e.g. https://api.openai.com/v1, https://api.anthropic.com/v1, "
@@ -47,8 +59,23 @@ class LLMClient:
             raise LLMConfigError("set CHIMERA_LLM_MODEL (e.g. gpt-4o, claude-opus-4-8, or a local model name)")
 
     def chat(self, messages, *, max_tokens=2048, temperature=0.4, _opener=urllib.request.urlopen) -> str:
+        try:
+            return self._chat_once(messages, max_tokens, temperature, self.reasoning_effort, _opener)
+        except _ThinkingExhausted as first:
+            if self.reasoning_effort is not None:   # an explicit setting is respected, never overridden
+                raise
+            try:   # hybrid-thinking model served thinking-ON: one retry with thinking switched off
+                content = self._chat_once(messages, max_tokens, temperature, "none", _opener)
+            except LLMError:   # the provider rejects the knob, or it didn't help: report the real cause
+                raise LLMError(f"{first} (a retry with reasoning_effort='none' also failed)") from None
+            self.reasoning_effort = "none"   # sticky: later calls skip the wasted thinking pass
+            return content
+
+    def _chat_once(self, messages, max_tokens, temperature, reasoning_effort, _opener) -> str:
         body = {"model": self.model, "messages": messages,
                 "max_tokens": max_tokens, "temperature": temperature}
+        if reasoning_effort:
+            body["reasoning_effort"] = reasoning_effort
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -79,13 +106,32 @@ class LLMClient:
             # silent failure — the judge would score a perfect render 0.0 with no clue why.
             rlen = len(msg.get("reasoning") or msg.get("reasoning_content") or "")
             fr = ch.get("finish_reason")
-            hint = ""
             if rlen or fr == "length":
-                hint = (f" — got {rlen} reasoning tokens but empty content (finish_reason={fr}): this is a "
-                        "'thinking' model exhausting max_tokens. Use a non-thinking '-instruct' model "
-                        "(e.g. qwen3-vl:8b-instruct) or raise max_tokens.")
-            raise LLMError(f"LLM at {self.base_url} returned empty content{hint}")
+                sent = f", reasoning_effort={reasoning_effort}" if reasoning_effort else ""
+                raise _ThinkingExhausted(
+                    f"LLM at {self.base_url} returned empty content — got {rlen} reasoning tokens but empty "
+                    f"content (finish_reason={fr}{sent}): this is a 'thinking' model exhausting max_tokens. "
+                    "Use a non-thinking '-instruct' model (e.g. qwen3-vl:8b-instruct), turn thinking off with "
+                    "CHIMERA_<ROLE>_REASONING_EFFORT=none (or --<role>-reasoning-effort none), or raise max_tokens.")
+            raise LLMError(f"LLM at {self.base_url} returned empty content")
         return content
+
+    def release(self, _opener=urllib.request.urlopen) -> bool:
+        """Hand the GPU back: if base_url is a local Ollama and this client's model is resident, unload
+        it now (keep_alive 0) instead of letting it sit for Ollama's ~5-minute keep-alive. The loops call
+        this before each ComfyUI render. Only a RESIDENT model is unloaded (Ollama may load a missing one
+        to unload it). No-op for hosted APIs or with CHIMERA_KEEP_LLM_LOADED=1; never raises."""
+        if os.environ.get("CHIMERA_KEEP_LLM_LOADED", "").strip().lower() in ("1", "true", "yes", "on"):
+            return False
+        root = gpu.ollama_root(self.base_url)
+        if self._ollama is None:
+            self._ollama = gpu.is_ollama(root, _opener=_opener)
+        if not self._ollama:
+            return False
+        name = self.model if ":" in self.model else self.model + ":latest"
+        if name not in {n for n, _ in gpu.loaded_models(root, _opener=_opener)}:
+            return False
+        return gpu.unload(root, name, _opener=_opener)
 
     @staticmethod
     def _image_part(image_path):
@@ -98,11 +144,13 @@ class LLMClient:
                            "content": [{"type": "text", "text": prompt}, self._image_part(image_path)]}], **kw)
 
 
-def client_for_role(role, *, cli_base=None, cli_model=None,
-                    shared_cli_base=None, shared_cli_model=None, timeout=180) -> LLMClient:
+def client_for_role(role, *, cli_base=None, cli_model=None, cli_reasoning=None,
+                    shared_cli_base=None, shared_cli_model=None, shared_cli_reasoning=None,
+                    timeout=180) -> LLMClient:
     """Build an LLMClient for `role` in {'codegen','judge','rewriter'}. SPECIFIC-WINS precedence for each
-    of base_url/model:  role CLI > role env (CHIMERA_<ROLE>_*) > shared CLI (--llm-*) > shared env
-    (CHIMERA_LLM_*).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY > OPENAI_API_KEY > ANTHROPIC_API_KEY.
+    of base_url/model/reasoning_effort:  role CLI > role env (CHIMERA_<ROLE>_*) > shared CLI (--llm-*) >
+    shared env (CHIMERA_LLM_*).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY > OPENAI_API_KEY >
+    ANTHROPIC_API_KEY.
     Raises a role-tagged LLMConfigError (with an 'or run interactively' hint) when base_url/model can't be
     resolved, so the user knows which endpoint is missing and that an interactive agent is the alternative."""
     pre = "CHIMERA_" + role.upper()
@@ -110,8 +158,10 @@ def client_for_role(role, *, cli_base=None, cli_model=None,
     model = cli_model or os.environ.get(pre + "_MODEL") or shared_cli_model or os.environ.get("CHIMERA_LLM_MODEL")
     key = (os.environ.get(pre + "_API_KEY") or os.environ.get("CHIMERA_LLM_API_KEY")
            or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+    effort = (cli_reasoning or os.environ.get(pre + "_REASONING_EFFORT") or shared_cli_reasoning
+              or os.environ.get("CHIMERA_LLM_REASONING_EFFORT"))
     try:
-        return LLMClient(base_url=base, api_key=key, model=model, timeout=timeout)
+        return LLMClient(base_url=base, api_key=key, model=model, timeout=timeout, reasoning_effort=effort)
     except LLMConfigError as e:
         raise LLMConfigError("[" + role + "] " + str(e)
                              + "  (or drive the loop interactively with an AI agent, which supersedes this)") from e

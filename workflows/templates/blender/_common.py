@@ -103,16 +103,24 @@ def import_mesh(path):
     if len(new) > 1:
         bpy.ops.object.join()
     obj = bpy.context.view_layer.objects.active
-    # drop to floor + center on XY
+    # origin at the bounds centre (CAD exports put it at a corner, so a turntable would orbit off-centre),
+    # then drop to the floor
+    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
     zs = [(obj.matrix_world @ v.co).z for v in obj.data.vertices]
     obj.location.z -= min(zs)
+    # matrix_world only refreshes on a depsgraph update; without this, frame_object read the PRE-drop
+    # transform and aimed below the mesh (the 2026-10-14 smoke: a Hunyuan robot framed from the knees down)
+    bpy.context.view_layer.update()
     return obj
 
 
-def frame_object(scn, obj, lens=70, margin=1.4):
-    """Add a camera that frames `obj`'s bounding sphere, plus a floor + studio rig SCALED to the object so
-    it's correctly exposed at any mesh scale (a normalized Hunyuan mesh OR a mm-scale CAD STL — the latter
-    imports at tens of units and washed out to near-black under the old fixed-size rig)."""
+def frame_object(scn, obj, lens=70, margin=1.12):
+    """Add a camera whose view contains ALL of `obj`'s bounding box (plus `margin`), plus a floor + studio
+    rig SCALED to the object so it's correctly exposed at any mesh scale (a normalized Hunyuan mesh OR a
+    mm-scale CAD STL — the latter imports at tens of units and washed out to near-black under the old
+    fixed-size rig). The distance is solved from the lens FOV per bbox corner: the old fixed 2.2r heuristic
+    showed only ~0.75r either side of centre, so compact objects (CAD boxes) were cropped."""
+    bpy.context.view_layer.update()   # read a current matrix_world, whatever the caller just moved
     bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
     center = sum(bbox, mathutils.Vector()) / 8.0
     radius = max((v - center).length for v in bbox) or 1.0
@@ -123,8 +131,19 @@ def frame_object(scn, obj, lens=70, margin=1.4):
     co = bpy.data.objects.new("Cam", cam)
     scn.collection.objects.link(co)
     scn.camera = co
-    dist = margin * radius * (50.0 / lens) * 2.2
-    co.location = center + mathutils.Vector((dist * 0.7, -dist, dist * 0.5))
+    toward_cam = mathutils.Vector((0.7, -1.0, 0.5)).normalized()   # same 3/4 high view as before
+    right = (-toward_cam).cross(mathutils.Vector((0.0, 0.0, 1.0))).normalized()
+    up = right.cross(-toward_cam).normalized()
+    rx, ry = scn.render.resolution_x, scn.render.resolution_y
+    tan_long = (cam.sensor_width / 2.0) / lens          # sensor_fit AUTO: the sensor spans the longer side
+    tan_x = tan_long if rx >= ry else tan_long * rx / ry
+    tan_y = tan_long if ry >= rx else tan_long * ry / rx
+    need = 0.0
+    for v in bbox:
+        p = v - center
+        closer = p.dot(toward_cam)                      # corners nearer the camera need more distance
+        need = max(need, abs(p.dot(right)) / tan_x + closer, abs(p.dot(up)) / tan_y + closer)
+    co.location = center + toward_cam * (margin * need or radius)
     d = center - co.location
     co.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
 

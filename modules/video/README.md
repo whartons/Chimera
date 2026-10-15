@@ -130,6 +130,32 @@ The pack itself was security-scanned before adoption (same standard applied to
 the MCP bridge). Verdict: **safe for local use** with the above two nodes
 excluded. Re-scan on every pack update before advancing the pin.
 
+## Known issue: ComfyUI ≥ 0.40 breaks the pack's STG guidance (patch included)
+
+ComfyUI **0.40.0** (2026-10-13) passes attention inputs to the attention backend wrapped in a single-use
+`AttentionTensorContainer` (core PR #16806). The LTXVideo pack's spatiotemporal guidance (STG) patches
+that call, and for the layers it skips it returns `v` unchanged. On 0.40 that is the container rather
+than a tensor, so sampling fails:
+
+```
+SamplerCustomAdvanced: AttributeError: 'AttentionTensorContainer' object has no attribute 'shape'
+```
+
+This template uses STG (`"stg": 1.0` in both `GuiderParameters` nodes), so every Chimera video render fails
+on 0.40 with any pack version up to at least `44c8a36` (2026-10-14). Fix it by applying
+[`patches/ltxvideo-stg-comfyui-0.40.patch`](patches/ltxvideo-stg-comfyui-0.40.patch) to the pack, then
+restart ComfyUI:
+
+```bash
+cd <ComfyUI>/custom_nodes/ComfyUI-LTXVideo
+git apply <path-to-chimera>/modules/video/patches/ltxvideo-stg-comfyui-0.40.patch
+```
+
+The patch unwraps the container in the two skip shortcuts and changes nothing on older ComfyUI; it applies
+cleanly at both the pinned `15d09ab` and `44c8a36`. Undo it with `git checkout stg.py`. If you can't patch the
+pack, setting `"stg": 0.0` in both `GuiderParameters` nodes also renders, but without STG guidance. Remove
+this section once the fix ships upstream.
+
 ## Why LTX-2.3 needs this exact graph (the gotchas)
 
 - The checkpoint loads via **`CheckpointLoaderSimple`** (or the pack's

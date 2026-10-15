@@ -12,7 +12,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 ```mermaid
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
-        comfy["ComfyUI 0.33.3 (engine + models)"]
+        comfy["ComfyUI 0.40.0 (engine + models)"]
         packs["pinned node packs: LTXVideo · Foley · IPAdapter"]
         comfy --- packs
     end
@@ -41,7 +41,7 @@ The `chimera` package (**v0.5.1**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (566 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (593 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -52,7 +52,7 @@ The `chimera` package (**v0.5.1**, MIT) is pure Python with one required runtime
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **ComfyUI** (Desktop) | **0.33.3** (reference; smoke-validated 2026-08-20: image · video · 3d · render · cad) · **≥0.24.x** required | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
+| **ComfyUI** (Desktop) | **0.40.0** (reference, Comfy Desktop 1.1.7; smoke-validated 2026-10-14 with every output checked as created by the run: txt2img · relight · upscale · video · foley · music · 3d · finalize-texture · render · cad · image/mesh3d/cad agent loops on local Ollama models) · **≥0.24.x** required · **video needs the LTXVideo patch on ≥0.40** (see §3) | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
 
 ## 3 · Third-party ComfyUI node packs (pinned + security-audited)
 Every pack is **pinned by commit** (never `@latest`) and read-through audited before adoption; a
@@ -60,7 +60,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 
 | Pack | Repo | Pinned commit | Used by | Audit verdict |
 |------|------|--------------|---------|---------------|
-| **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `15d09ab` | video (LTX-2.3 i2v + synced audio + latent upscaler) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code`. Re-audited `3b9c5cd → 15d09ab` (4 commits): LTX-2.5 example workflows (inert JSON) + legacy RoPE helpers made self-contained (`rope_utils.py`, pure math) + Gemma-loader dir-resolution/left-padding fixes; no new nodes, deps, or network |
+| **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `15d09ab` | video (LTX-2.3 i2v + synced audio + latent upscaler) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code`. **On ComfyUI ≥ 0.40 apply [`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](../modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)** (the pack's STG skip returns core's new `AttentionTensorContainer`, so every STG render fails; see the video README). Re-audited `3b9c5cd → 15d09ab` (4 commits): LTX-2.5 example workflows (inert JSON) + legacy RoPE helpers made self-contained (`rope_utils.py`, pure math) + Gemma-loader dir-resolution/left-padding fixes; no new nodes, deps, or network |
 | **ComfyUI-HunyuanVideo-Foley** | `phazei/ComfyUI-HunyuanVideo-Foley` | `afd2960` | audio foley (video→SFX) | safe-with-precautions — only 3 nodes used; never run the bundled `cli.py`/`infer.py`/`gradio_app.py` (pickle-RCE) |
 | **ComfyUI_IPAdapter_plus** | `cubiq/ComfyUI_IPAdapter_plus` | `a0f451a` | Phase-4b auto-repaint (SDXL depth-CN + IPAdapter view generation) | safe-with-precautions — clean deps (torch/comfy/PIL/einops), no net/telemetry/exec; only the niche `IPAdapterEmbeds` loader does `torch.load` (don't feed it untrusted `.ipadpt`) |
 
@@ -124,7 +124,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (566 tests local; 559 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (593 tests local; 586 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

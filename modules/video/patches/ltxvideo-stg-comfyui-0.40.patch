@@ -1,0 +1,35 @@
+diff --git a/stg.py b/stg.py
+index 9e54821..b3099e3 100644
+--- a/stg.py
++++ b/stg.py
+@@ -13,6 +13,13 @@ from comfy.model_patcher import ModelPatcher
+ from .nodes_registry import comfy_node
+ 
+ 
++def _attn_tensor(t):
++    """ComfyUI >= 0.40 hands attention inputs over wrapped in a single-owner AttentionTensorContainer;
++    the skipped-attention shortcut below must return the tensor itself (a no-op on older ComfyUI)."""
++    take = getattr(t, "take", None)
++    return take() if callable(take) and not isinstance(t, torch.Tensor) else t
++
++
+ def stg(
+     noise_pred_pos,
+     noise_pred_neg,
+@@ -154,14 +161,14 @@ class PatchAttention(contextlib.AbstractContextManager):
+     def stg_attention(self, q, k, v, heads, *args, **kwargs):
+         self.current_idx += 1
+         if self.current_idx in self.attn_idx:
+-            return v
++            return _attn_tensor(v)
+         else:
+             return self.original_attention(q, k, v, heads, *args, **kwargs)
+ 
+     def stg_attention_masked(self, q, k, v, heads, *args, **kwargs):
+         self.current_idx += 1
+         if self.current_idx in self.attn_idx:
+-            return v
++            return _attn_tensor(v)
+         else:
+             return self.original_attention_masked(q, k, v, heads, *args, **kwargs)
+ 

@@ -121,6 +121,20 @@ def _write_run_sidecar(result, args, repo_root):
     write_sidecar(result.best_image, meta)
 
 
+def _hand_gpu_back(generate, clients):
+    """Unload this run's local Ollama models before every ComfyUI render (LLMClient.release), so a
+    resident judge/rewriter never starves ComfyUI on a single GPU. A no-op for hosted endpoints."""
+    live = [c for c in clients if c is not None]
+    if not live:
+        return generate
+
+    def wrapped(*args, **kwargs):
+        for c in live:
+            c.release()
+        return generate(*args, **kwargs)
+    return wrapped
+
+
 def _print_summary(result):
     print(f"\n[agent] winning image: {result.best_image}")
     print(f"[agent] passed={result.passed} "
@@ -198,6 +212,16 @@ def main():
                     help="(--rewrite-prompts) rewriter LLM base URL — overrides --llm-base-url (else $CHIMERA_REWRITER_BASE_URL)")
     ap.add_argument("--rewriter-model", dest="rewriter_model", default=None,
                     help="(--rewrite-prompts) rewriter model — overrides --llm-model (else $CHIMERA_REWRITER_MODEL)")
+    ap.add_argument("--llm-reasoning-effort", dest="llm_reasoning", default=None,
+                    help="(api/cad) reasoning_effort sent to every role, e.g. none|low|medium|high (else "
+                         "$CHIMERA_LLM_REASONING_EFFORT; unset = not sent, with an automatic retry at 'none' "
+                         "when a thinking model returns only reasoning)")
+    ap.add_argument("--codegen-reasoning-effort", dest="codegen_reasoning", default=None,
+                    help="(cad) codegen reasoning_effort — overrides --llm-reasoning-effort (else $CHIMERA_CODEGEN_REASONING_EFFORT)")
+    ap.add_argument("--judge-reasoning-effort", dest="judge_reasoning", default=None,
+                    help="(--backend api) judge reasoning_effort (else $CHIMERA_JUDGE_REASONING_EFFORT)")
+    ap.add_argument("--rewriter-reasoning-effort", dest="rewriter_reasoning", default=None,
+                    help="(--rewrite-prompts) rewriter reasoning_effort (else $CHIMERA_REWRITER_REASONING_EFFORT)")
     ap.add_argument("--rewrite-prompts", dest="rewrite_prompts", action="store_true",
                     help="(image/mesh3d) use an LLM to rewrite prompts from the judge's FIX feedback instead "
                          "of the templated expander; falls back to templated on any LLM error")
@@ -240,15 +264,17 @@ def main():
     from scripts.agent.llm import LLMConfigError, client_for_role
     codegen_llm = judge_llm = rewriter_llm = None
     try:
+        shared = dict(shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model,
+                      shared_cli_reasoning=args.llm_reasoning)
         if args.pipeline == "cad":
             codegen_llm = client_for_role("codegen", cli_base=args.codegen_base_url, cli_model=args.codegen_model,
-                                          shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model)
+                                          cli_reasoning=args.codegen_reasoning, **shared)
         if args.backend == "api":
             judge_llm = client_for_role("judge", cli_base=args.judge_base_url, cli_model=args.judge_model,
-                                        shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model)
+                                        cli_reasoning=args.judge_reasoning, **shared)
         if args.rewrite_prompts:
             rewriter_llm = client_for_role("rewriter", cli_base=args.rewriter_base_url, cli_model=args.rewriter_model,
-                                           shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model)
+                                           cli_reasoning=args.rewriter_reasoning, **shared)
     except LLMConfigError as e:
         ap.error(str(e))
 
@@ -272,26 +298,38 @@ def main():
         judge = build_judge()
     elif args.pipeline == "mesh3d":
         rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture))
-        generate = make_render_generate(args, repo_root, m, client)
+        generate = _hand_gpu_back(make_render_generate(args, repo_root, m, client), [judge_llm, rewriter_llm])
         judge = GeometryAwareJudge(build_judge())
     else:
         rubric = None  # run_loop builds the image rubric
-        generate = _make_generate(args, repo_root, m, client)
+        generate = _hand_gpu_back(_make_generate(args, repo_root, m, client), [judge_llm, rewriter_llm])
         judge = build_judge()
 
-    result = run_loop(expander=expander, judge=judge, generate=generate, manifest=m,
-                      subject=args.subject, rubric=rubric, max_iters=args.max_iters,
-                      seeds=_parse_seeds(args.seeds))
+    try:
+        result = run_loop(expander=expander, judge=judge, generate=generate, manifest=m,
+                          subject=args.subject, rubric=rubric, max_iters=args.max_iters,
+                          seeds=_parse_seeds(args.seeds))
 
-    _print_summary(result)
-    _write_run_sidecar(result, args, repo_root)
+        _print_summary(result)
+        _write_run_sidecar(result, args, repo_root)
 
-    if args.finalize and args.pipeline == "mesh3d":
-        from scripts.agent.finalize import finalize_winner
-        # build_judge() here is the UN-wrapped judge (the loop wrapped it in GeometryAwareJudge for
-        # shape; texture quality is color/material, not geometry).
-        finalize_winner(result, args, repo_root=repo_root, manifest=m,
-                        judge=build_judge(), client=client)
+        if args.finalize and args.pipeline == "mesh3d":
+            from scripts.agent.finalize import finalize_winner
+            # build_judge() here is the UN-wrapped judge (the loop wrapped it in GeometryAwareJudge for
+            # shape; texture quality is color/material, not geometry).
+            for llm in (judge_llm, rewriter_llm):   # the finalize repaint renders through ComfyUI too
+                if llm is not None:
+                    llm.release()
+            finalize_winner(result, args, repo_root=repo_root, manifest=m,
+                            judge=build_judge(), client=client)
+    finally:
+        # leave the GPU clean for whatever runs next, even on failure (Ollama would otherwise keep a
+        # 27B codegen model resident for ~5 minutes; see LLMClient.release)
+        for llm in (codegen_llm, judge_llm, rewriter_llm):
+            if llm is not None:
+                llm.release()
+    if not result.passed:
+        sys.exit(1)   # a run where nothing passed is a failure to callers/CI, not a silent success
 
 
 if __name__ == "__main__":

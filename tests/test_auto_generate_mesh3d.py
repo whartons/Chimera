@@ -34,7 +34,9 @@ def test_main_mesh3d_wires_geometry_judge_and_3d_rubric(monkeypatch):
     monkeypatch.setattr(sys, "argv",
                         ["auto_generate.py", "--pipeline", "mesh3d", "--subject", "a knight",
                          "--comfy-output-dir", "/tmp/out"])
-    AG.main()
+    with pytest.raises(SystemExit) as e:   # the fake loop passed nothing -> exit status 1
+        AG.main()
+    assert e.value.code == 1
 
     from scripts.agent.judge import GeometryAwareJudge
     assert isinstance(captured["judge"], GeometryAwareJudge)
@@ -57,7 +59,8 @@ def test_main_image_default_max_iters_unchanged(monkeypatch):
     monkeypatch.setattr(sys, "argv",
                         ["auto_generate.py", "--subject", "a rover",
                          "--comfy-output-dir", "/tmp/out"])
-    AG.main()
+    with pytest.raises(SystemExit):   # nothing passed -> exit status 1
+        AG.main()
     assert captured["max_iters"] == 4 and captured["rubric"] is None  # image path unchanged
 
 
@@ -76,7 +79,8 @@ def test_texture_flag_builds_textured_rubric(monkeypatch):
     monkeypatch.setattr(sys, "argv",
                         ["auto_generate.py", "--pipeline", "mesh3d", "--texture",
                          "--subject", "a knight", "--comfy-output-dir", "/tmp/out"])
-    AG.main()
+    with pytest.raises(SystemExit):   # nothing passed -> exit status 1
+        AG.main()
     assert captured["rubric"].noun == "textured 3D render"
 
 
