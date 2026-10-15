@@ -19,13 +19,21 @@ you choose. For unattended geometry authoring there is a **second, headless path
 | | |
 |---|---|
 | **Server** | `neka-nat/freecad-mcp` (GitHub) |
-| **Pinned** | commit `3745ff9` (v0.1.22) — server + addon share the commit |
+| **Pinned** | commit `78bf023` (v0.1.27) — server + addon share the commit |
 | **License** | MIT · runs 100% locally (loopback XML-RPC `127.0.0.1:9875`) |
 | **Transport** | stdio (Claude launches it) → XML-RPC → FreeCAD addon |
-| **Tools** | 15: parametric object ops, FEM, doc/view introspection, dispatch health, code-exec |
+| **Tools** | 17: parametric object ops, FEM, doc/view introspection, dispatch health, async-job status, code-exec (GUI + headless) |
+
+> **Security floor: v0.1.25.** Earlier versions (≤ 0.1.24) are affected by
+> [GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q)
+> (HIGH): while the RPC server runs, any web page open in a local browser can make FreeCAD run
+> arbitrary Python. v0.1.25+ refuses browser-originated requests. Update **both halves** (the
+> `uvx` pin and the addon in FreeCAD's `Mod/`), and run **FreeCAD 1.1.4+**: earlier releases have
+> HIGH advisories triggered by opening a crafted `.FCStd` file
+> ([FreeCAD advisories](https://github.com/FreeCAD/FreeCAD/security/advisories)).
 
 > **Why `neka-nat/freecad-mcp` and not the alternatives?** It is the de-facto
-> community standard: actively maintained, MIT, no telemetry, and ~15 tools
+> community standard: actively maintained, MIT, no telemetry, and ~17 tools
 > including FEM via CalculiX. Rejected alternatives in brief:
 > `contextform/freecad-mcp` has the best install UX and a guard-railed 45-tool
 > surface, but code has been quiet for approximately 10 months; `jango-blockchained/mcp-freecad`
@@ -37,13 +45,15 @@ you choose. For unattended geometry authoring there is a **second, headless path
 ## Activate it
 
 Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on your
-`PATH`; **FreeCAD 1.0 or 1.1** (Python 3.12).
+`PATH`; **FreeCAD 1.1.4 or newer** (Python 3.12; older releases have open security advisories).
 
-1. **Install the FreeCAD addon.** Copy the `addon/FreeCADMCP/` directory from the
-   pinned commit `3745ff9` into FreeCAD's user `Mod/` directory. **FreeCAD 1.1 uses a
-   versioned data dir** — on Windows that is `%APPDATA%\FreeCAD\v1-1\Mod\FreeCADMCP\`
-   (1.0 omits the `v1-1`). If unsure, use **Tools → Open user data directory** in FreeCAD
-   and copy into the `Mod/` there. Fully restart FreeCAD.
+1. **Install the FreeCAD addon.** Copy the **whole** `addon/FreeCADMCP/` directory from the
+   pinned commit `78bf023` into FreeCAD's user `Mod/` directory (`package.xml` is required: the
+   addon reads its version from it at import). **FreeCAD 1.1 uses a versioned data dir** — on
+   Windows that is `%APPDATA%\FreeCAD\v1-1\Mod\FreeCADMCP\` (1.0 omits the `v1-1`). If unsure,
+   use **Tools → Open user data directory** in FreeCAD and copy into the `Mod/` there. When
+   replacing an older copy, keep any backup **outside** `Mod/` (FreeCAD imports every folder in
+   it, and a second copy breaks the workbench). Fully restart FreeCAD.
 
 2. **Start the RPC server.** In FreeCAD, select the **"MCP Addon" workbench** from
    the workbench drop-down. Click the **"Start RPC Server"** toolbar button — this
@@ -53,12 +63,15 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 3. **Register the MCP server.** The server entry lives in
    [`../../.mcp.json`](../../.mcp.json) and is launched by Claude Code as:
    ```
-   uvx --from git+https://github.com/neka-nat/freecad-mcp@3745ff9 freecad-mcp --host 127.0.0.1
+   uvx --from git+https://github.com/neka-nat/freecad-mcp@78bf0230a03324b56c9a0b7f55150fb5be2a0d42 freecad-mcp --host 127.0.0.1
    ```
+   Optional hardening (v0.1.25+): set a shared secret with the addon's **"Set Auth Token"**
+   command and pass the same value to the server through the `FREECAD_MCP_TOKEN` environment
+   variable (or `--auth-token`). Off by default.
 
 4. **Approve and confirm.** In Claude Code run **`/mcp`** and approve the `freecad`
    server (project-scoped servers require a one-time approval). Confirm: `/mcp`
-   should show `freecad` **Connected** with 15 tools. Smoke-test by calling
+   should show `freecad` **Connected** with 17 tools. Smoke-test by calling
    `get_objects` or `list_documents` (Tier 3, read-only) — either should return the
    active FreeCAD document's contents, proving the bridge reached the addon.
 
@@ -153,62 +166,72 @@ from the FreeCAD error it feeds back, so a decent coder recovers in a couple of 
 **Still roadmap:** sketch/constraint modeling, FEM headless, and assemblies. Keep a FreeCAD window open
 with the addon active for live MCP-assisted editing.
 
-## Security audit (commit `3745ff9`) & per-tool gates
+## Security audit (commit `78bf023`) & per-tool gates
 
-**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `3745ff9` (MIT) has a
-clean minimal dep set (`mcp[cli]`, `validators`) with **no telemetry/Supabase/pickle/torch**
+**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `78bf023` (v0.1.27, MIT) has a
+clean minimal dep set (`mcp[cli]>=1.28.1,<3`, `validators`) with **no telemetry/Supabase/pickle/torch**
 and no outbound network; the sole transport is loopback XML-RPC to FreeCAD on
 hardcoded `:9875`, a default `127.0.0.1` bind that flips to `0.0.0.0` only on
 explicit user opt-in and is still IP-allowlist-filtered (default `127.0.0.1`) via
-`verify_request`. The RPC server only starts from a deliberate "Start RPC Server"
-toolbar button (auto-start opt-in, default OFF), so nothing is exposed until the
-user acts. `execute_code`/`execute_code_async` are `exec(code, globals())` RCE
-(Tier 1); `create_object`/`edit_object`/`delete_object` do not eval property values
-but present an unbounded `setattr` + `addObject` surface the source can't prove
-inert (Tier 1, conservative); `insert_part_from_library` lacks a path-traversal
-guard (Tier 2). Not executed during audit — loopback bind + IP filter asserted from
-source.
+`verify_request`. Since v0.1.25 the RPC server also **refuses browser-originated requests**
+(any `Origin` header → 403, non-XML content types → 415, and, when bound to loopback, any `Host`
+other than localhost → 403, which stops DNS rebinding) — the fix for
+[GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q).
+The RPC server only starts from a deliberate "Start RPC Server" toolbar button (auto-start
+opt-in, default OFF), so nothing is exposed until the user acts. An optional shared-secret
+token ("Set Auth Token" + `FREECAD_MCP_TOKEN`) is available and off by default.
+`execute_code`/`execute_code_async` run arbitrary Python in FreeCAD (now in a dedicated namespace
+rather than the module globals) and stay Tier 1; **`execute_code_headless`** (new) runs
+model-supplied Python in a `freecadcmd` subprocess found on PATH, needing neither the GUI nor the
+RPC server, so it is Tier 1 as well; `create_object`/`edit_object`/`delete_object` do not eval
+property values but present an unbounded `setattr` + `addObject` surface the source can't prove
+inert (Tier 1, conservative); `insert_part_from_library` now constrains paths to the library
+root (upstream path-traversal fix) and stays Tier 2. Not executed during audit — bind, IP
+filter, and browser-request refusal asserted from source.
 
 ### Per-tool permission gates
 
 | Tier | Policy | Tools |
 |---|---|---|
-| **1 — always per-call approval (RCE / unbounded mutation)** | require explicit approval on every call | `execute_code`, `execute_code_async`, `create_object`, `edit_object`, `delete_object` |
-| **2 — approval + path/host allowlist** | require approval; path/host must be explicitly vetted | `insert_part_from_library` (no path-traversal guard), `run_fem_analysis` |
-| **3 — auto-allow (read-only)** | frictionless; no side-effects | `create_document`, `get_view`, `get_objects`, `get_object`, `get_parts_list`, `list_documents`, `reload_document`, `get_rpc_status` |
+| **1 — always per-call approval (RCE / unbounded mutation)** | require explicit approval on every call | `execute_code`, `execute_code_async`, `execute_code_headless`, `create_object`, `edit_object`, `delete_object` |
+| **2 — approval + path/host allowlist** | require approval; path/host must be explicitly vetted | `insert_part_from_library`, `run_fem_analysis` |
+| **3 — auto-allow (read-only)** | frictionless; no side-effects | `create_document`, `get_view`, `get_objects`, `get_object`, `get_parts_list`, `list_documents`, `reload_document`, `get_rpc_status`, `get_async_status` |
 
 Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.json).
 
 ### Hard rules
 
 - **Loopback-only binding.** Never enable "Remote Connections" in the FreeCAD MCP
-  Addon settings — doing so flips the bind to `0.0.0.0` with IP-filter-only access
-  and no auth. Keep **Allowed IPs** = `127.0.0.1`.
-- **Path-allowlist `insert_part_from_library`.** The tool has no path-traversal
-  guard; scope library paths to a known safe directory before approving any call.
+  Addon settings — doing so flips the bind to `0.0.0.0` with IP-filter-only access,
+  no auth unless you set a token, and no DNS-rebinding check. Keep **Allowed IPs** = `127.0.0.1`.
+- **Approve `insert_part_from_library` paths.** Upstream now confines library paths, but the
+  tool still writes into your document; check the path before approving any call.
 - **Pin from commit, never floating tag.** Always launch from the pinned git ref
-  `3745ff9` so the server cannot change under you.
+  `78bf023` so the server cannot change under you. If the addon reports a version mismatch and
+  suggests `uvx freecad-mcp@latest`, **don't**: bump the pin (and re-audit) instead.
 - **Re-audit on every pin bump.** When the pin is advanced, re-run the full audit
   against the diff before committing. Runbook:
   [`../../docs/UPDATING.md`](../../docs/UPDATING.md).
-  Last re-audit: `1697aff → 4c3f2ef` (10 upstream commits — v0.1.19: stage-labeled FEM
-  error handling, idle GUI-queue early-return, screenshot re-framing for occluded
-  windows, `get_view` RPC-failure error handling) — **clean**: no new network/egress,
-  no new `eval`/`exec` sink, no new/renamed MCP tools (gates unchanged), no
-  dependency/build changes (version bump only). 3 of the 5 changed files live in
-  `addon/FreeCADMCP/`, so **re-copy the addon into FreeCAD's `Mod/` dir and restart
-  FreeCAD** after bumping — the `uvx` pin only refreshes the server half.
-  (Prior re-audit `63acb30 → 1697aff`: 4 bug-fix commits, clean.)
+  Last re-audit: `3745ff9 → 78bf023` (v0.1.22 → v0.1.27, 83 upstream commits) — **bump with
+  changes**: the GHSA-v4pw-r6h3-v75q fix, the `insert_part_from_library` path fix, `execute_code`
+  namespace isolation, the optional auth token, a server↔addon version handshake, threaded RPC
+  and GUI-dispatch timeouts, and two **new tools** (`execute_code_headless`, Tier 1, gated;
+  `get_async_status`, read-only). No new network egress; no build hooks. The addon now ships a
+  `package.xml` that it reads at import, so **re-copy the whole `addon/FreeCADMCP/` directory
+  into FreeCAD's `Mod/` and restart FreeCAD** — the `uvx` pin only refreshes the server half.
+  (Prior re-audits: `4c3f2ef → 3745ff9`, `1697aff → 4c3f2ef`, `63acb30 → 1697aff`: clean.)
 
 ## Tool surface (highlights)
 
-The server exposes exactly **15 tools**, grouped as:
+The server exposes exactly **17 tools**, grouped as:
 
 - **Parametric ops (Tier 1 — mutation):** `create_object`, `edit_object`,
   `delete_object`
 - **Documents / introspect (Tier 3 — read-only):** `create_document`,
   `list_documents`, `reload_document`, `get_objects`, `get_object`, `get_view`,
-  `get_parts_list`
+  `get_parts_list`, `get_rpc_status`, `get_async_status`
 - **Library / FEM (Tier 2 — path/host approval):** `insert_part_from_library`,
   `run_fem_analysis`
-- **Code-exec (Tier 1 — RCE):** `execute_code`, `execute_code_async`
+- **Code-exec (Tier 1 — RCE):** `execute_code`, `execute_code_async`,
+  `execute_code_headless` (headless `freecadcmd` subprocess; Chimera's own unattended path
+  is `generate.py cad --mode script`)

@@ -331,7 +331,7 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
 | Tool | Server | Pin | Bridge license | Socket |
 |------|--------|-----|----------------|--------|
 | **Blender** | official `lab/blender_mcp` (Blender Foundation, Gitea) | `4309a396` (v1.0.0 +5) | GPL-3.0-or-later | `127.0.0.1:9876` |
-| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `3745ff9` (v0.1.22) | MIT | `127.0.0.1:9875` |
+| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `78bf023` (v0.1.27) | MIT | `127.0.0.1:9875` |
 
 > The **Bridge license** column is the MCP server's own license, **not** the host application's. The host
 > apps are licensed separately: **Blender** GPL-3.0-or-later, **FreeCAD** LGPL-2.1 (LGPL-2.0-or-later).
@@ -344,8 +344,8 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
     backend** (`--mode mesh` / `comfy-scene` / `finish`, Blender Cycles, live-validated
     on Blender 5.1) is also shipped — it runs as a normal CLI subprocess, not through
     the MCP bridge (no per-call approval). Templates in `workflows/templates/blender/`.
-- **FreeCAD** — de-facto community standard; the `freecad-mcp` bridge is MIT (FreeCAD itself is LGPL-2.1), no telemetry, 14 tools incl. FEM via
-  CalculiX. See [`../modules/cad/README.md`](../modules/cad/README.md).
+- **FreeCAD** — de-facto community standard; the `freecad-mcp` bridge is MIT (FreeCAD itself is LGPL-2.1), no telemetry, 17 tools incl. FEM via
+  CalculiX. Needs v0.1.25+ (GHSA-v4pw-r6h3-v75q) and FreeCAD 1.1.4+. See [`../modules/cad/README.md`](../modules/cad/README.md).
 - **FreeCAD headless `cad` is shipped** — `generate.py cad` drives `FreeCADCmd` to author
   parametric primitives (box/cylinder/cone/sphere/tube), convert CAD/mesh files, and **`--mode script`**
   run an agent-authored FreeCAD script (generative CAD) → STEP/STL/OBJ (templates in
