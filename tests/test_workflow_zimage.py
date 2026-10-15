@@ -107,13 +107,14 @@ def test_upscale_off_by_default_no_nodes(tmp_path):
     decode_id, _ = find_node_by_title(wf, "brand:decode")
     assert find_node_by_title(wf, "brand:save")[1]["inputs"]["images"] == [decode_id, 0]
 
-def test_upscale_splices_before_save(tmp_path):
-    from scripts.brandkit.workflow import DEFAULT_UPSCALE_MODEL
+def test_esrgan_upscale_splices_before_save(tmp_path):
+    # the ESRGAN pass (SeedVR2 is the default; its splice is covered in test_upscale.py)
     m = _m(tmp_path, "z_image_turbo_nvfp4.safetensors")
-    wf = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img", upscale=True)
+    wf = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img", upscale=True,
+               upscale_model="4x-UltraSharp.pth")
     decode_id, _ = find_node_by_title(wf, "brand:decode")
     # loader feeds the upscale node, which takes over what fed save (the decode)
-    assert find_node_by_title(wf, "brand:upscale_model")[1]["inputs"]["model_name"] == DEFAULT_UPSCALE_MODEL
+    assert find_node_by_title(wf, "brand:upscale_model")[1]["inputs"]["model_name"] == "4x-UltraSharp.pth"
     up = find_node_by_title(wf, "brand:upscale")[1]
     assert up["inputs"]["image"] == [decode_id, 0]
     assert up["inputs"]["upscale_model"] == ["80", 0]
@@ -131,7 +132,7 @@ def test_resolved_upscale_model_matches_graph(tmp_path):
     m = _m(tmp_path, "z_image_turbo_nvfp4.safetensors")
     wf = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img", upscale=True)
     assert resolved_upscale_model(m) == DEFAULT_UPSCALE_MODEL == \
-        find_node_by_title(wf, "brand:upscale_model")[1]["inputs"]["model_name"]
+        find_node_by_title(wf, "brand:upscale_model")[1]["inputs"]["unet_name"]   # SeedVR2 loads as a UNET
     wf2 = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img",
                 upscale=True, upscale_model="cli.pth")
     assert resolved_upscale_model(m, "cli.pth") == "cli.pth" == \
@@ -142,13 +143,14 @@ def test_upscale_works_in_product_mode(tmp_path):
     m = _m(tmp_path, "z_image_turbo_nvfp4.safetensors")
     wf = build(ROOT, m, positive="x", negative="", seed=1, mode="product",
                asset="rover.png", upscale=True)
-    find_node_by_title(wf, "brand:upscale")  # node exists (raises NodeNotFound otherwise)
-    assert find_node_by_title(wf, "brand:save")[1]["inputs"]["images"] == ["81", 0]
+    up_id, _ = find_node_by_title(wf, "brand:upscale")  # raises NodeNotFound if the splice is missing
+    assert find_node_by_title(wf, "brand:save")[1]["inputs"]["images"] == [up_id, 0]
 
 def test_upscale_after_watermark_takes_over_composite(tmp_path):
-    # pins the order decode -> composite(96) -> upscale(81) -> save when both are on
+    # pins the order decode -> composite(96) -> upscale(81) -> save when both are on (ESRGAN ids;
+    # the SeedVR2 equivalent is in test_upscale.py)
     m = _m(tmp_path, "z_image_turbo_nvfp4.safetensors")
     wf = build(ROOT, m, positive="x", negative="", seed=1, mode="txt2img", watermark=True,
-               watermark_logo="primary.png", logo_px=(120, 120), upscale=True)
+               watermark_logo="primary.png", logo_px=(120, 120), upscale=True, upscale_model="4x-UltraSharp.pth")
     assert find_node_by_title(wf, "brand:upscale")[1]["inputs"]["image"] == ["96", 0]
     assert find_node_by_title(wf, "brand:save")[1]["inputs"]["images"] == ["81", 0]

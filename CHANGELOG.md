@@ -78,6 +78,12 @@ All notable changes to Chimera are documented here. The format follows
   Brands that pin a model are unchanged; the public example-brand keeps Z-Image. Old renders replay on their
   recorded model; `chimera replay <sidecar> --model qwen_image_2.1_int8_convrot.safetensors` re-runs one on
   the new model. Note for forks: Qwen-Image-2.1 is under the Qwen research license (Z-Image is Apache-2.0).
+- **Default `image --upscale` model: 4x-UltraSharp (ESRGAN) → SeedVR2 7B**, a one-step diffusion upscaler
+  (core-native in ComfyUI 0.40, Apache-2.0; tiled VAE). In the 2026-10 review UltraSharp invented texture (a
+  crosshatch on a speaker grille, speckles on skin) where SeedVR2 restored natural detail; 1024² → 4096² adds
+  about 10 s on an RTX 5090. `--upscale-model 4x-UltraSharp.pth` (or `defaults.upscale_model`) still selects
+  the ESRGAN pass, and older upscaled renders replay on their recorded upscaler. Video `--upscale` is unchanged
+  (the LTX latent upscaler).
 
 ### Erratum
 - The **v0.5.0** notes overstated its validation ("smoke-validated live across image, video, 3D … and the full
