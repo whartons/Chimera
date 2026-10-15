@@ -208,3 +208,10 @@ def test_build_meta_records_graph_values_for_replay_drift_checks():
     meta = build_meta(modality="image", mode="txt2img", brand="b", seed=1, model="m", watermark=False,
                       comfy_url="u", wf=_values_wf(), inputs={}, timestamp="t")
     assert meta["provenance"]["graph_values"] == graph_values(_values_wf(), "image", "txt2img")
+
+
+def test_graph_values_skips_entries_that_are_not_nodes():
+    # a graph dict can carry non-node metadata; it must not change the settings fingerprint
+    from scripts.brandkit.sidecar import graph_values
+    wf = _values_wf()
+    assert graph_values({**wf, "extra": "not a node"}, "image", "txt2img") == graph_values(wf, "image", "txt2img")
