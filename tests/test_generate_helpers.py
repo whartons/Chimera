@@ -445,3 +445,9 @@ def test_clip_timing_doubles_the_size_of_an_ltx_upscaled_clip(tmp_path):
     clip.with_suffix(".json").write_text(json.dumps({"inputs": {"fps": 25, "length": 97, "width": 768,
                                                                 "height": 512, "upscale": True}}), encoding="utf-8")
     assert generate._clip_timing(clip) == (25.0, 97 / 25, 1536, 1024)
+
+
+def test_prepare_audio_sfx_maps():
+    args = _args_ns(modality="audio", mode="sfx", duration=3.0, brand=None)
+    assert generate._prepare_audio(args, M, None, _FakeUploadClient(), _StubAp()) == \
+        {"mode": "sfx", "duration": 3.0, "model": None}

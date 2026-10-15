@@ -58,7 +58,8 @@ chimera free                # clear GPU memory: unload Ollama's models, then Com
 chimera image --subject "an armored rover"               # Qwen-Image-2.1 txt2img (--model z_image…/flux2… to switch)
 chimera image --subject "a chrome emblem" --upscale      # + 4× SeedVR2 upscale
 chimera video --from-image start.png --subject "rolls forward, dust"   # Wan 2.2 image→video (--camera static|pan-left|…; --model ltx23 for synced audio)
-chimera audio --mode music --subject "logo sting"        # text→stinger
+chimera audio --mode music --subject "logo sting"        # text→stinger (Stable Audio 3; --model acestep)
+chimera audio --mode sfx --subject "a sword unsheathing"  # text→sound effect
 chimera 3d    --from-image rover.png --format stl         # image→mesh (glb|stl|obj)
 ```
 
@@ -107,7 +108,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **661 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **672 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -116,7 +117,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | [`agent`](modules/agent/) | MCP bridge + security model — drive ComfyUI from an assistant | ✅ |
 | [`image`](modules/image/) | Qwen-Image-2.1 (default) · Z-Image · FLUX.2 — txt2img / logo / product edit / relight · `--upscale` | ✅ |
 | [`video`](modules/video/) | Wan 2.2 image-to-video (default) + Fun Camera moves (`--camera`) · LTX-2.3 with native synced audio (`--model ltx23`) | ✅ |
-| [`audio`](modules/audio/) | ACE-Step (music) · HunyuanVideo-Foley (video → SFX) | ✅ |
+| [`audio`](modules/audio/) | Stable Audio 3 (music + sound effects) · ACE-Step (`--model acestep`) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | TRELLIS.2 (default, textured PBR) · Pixal3D · Hunyuan3D 2.1 (shape only) — image → mesh (GLB / STL / OBJ) | ✅ |
 | [`blender`](modules/blender/) | MCP bridge (live GUI); `generate.py render` (headless mesh render, ComfyUI→scene, finish/figurine); `finalize-texture` (all-around bake) | ✅ |
 | [`cad`](modules/cad/) | MCP bridge (live GUI); `generate.py cad` (parametric primitives, CAD/mesh convert, agent-authored scripts) → STEP/STL/OBJ | ✅ |
@@ -130,7 +131,7 @@ the judge either accepts the candidate or folds its `FIX` directives back into t
 flowchart LR
     M["brand.yaml<br/>(optional)"] --> P["build_prompt<br/>style · palette · negative"]
     P --> G["validated ComfyUI graph<br/>(title-addressed nodes)"]
-    G -->|"POST /prompt"| C["ComfyUI<br/>Qwen-Image · Wan 2.2 · ACE-Step · TRELLIS.2"]
+    G -->|"POST /prompt"| C["ComfyUI<br/>Qwen-Image · Wan 2.2 · Stable Audio 3 · TRELLIS.2"]
     C --> R["route_output<br/>outputs/ or brands/[brand]/"]
     R --> S["sidecar<br/>seed · model · prompts · provenance"]
     C -. "candidate" .-> J["VLM judge<br/>rubric → MET / NOT-MET · score"]

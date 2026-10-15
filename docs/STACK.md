@@ -41,7 +41,7 @@ The `chimera` package (**v0.5.1**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (661 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (672 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -109,7 +109,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 | Image | **Qwen-Image-2.1** (`qwen_image_2.1_int8_convrot`) | Comfy-Org · Qwen research license · Z-Image (fast) and FLUX.2 (cinematic, relight) via `--model` |
 | Image — `--upscale` | **SeedVR2 7B** (`seedvr2_7b_int8_convrot`) | Comfy-Org · Apache-2.0 · ESRGAN (`4x-UltraSharp.pth`) via `--upscale-model` |
 | Video | **Wan 2.2 14B** (`fp8`, 4-step lightx2v LoRAs; Fun Camera for `--camera`) | Comfy-Org · Apache-2.0 · core nodes · LTX-2.3 22B (synced audio) via `--model ltx23` |
-| Audio — music | **ACE-Step 1.5 XL Turbo** | Comfy-Org · core-native |
+| Audio — music + sfx | **Stable Audio 3 Medium** (+ Qwen3.5-2B prompt enhancer) | Comfy-Org · core-native · Stability Community License · ACE-Step 1.5 XL Turbo via `--model acestep` |
 | Audio — foley | **HunyuanVideo-Foley** | phazei · 48 kHz synced |
 | 3D | **TRELLIS.2** (`trellis_2_int8_convrot`, textured PBR GLB) | Comfy-Org · MIT · core in ComfyUI 0.40 · Pixal3D and Hunyuan3D 2.1 (shape only) via `--model` |
 | Agent judge | **Qwen3-VL-8B-Instruct** (Ollama) | official Qwen · Apache-2.0 · ~6–9 GB (Q4/q8) · swap via `CHIMERA_JUDGE_MODEL` |
@@ -125,7 +125,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | **CodeQL** | default setup | security scanning |
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (661 tests local; 654 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (672 tests local; 665 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

@@ -187,10 +187,12 @@ def _clip_timing(path):
 
 
 def _prepare_audio(args, m, brand_dir, client, ap):
-    model = getattr(args, "model", None)   # set by replay (pinned); else brand/default
+    model = getattr(args, "model", None)   # --model, or pinned by replay; else brand/default
     if args.mode == "music":
         return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
                 "keyscale": args.keyscale, "model": model}
+    if args.mode == "sfx":
+        return {"mode": "sfx", "duration": args.duration, "model": model}
     # foley: locate + upload the source video, probe its fps/duration/size
     # outputs/video/ first (media-type-routed location), then legacy flat outputs/, then sources
     path = _resolve_asset(brand_dir, args.from_video,
@@ -393,12 +395,17 @@ def main():
                      help=f"override the latent upscaler (default {video_filler.DEFAULT_VIDEO_UPSCALE_MODEL}; "
                           "must be in ComfyUI models/latent_upscale_models/)")
     aud = sub.add_parser("audio"); _add_common(aud)
-    aud.add_argument("--mode", choices=["music", "foley"], default="music")
+    aud.add_argument("--mode", choices=["music", "sfx", "foley"], default="music",
+                     help="music: a track (Stable Audio 3); sfx: a sound effect (Stable Audio 3); foley: "
+                          "synced sound for an existing video")
     aud.add_argument("--subject", required=True,
-                     help="music: the sonic brief (e.g. 'logo sting'); foley: the SFX to generate")
+                     help="music: the sonic brief (e.g. 'logo sting'); sfx / foley: the sound to generate")
+    aud.add_argument("--model", default=None,
+                     help="(music) sa3 (default) | acestep (ACE-Step 1.5, e.g. for vocals), or a model file name")
     aud.add_argument("--from-video", dest="from_video", default=None,
                      help="foley source: a file in brands/<brand>/outputs|references|products/")
-    aud.add_argument("--duration", type=float, default=None)
+    aud.add_argument("--duration", type=float, default=None,
+                     help="seconds (default: music = brand audio.music_duration; sfx = 4; foley = the clip)")
     aud.add_argument("--bpm", type=int, default=None, help="(music)")
     aud.add_argument("--keyscale", default=None, help="(music)")
     aud.add_argument("--fps", type=float, default=None, help="(foley; default = source fps)")

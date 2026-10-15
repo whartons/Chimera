@@ -21,9 +21,12 @@ def build_prompt(m: BrandManifest, subject: str) -> tuple[str, str]:
 def build_audio_prompt(m: BrandManifest, subject: str, mode: str) -> tuple[str, str]:
     """Audio prompt assembly. music: brand sonic identity (music_tags) + the brief, no text
     negative (ACE-Step zeroes the positive). foley: the subject IS the SFX description; the
-    negative comes from the brand's foley_negative."""
+    negative comes from the brand's foley_negative. sfx: the subject alone (a sound effect doesn't
+    inherit the brand's musical identity)."""
     subject = (subject or "").strip()
     if mode == "foley":
         return subject, m.audio.foley_negative.strip()
+    if mode == "sfx":
+        return subject, ""
     parts = [p for p in (m.audio.music_tags.strip(), subject) if p]
     return ", ".join(parts), ""

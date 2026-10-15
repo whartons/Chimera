@@ -61,6 +61,13 @@ All notable changes to Chimera are documented here. The format follows
   - Wan clips are silent; add sound with `audio --mode foley --from-video`.
   - Templates are `workflows/templates/brand-video-wan22-{i2v,camera}.json`. Sidecars record the
     camera/quality and Wan's resolved clip (81 frames at 16 fps), so replay reproduces it.
+- **Stable Audio 3 Medium music + `audio --mode sfx` sound effects.** It uses Comfy's official graph,
+  including its Qwen3.5-2B prompt enhancer: the enhancer's `Music` or `SFX` system prompt, seeded with the
+  render seed so replays match.
+  - **Timing:** a 12 s track takes ~10 s; a 4 s sound effect takes ~4 s.
+  - **Briefs:** sound effects use the subject alone (no brand music tags). For music, an explicit
+    `--bpm` / `--keyscale` joins the brief, since SA3 has no tempo or key inputs.
+  - **Template:** `workflows/templates/brand-audio-sa3.json`.
 - **`replay --model <file>`** re-runs a recorded render on a different model with everything else as
   recorded (subject, seed, settings), e.g. to run old brand work back on a newer model. **`replay
   --accept-drift`** renders even when the brand or a template changed since (see Fixed).
@@ -116,6 +123,10 @@ All notable changes to Chimera are documented here. The format follows
   about 10 s on an RTX 5090. `--upscale-model 4x-UltraSharp.pth` (or `defaults.upscale_model`) still selects
   the ESRGAN pass, and older upscaled renders replay on their recorded upscaler. Video `--upscale` is unchanged
   (the LTX latent upscaler).
+- **Default music model: ACE-Step 1.5 XL Turbo → Stable Audio 3 Medium**, the clear winner of the 2026-10
+  listening comparison (same three 30 s briefs and seeds). `--model acestep` (or `audio.music_model:
+  acestep`) keeps ACE-Step, for example for songs with vocals. Older renders replay on ACE-Step, their
+  recorded model.
 - **Default video model: LTX-2.3 → Wan 2.2.**
   - **Why:** the 2026-10 review measured camera drift on three shots whose prompts asked for a locked
     camera. LTX-2.3 pushed in 9%, drove a "parked" car off with a 34% pan, and drifted a face's identity.

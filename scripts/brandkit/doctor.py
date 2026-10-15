@@ -114,8 +114,9 @@ def run_checks(client, repo_root, brand=None):
             # also verify any explicitly-configured non-image modality models
             from .threed import canonical as _canonical_3d   # a brand may pin a 3D short name (pixal3d)
             from .video import canonical as _canonical_video   # short names (ltx23) resolve to files
+            from .audio import canonical as _canonical_audio   # (acestep, sa3)
             for label, mdl in (("video", _canonical_video(m.video.model) if m.video.model else None),
-                               ("audio.music", m.audio.music_model),
+                               ("audio.music", _canonical_audio(m.audio.music_model) if m.audio.music_model else None),
                                ("audio.foley", m.audio.foley_model),
                                ("3d", _canonical_3d(m.threed.model) if m.threed.model else None)):
                 if not mdl:
