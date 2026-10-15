@@ -1,0 +1,12 @@
+{
+  "1":  {"class_type": "UNETLoader", "_meta": {"title": "brand:unet"}, "inputs": {"unet_name": "qwen_image_2.1_int8_convrot.safetensors", "weight_dtype": "default"}},
+  "2":  {"class_type": "QwenImage21Cache", "_meta": {"title": "brand:model_cache"}, "inputs": {"model": ["1", 0], "device": "auto", "dtype": "default"}},
+  "3":  {"class_type": "CLIPLoader", "_meta": {"title": "brand:clip"}, "inputs": {"clip_name": "qwen3vl_8b_int8_convrot.safetensors", "type": "qwen_image", "device": "default"}},
+  "4":  {"class_type": "VAELoader", "_meta": {"title": "brand:vae"}, "inputs": {"vae_name": "qwen_image_2.1_vae_bf16.safetensors"}},
+  "5":  {"class_type": "LoadImage", "_meta": {"title": "brand:product_load"}, "inputs": {"image": "PLACEHOLDER_PRODUCT"}},
+  "6":  {"class_type": "TextEncodeQwenImage21", "_meta": {"title": "brand:positive"}, "inputs": {"clip": ["3", 0], "prompt": "PLACEHOLDER_POSITIVE", "negative_prompt": "", "resolution": 1024, "images.image_1": ["5", 0], "vae": ["4", 0]}},
+  "7":  {"class_type": "EmptyLatentImage", "_meta": {"title": "brand:latent"}, "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+  "8":  {"class_type": "KSampler", "_meta": {"title": "brand:sampler"}, "inputs": {"seed": 0, "steps": 25, "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0, "model": ["2", 0], "positive": ["6", 0], "negative": ["6", 1], "latent_image": ["7", 0]}},
+  "9":  {"class_type": "VAEDecode", "_meta": {"title": "brand:decode"}, "inputs": {"samples": ["8", 0], "vae": ["4", 0]}},
+  "10": {"class_type": "SaveImage", "_meta": {"title": "brand:save"}, "inputs": {"images": ["9", 0], "filename_prefix": "brand_qwen_product"}}
+}

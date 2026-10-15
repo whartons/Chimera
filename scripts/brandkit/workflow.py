@@ -11,7 +11,14 @@ _TEMPLATES = {
               "product": "brand-product-mockup.json", "relight": "brand-flux2-relight.json"},
     "zimage": {"txt2img": "brand-zimage-txt2img.json", "logo": "brand-zimage-logo-overlay.json",
                "product": "brand-zimage-product.json"},
+    # Qwen-Image-2.1: product is a reference-image EDIT (the photo is a reference to the text encoder),
+    # not img2img, so the product keeps its identity in the new scene.
+    "qwen": {"txt2img": "brand-qwen-image-txt2img.json", "logo": "brand-qwen-image-logo-overlay.json",
+             "product": "brand-qwen-image-product.json"},
 }
+# Qwen-Image-2.1's validated sampler settings (official template: euler/simple, 25 steps, CFG 1). Like
+# the Z-Image variants they are fixed per model; a brand's FLUX.2 steps/guidance don't apply.
+_QWEN = {"steps": 25, "cfg": 1.0}
 # Relight (FLUX.2 ReferenceLatent edit) is a FLUX.2-only capability — Z-Image has no equivalent edit
 # node here. When relight is requested without a FLUX.2 model, fall back to this default so the mode
 # "just works" rather than erroring on a Z-Image brand default. (resolve_image_model enforces this for
@@ -27,7 +34,12 @@ DEFAULT_UPSCALE_MODEL = "4x-UltraSharp.pth"
 
 
 def _family(model):
-    return "zimage" if (model or "").lower().startswith("z_image") else "flux2"
+    name = (model or "").lower()
+    if name.startswith("z_image"):
+        return "zimage"
+    if name.startswith("qwen_image"):
+        return "qwen"
+    return "flux2"
 
 
 def _load_template(repo_root: Path, family: str, mode: str) -> dict:
@@ -122,6 +134,18 @@ def _apply_zimage(wf, m, positive, seed, mode, variant, model):
         pass
 
 
+def _apply_qwen(wf, m, positive, negative, seed, model):
+    # TextEncodeQwenImage21 encodes BOTH prompts (outputs 0 = positive, 1 = negative), so the brand
+    # negative goes on brand:positive's negative_prompt; there is no separate brand:negative node.
+    _n(wf, "brand:unet")["inputs"]["unet_name"] = model
+    enc = _n(wf, "brand:positive")["inputs"]
+    enc["prompt"], enc["negative_prompt"] = positive, negative
+    s = _n(wf, "brand:sampler")["inputs"]
+    s["seed"], s["steps"], s["cfg"] = seed, _QWEN["steps"], _QWEN["cfg"]
+    lat = _n(wf, "brand:latent")["inputs"]
+    lat["width"], lat["height"] = m.defaults.width, m.defaults.height
+
+
 def _inject_lora(wf: dict, m: BrandManifest):
     if not m.lora.file:
         return
@@ -184,6 +208,8 @@ def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negati
     wf = _load_template(Path(repo_root), family, mode)   # fresh parse per call — mutation-safe
     if family == "zimage":
         _apply_zimage(wf, m, positive, seed, mode, variant, model)
+    elif family == "qwen":
+        _apply_qwen(wf, m, positive, negative, seed, resolved)
     else:
         # FLUX/other: write the resolved model — the same value _resolve_model_used records — so a
         # --model override (or the relight FLUX.2 fallback) reaches the graph AND the sidecar identically.
@@ -223,6 +249,8 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
         kw["source_image"] = asset
     wf = build_workflow(repo_root, manifest, mode=mode, positive=positive,
                         negative=negative, seed=seed, **kw)
+    if mode == "product" and _family(resolve_image_model(mode, variant, model or manifest.defaults.model)) == "qwen":
+        canvas = None   # a Qwen edit renders at the brand size, not at the product photo's size
     if watermark and mode != "logo":  # logo mode already composites a logo
         from .watermark import inject_image_watermark
         inject_image_watermark(wf, manifest=manifest, logo_name=watermark_logo,

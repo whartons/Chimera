@@ -33,6 +33,11 @@ All notable changes to Chimera are documented here. The format follows
   **`chimera doctor`** now reports both apps' GPU memory and warns when Ollama holds 8 GB or more.
 - **Thinking control for local/hosted LLMs:** `--llm-` / `--codegen-` / `--judge-` / `--rewriter-reasoning-effort`
   and `CHIMERA_[ROLE]_REASONING_EFFORT` (see Fixed).
+- **Qwen-Image-2.1 image backend** (`qwen_image*` models): txt2img, logo overlay, and product mockups as a
+  **reference edit**: the product photo is a reference image to the Qwen3-VL-8B text encoder, so the product
+  keeps its exact look in a new scene. Core nodes only (ComfyUI 0.40), fixed 25 steps / CFG 1, about 6 s per
+  1024² image on an RTX 5090. Relight stays FLUX.2. Templates in `workflows/templates/brand-qwen-image-*.json`
+  (module copies under `modules/image/`); `lint` recognizes the family.
 - **`replay --model <file>`** re-runs a recorded render on a different model with everything else as
   recorded (subject, seed, settings), e.g. to run old brand work back on a newer model. **`replay
   --accept-drift`** renders even when the brand or a template changed since (see Fixed).
@@ -68,6 +73,11 @@ All notable changes to Chimera are documented here. The format follows
   ([`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)).
   ComfyUI 0.40 passes attention inputs as `AttentionTensorContainer`s, and the pack's STG guidance returned
   one where a tensor belongs, so every STG render failed. Not yet fixed upstream as of `44c8a36`.
+- **Default image model: Z-Image Turbo → Qwen-Image-2.1** for brandless runs, new brands
+  (`brands/_template`), and brand kits that don't pin `defaults.model` (those previously fell back to FLUX.2).
+  Brands that pin a model are unchanged; the public example-brand keeps Z-Image. Old renders replay on their
+  recorded model; `chimera replay <sidecar> --model qwen_image_2.1_int8_convrot.safetensors` re-runs one on
+  the new model. Note for forks: Qwen-Image-2.1 is under the Qwen research license (Z-Image is Apache-2.0).
 
 ### Erratum
 - The **v0.5.0** notes overstated its validation ("smoke-validated live across image, video, 3D … and the full

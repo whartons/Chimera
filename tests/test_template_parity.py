@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 # (test_every_module_template_is_guarded enforces it). The 4 canonical templates without a module
 # mirror — agent-vlm-judge, brand-txt2img, brand-logo-overlay, brand-product-mockup — are out of scope.
 PAIRS = [
+    ("modules/image/workflow.qwen-image-txt2img.template.json",  "workflows/templates/brand-qwen-image-txt2img.json"),
+    ("modules/image/workflow.qwen-image-logo-overlay.template.json",
+     "workflows/templates/brand-qwen-image-logo-overlay.json"),
+    ("modules/image/workflow.qwen-image-product.template.json",  "workflows/templates/brand-qwen-image-product.json"),
     ("modules/image/workflow.template.json",                     "workflows/templates/flux2-txt2img.json"),
     ("modules/image/workflow.zimage-txt2img.template.json",      "workflows/templates/brand-zimage-txt2img.json"),
     ("modules/image/workflow.zimage-logo-overlay.template.json", "workflows/templates/brand-zimage-logo-overlay.json"),

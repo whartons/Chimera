@@ -16,7 +16,7 @@ def test_default_manifest_is_brandless_and_neutral():
     from scripts.brandkit.manifest import default_manifest, DEFAULT_BRANDLESS_MODEL
     m = default_manifest()
     assert m.name == "default"
-    assert m.defaults.model == DEFAULT_BRANDLESS_MODEL          # documented Z-Image default
+    assert m.defaults.model == DEFAULT_BRANDLESS_MODEL          # documented Qwen-Image-2.1 default
     assert m.style == "" and m.palette == [] and m.negative == ""   # no brand styling injected
     assert m.logo.default is None                                # no logo -> no watermark/logo overlay
 
@@ -34,7 +34,7 @@ def test_defaults_when_blocks_missing(tmp_path):
     p = tmp_path / "b.yaml"
     p.write_text("name: Minimal\nstyle: x\n")
     m = load_manifest(p)
-    assert m.defaults.model == "flux2_dev_fp8mixed.safetensors"
+    assert m.defaults.model == "qwen_image_2.1_int8_convrot.safetensors"   # the default image backend
     assert m.lora.file is None and m.ip_adapter.enabled is False
     assert m.negative == ""
 

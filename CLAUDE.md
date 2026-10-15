@@ -75,8 +75,8 @@ chimera/
 Every `modules/<name>/` folder contains at least:
 - `README.md` — what it does, which models, VRAM needs, license notes.
 - one or more sanitized, importable ComfyUI workflow templates (the canonical copies
-  live in `workflows/templates/`; a module may carry several, e.g. image has Z-Image +
-  FLUX.2 variants).
+  live in `workflows/templates/`; a module may carry several, e.g. image has Qwen-Image-2.1
+  (default) + Z-Image + FLUX.2 variants).
 - `models.md` — model name + Hugging Face / Civitai URL + license + where the file goes
   in `ComfyUI/models/...`. Never hardcode local absolute paths in tracked files.
 

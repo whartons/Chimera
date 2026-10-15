@@ -12,9 +12,13 @@ from .nodes import find_node_by_title, NodeNotFound
 SCHEMA_VERSION = 2
 
 # Where the final prompt/negative text lives in each built graph: (pos_title, pos_input),
-# (neg_title, neg_input). None means "no such text node" -> "".
+# (neg_title, neg_input), or a tuple of such candidates (the first whose node AND input exist wins).
+# None means "no such text node" -> "".
 _PROMPT_NODES = {
-    ("image", None): (("brand:positive", "text"), ("brand:negative", "text")),
+    # FLUX.2 / Z-Image put each prompt on its own CLIPTextEncode; Qwen-Image's single
+    # TextEncodeQwenImage21 (titled brand:positive) carries both, as prompt / negative_prompt.
+    ("image", None): ((("brand:positive", "text"), ("brand:positive", "prompt")),
+                      (("brand:negative", "text"), ("brand:positive", "negative_prompt"))),
     ("video", None): (("brand:positive", "text"), ("brand:negative", "text")),
     ("audio", "music"): (("brand:tags", "tags"), None),
     ("audio", "foley"): (("brand:foley", "prompt"), ("brand:foley", "negative_prompt")),
@@ -39,15 +43,25 @@ def _key(modality, mode, table):
     return table[(modality, None)]
 
 
-def _read(wf, spec):
-    """Read one node-input by (title, input) spec; '' if the node/input is missing."""
+def _locate(wf, spec):
+    """(node_id, input) of the first candidate spec whose node AND input exist, else None. `spec` is
+    None, one (title, input) pair, or a tuple of candidate pairs."""
     if spec is None:
-        return ""
-    title, field = spec
-    try:
-        return find_node_by_title(wf, title)[1].get("inputs", {}).get(field, "") or ""
-    except NodeNotFound:
-        return ""
+        return None
+    for title, field in (spec if isinstance(spec[0], tuple) else (spec,)):
+        try:
+            nid, node = find_node_by_title(wf, title)
+        except NodeNotFound:
+            continue
+        if field in node.get("inputs", {}):
+            return nid, field
+    return None
+
+
+def _read(wf, spec):
+    """Read one node-input by spec (see _locate); '' if the node/input is missing."""
+    hit = _locate(wf, spec)
+    return (wf[hit[0]]["inputs"][hit[1]] or "") if hit else ""
 
 
 def _is_link(v):
@@ -87,11 +101,9 @@ def graph_values(wf, modality=None, mode=None):
     skip = set()
     if modality:
         for spec in _key(modality, mode, _PROMPT_NODES):
-            if spec:
-                try:
-                    skip.add((find_node_by_title(wf, spec[0])[0], spec[1]))
-                except NodeNotFound:
-                    pass
+            hit = _locate(wf, spec)
+            if hit:
+                skip.add(hit)
     parts = []
     for nid, node in sorted(wf.items()):
         if not isinstance(node, dict):
