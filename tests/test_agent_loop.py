@@ -184,3 +184,36 @@ def test_loop_history_records_iter_seed_prompt_verdict():
     assert get(h0, "seed") == 1000
     assert get(h0, "prompt") == "pos:rover"
     assert get(h0, "verdict").passed is False
+
+
+class FlagStylingThenPassJudge:
+    """Fails once flagging the subject's off-brand styling, then passes; records each rubric."""
+    def __init__(self):
+        self.rubrics = []
+
+    def judge(self, image_path, rubric):
+        self.rubrics.append(rubric)
+        if len(self.rubrics) == 1:
+            return Verdict(passed=False, score=0.3, issues=[
+                "2. NOT-MET: toy-like. FIX: add matte armor; avoid candy-red, rugged tactical"])
+        return Verdict(passed=True, score=0.9, issues=[])
+
+
+def test_branded_loop_corrects_the_subject_and_rubric_but_never_the_brand():
+    from scripts.agent.rubric import build_rubric
+    exp, gen, judge = RecordingExpander(), RecordingGenerate(), FlagStylingThenPassJudge()
+    subject = "a rover, candy-red bodywork"
+    res = run_loop(expander=exp, judge=judge, generate=gen, manifest=_m(), subject=subject,
+                   rubric=build_rubric(_m(), subject), max_iters=3)
+    assert res.passed and [c["subject"] for c in exp.calls] == [subject, "a rover"]
+    r0, r1 = judge.rubrics
+    assert "candy-red" in r0.criteria[0] and "candy-red" not in r1.criteria[0] and r1.subject == "a rover"
+    assert any("rugged tactical" in c for c in r1.criteria)      # 'avoid rugged tactical' never strips the brand
+
+
+def test_brandless_loop_never_rewrites_the_subject():
+    from scripts.brandkit.manifest import default_manifest
+    exp, gen, judge = RecordingExpander(), RecordingGenerate(), FlagStylingThenPassJudge()
+    run_loop(expander=exp, judge=judge, generate=gen, manifest=default_manifest(),
+             subject="a rover, candy-red bodywork", max_iters=3)
+    assert [c["subject"] for c in exp.calls] == ["a rover, candy-red bodywork"] * 2

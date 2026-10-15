@@ -19,10 +19,10 @@ not individually sidecar'd, so the loop is **not** per-iteration replayable.
 
 | Module | Responsibility |
 |---|---|
-| `rubric.py` | `Rubric` + `build_rubric(manifest, subject)` — composes a scorable checklist from the brand (subject, style, palette, negative). `rubric.as_prompt()` renders the numbered **MET / NOT-MET → PASS/FAIL → `score: 0-1`** instructions a judge follows. |
-| `expander.py` | `PromptExpander` ABC + `TemplatedExpander` — wraps `build_prompt(manifest, subject)` for the on-brand `(positive, negative)`; given `prior_issues`, appends `". Emphasize and correct: <issues>"` so the next render corrects them. |
+| `rubric.py` | `Rubric` + `build_rubric(manifest, subject)` — composes a scorable checklist from the brand (subject, style, palette, negative). `rubric.as_prompt()` renders the numbered **MET / NOT-MET → PASS/FAIL → `score: 0-1`** instructions a judge follows. With a brand, the subject criterion judges the object itself and the brand wins any styling conflict; a FIX may never contradict another criterion. Palette colors are named for the judge (`color_words`: `#1c1f22` → `near-black (#1c1f22)`), since a VLM can't read hex. |
+| `expander.py` | `PromptExpander` ABC + `TemplatedExpander` — wraps `build_prompt(manifest, subject)` for the on-brand `(positive, negative)`. On a correction pass it applies the judge's `FIX: add …; avoid …` directives (`parse_fixes` reads either order, `remove …`, `none needed`), after `brand_guard` drops contradictions: never add a trait an avoid term or the brand's negative names, never avoid the brand's own style or palette. |
 | `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, NOT-MET lines → issues; never raises). |
-| `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best-scoring candidate after the cap, with full per-iteration history. |
+| `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best-scoring candidate after the cap, with full per-iteration history. In branded runs it also drops the subject styling the judge flagged from the subject **and** the rubric (`correct_subject`; the object phrase is kept), so later passes aren't judged against the off-brand words. |
 
 The judge's **PASS/FAIL verdict is authoritative** for stopping the loop — a single
 PASS returns immediately. The `score` is *not* a threshold gate; it is used only to
@@ -122,8 +122,15 @@ The strict judge **enforces the brand** — it passes an on-brand render and rej
 The rubric is **strict** (overall PASS only if *every* criterion is MET) and asks the judge to attach
 a structured fix to each miss — `FIX: add <…>; avoid <…>`. The expander consumes that directly:
 `add` terms are emphasized in the next positive prompt; `avoid` terms are **stripped from the subject**
-in the positive (Z-Image zeroes the text negative, so the positive is the real lever) and also pushed
-to the negative for models that honor it (FLUX.2). See `scripts/agent/expander.py`.
+in the positive (the image recipes sample at CFG 1, so the positive is the real lever) and also pushed
+to the negative for graphs that sample above CFG 1. See `scripts/agent/expander.py`.
+
+**When the subject fights the brand.** A subject such as *"a glossy candy-red toy rover"* under a gunmetal
+brand used to stall the loop: the subject criterion demanded the candy colors while the brand criteria
+forbade them, so a small judge wrote contradictory fixes (*"add cartoonish toy styling; avoid matte
+black"*) and every pass drifted further off-brand. Three changes (v0.6.0) make the brand win. The rubric
+says so. `brand_guard` filters the contradictions out of the FIX terms. And the loop removes the
+flagged styling from the subject and the rubric before the next pass, keeping the object itself.
 
 **The judge evaluates every criterion and emits an actionable fix.** Verbatim from the Qwen3-VL judge on an
 `example-brand` rover render:
@@ -196,15 +203,35 @@ Overall: PASS   score: 0.94
 The headline **0.38 / 0.92** are the **mean of each frame's three self-assessed passes**
 (`consensus_verdict` averages them); the per-pass scores above are the individual votes.
 
-**Honest note on convergence — and which backend earns it.** Z-Image's base quality plus brand prompt
+### The same correction, fully local: the Ollama judge (v0.6.0)
+
+The README's headline GIF is the autonomous loop with no assistant in it: `auto_generate.py --pipeline image
+--brand example-brand --backend api --judge-model qwen3-vl:8b-instruct --judge-passes 3 --seeds 7,7,7`, on
+Qwen-Image-2.1, with the deliberately off-brand subject *"an exploration rover vehicle, bright glossy
+candy-red and sunny-yellow plastic bodywork, smooth rounded cartoonish toy styling, cheerful kids' toy,
+pastel colors"*:
+
+| iter | verdict (one of three passes, verbatim) | before the next pass |
+|---|---|---|
+| 0 | FAIL · 0.40 — *"The image is cartoonish and toy-like, which conflicts with the requirement to avoid these traits. FIX: add none; avoid cartoonish, toy-like."* | the cartoonish toy-styling phrase leaves the subject and the rubric |
+| 1 | FAIL · 0.49 — still glossy red-and-yellow plastic, *"more toy-like … not rugged tactical-industrial"* | the candy-colored plastic, kids'-toy and pastel phrases leave too |
+| 2 | **PASS · 1.00** | — |
+
+Iteration 2's subject was just *"an exploration rover vehicle"* inside the brand's style, on the same seed
+throughout. Before v0.6.0 this run never converged. The judge kept demanding the candy colors (the
+subject criterion) while forbidding them (the brand criteria), and its contradictory fixes pushed each
+pass further off-brand.
+
+**Honest note on convergence — and which backend earns it.** The default image model plus brand prompt
 injection are strong enough that a *satisfiable* subject often passes on the **first** iteration, so a
 dramatic fail→pass appears only when a render genuinely misses the brand (as above, where the first
 prompt was deliberately off-brand). Reliability scales with the judge. The **assistant consensus
-backend** earns that fail→pass cleanly — three independent vision passes yield a strict verdict and
-precise, format-following fixes. The **autonomous local Qwen3-VL judge** follows the structured-fix format only
-*intermittently*, so it enforces the brand reliably but converges less consistently — the trade for
-running unattended. Choose the tier per job: `--backend local` for hands-off batches, the opt-in
-`--backend assistant` (agent in the loop) when you want the strongest correction.
+backend** earns that fail→pass cleanly: three independent vision passes yield a strict verdict and
+precise fixes. The **local Qwen3-VL-8B judge** writes noisier fixes, and it can miss fine geometry (it
+passed a fan rotor whose blades floated free of the hub; the geometry gate now catches that). With
+v0.6.0's brand-precedence rubric, tolerant FIX parsing and subject correction, it converges on brand misses
+like the one above. Choose the tier per job: `--backend api` with the local judge for hands-off batches,
+the opt-in `--backend assistant` (agent in the loop) when you want the strongest correction.
 
 ### …and it works **without a brand**, too — correcting *content*, not style
 
@@ -429,8 +456,12 @@ varies the concept image + seed; CAD geometry is **deterministic**, so the lever
 The loop: a brief → an **agent-authored FreeCAD Python script** → `generate.py cad --mode script
 --script <file>` executes it headless into a BREP solid + STL → `generate.py render --mode mesh` renders
 it → a VLM judges form/printability → the FIX feedback drives the **agent to revise the script** (e.g.
-"handle too thin" → bump wall thickness) → re-execute, repeat. No geometry gate is needed (FreeCAD BREP
-output is clean/manifold, unlike Hunyuan3D); `cad` already validates dims host-side.
+"handle too thin" → bump wall thickness) → re-execute, repeat. FreeCAD BREP output is manifold, but a
+script can still build **disconnected bodies**: the local judge passed a fan rotor whose 16 blades floated
+free of the hub. So since v0.6.0 the CAD loop applies the mesh3d **geometry gate** too (`GeometryAwareJudge`:
+more than 8 significant parts fails as "the form did not generate as one coherent solid"). `cad` already
+validates dims host-side. FreeCAD 1.1 ships an unrelated top-level `App` package, so the script runner
+resolves a script's own `import App` to FreeCAD.
 
 **Two ways to drive the generator.** *Assistant-authored* (`cad --mode script`, the agent in Claude Code
 writes/revises the script by hand) **or fully autonomous** via **`auto_generate.py --pipeline cad

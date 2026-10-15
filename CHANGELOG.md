@@ -80,6 +80,38 @@ Ollama 0.40 compatibility, a GPU-memory hand-off between them, and a freecad-mcp
   --accept-drift`** renders even when the brand or a template changed since (see Fixed).
 
 ### Fixed
+- **The self-correction loop inverted its own fixes when a subject's styling fought the brand.** Found with
+  the local Qwen3-VL-8B judge while regenerating the README demo. Under a gunmetal brand, a subject such as
+  "a glossy candy-red toy rover" made the subject criterion demand the candy colors while the style, palette
+  and avoid criteria forbade them. The judge's FIX lines then contradicted each other ("add cartoonish toy
+  styling; avoid matte black"), and each pass pushed the render further off-brand. Now:
+  - the subject criterion judges the object itself, and the brand wins any styling conflict;
+  - a FIX may not contradict another criterion;
+  - the FIX parser reads what small judges actually write: either order, `remove …`, `none needed`, and a
+    verb switch mid-clause. It no longer caps all consensus passes together at 10 terms, which had
+    dropped later passes' avoid lists;
+  - the expander drops `add` terms that clash with an `avoid` term or the brand's negative traits, and
+    `avoid` terms that would strip the brand's own style or palette. Palette hex codes now match too;
+  - in branded runs, the loop removes the styling the judge flagged from the subject **and** the rubric
+    before the next pass, keeping the object itself;
+  - the palette criterion names each color (`near-black (#1c1f22)`, `red (#c8442e)`) and accepts a scheme
+    built from a subset of them. The judge can't read hex codes, so it had failed a correct near-black and
+    slate render as "monochromatic, not the brand palette".
+- **CAD scripts that `import App` failed on FreeCAD 1.1.** FreeCAD 1.1 ships an unrelated top-level `App`
+  package, so a script's own `import App` replaced the namespace's `App` alias with a module that has no
+  `Vector`. Two of three iterations of a live CAD loop died on it. A script's `App` import now resolves to
+  FreeCAD in both the restricted (LLM) and trusted modes. The codegen prompt now also documents rotation
+  (`shape.rotate(center, axis, degrees)` on a copy), after the local codegen model called a nonexistent
+  `Matrix.rotate` in all three iterations of a fan-rotor run.
+- **Blender renders had a hard black band across the top.** The camera kept Blender's default 100-unit clip
+  range, which cut the floor off behind a millimetre-scale CAD part. The studio floor also ended inside the
+  frame behind upright objects. The clip range and floor now scale with the object, so the floor falls off
+  into shadow. This affects `render`, turntables, and the mesh3d/CAD loop stills.
+- **The CAD loop passed parts that came out in pieces.** It skipped the mesh3d geometry gate on the theory
+  that BREP output is clean, but a script can still build disconnected bodies: the local judge passed a fan
+  rotor whose 16 blades floated free of the hub (17 separate solids). The CAD loop now writes the geometry
+  checks beside each contact sheet and judges through `GeometryAwareJudge`, so more than 8 significant parts
+  fails as "the form did not generate as one coherent solid".
 - **Foley re-timed a 16 fps clip to 25 fps when PyAV wasn't installed** (it played about 1.6× too fast). The
   fps probe needs PyAV (an optional extra), so without it foley fell back to 25 fps, LTX's rate. Foley now
   reads a Chimera clip's exact fps, frame count and size from the clip's own sidecar first. Verified on a
@@ -127,7 +159,7 @@ Ollama 0.40 compatibility, a GPU-memory hand-off between them, and a freecad-mcp
   one where a tensor belongs, so every STG render failed. Not yet fixed upstream as of `44c8a36`.
 - **Default image model: Z-Image Turbo → Qwen-Image-2.1** for brandless runs, new brands
   (`brands/_template`), and brand kits that don't pin `defaults.model` (those previously fell back to FLUX.2).
-  Brands that pin a model are unchanged; the public example-brand keeps Z-Image. Old renders replay on their
+  Brands that pin a model are unchanged. The public example-brand now uses Qwen-Image-2.1 too, and its whole showcase was regenerated on the new defaults. Old renders replay on their
   recorded model; `chimera replay <sidecar> --model qwen_image_2.1_int8_convrot.safetensors` re-runs one on
   the new model. Note for forks: Qwen-Image-2.1 is under the Qwen research license (Z-Image is Apache-2.0).
 - **Default `image --upscale` model: 4x-UltraSharp (ESRGAN) → SeedVR2 7B**, a one-step diffusion upscaler
@@ -165,9 +197,16 @@ Ollama 0.40 compatibility, a GPU-memory hand-off between them, and a freecad-mcp
     robot the judge scored 1.0 failed on 12 raw parts (3 significant). Checks files from older runs fall back
     to the raw count.
 
+- **CAD STL/OBJ exports tessellate curves finer** (angular deflection 0.5 → 0.1 rad). At 0.5, a circle came
+  out as about 13 visible flats in renders and prints. Round parts' STLs grow about 1.6×.
+
 ### Docs
-- README media regenerated on the new defaults: the Qwen-Image-2.1 hero, and the image → video → 3D strip
-  (a Qwen robot, its Wan 2.2 clip, and its TRELLIS.2 mesh rendered in Blender).
+- **All README media regenerated on the new defaults.**
+  - A new hero: the classical fire-breathing Chimera on Qwen-Image-2.1 with a SeedVR2 detail pass.
+  - The self-correction demo, re-run fully locally with the Ollama Qwen3-VL judge.
+  - The image → video → 3D strip: one robot drawn by Qwen-Image, animated by Wan 2.2 and meshed by TRELLIS.2.
+  - A textured Blender turntable and a new CAD part.
+  - The whole example-brand showcase: images, fleet, video, foley, music and a textured TRELLIS.2 mesh.
 - `docs/SETUP.md` lists what the defaults download and where Comfy-Org's `split_files/` files go.
 - The Brand Kits guide said a brand's `negative` shaped FLUX.2 images. No image recipe uses it: Qwen-Image-2.1
   and FLUX.2 sample at CFG 1, where ComfyUI skips the negative pass, and Z-Image zeroes its negative. It only

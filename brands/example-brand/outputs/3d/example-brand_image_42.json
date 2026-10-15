@@ -4,16 +4,21 @@
   "mode": "image",
   "brand": "example-brand",
   "seed": 42,
-  "model": "hunyuan_3d_v2.1.safetensors",
+  "model": "trellis_2_int8_convrot.safetensors",
   "watermark": false,
   "prompt": "",
   "negative": "",
   "inputs": {
     "from_image": "rover.png",
-    "octree": 128,
     "format": "glb"
   },
   "comfy_url": "http://127.0.0.1:8000",
-  "timestamp": "2026-06-08T18:39:16",
-  "format": "glb"
+  "timestamp": "2026-10-15T11:25:01",
+  "format": "glb",
+  "provenance": {
+    "graph_signature": "9f3b619bfbec131c",
+    "graph_values": "5462d67b63d3d637",
+    "comfyui_version": "0.40.0",
+    "pipeline_git_sha": "558e0b9-dirty"
+  }
 }

@@ -169,3 +169,19 @@ def test_no_rewrite_uses_templated_expander(monkeypatch):
     _, captured = _capture(["--pipeline", "image", "--backend", "local", "--subject", "a knight",
                             "--comfy-output-dir", "/tmp/o"], monkeypatch)
     assert type(captured["expander"]).__name__ == "TemplatedExpander"
+
+
+def test_cad_pipeline_judge_is_geometry_gated(monkeypatch):
+    # BREP is manifold, but a script can still build disconnected bodies: the cad judge must be wrapped in
+    # the same geometry gate as mesh3d (a VLM passed a fan whose blades floated free of the hub, 2026-10).
+    captured = {}
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: _Releasable([], role))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: captured.update(kw) or (_ for _ in ()).throw(_Stop()))
+    for k in ("CHIMERA_LLM_BASE_URL", "CHIMERA_LLM_MODEL", "CHIMERA_LLM_API_KEY", "OPENAI_API_KEY",
+              "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "cad", "--backend", "api", "--subject",
+                                      "a fan rotor", "--llm-base-url", "http://x/v1", "--llm-model", "Z"])
+    with pytest.raises(_Stop):
+        AG.main()
+    assert isinstance(captured["judge"], AG.GeometryAwareJudge)

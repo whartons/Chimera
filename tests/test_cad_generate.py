@@ -104,3 +104,28 @@ def test_make_cad_generate_no_stl_raises(tmp_path):
                              blender_runner=lambda t, p, **k: {"outputs": []})
     with pytest.raises(RuntimeError, match="no STL"):
         g("x", "", 1)
+
+
+def test_make_cad_generate_writes_geometry_checks_for_the_gate(tmp_path, monkeypatch):
+    # BREP is manifold, but a script can still build disconnected bodies: a VLM passed a fan rotor whose 16
+    # blades floated free of the hub (2026-10). The checks ride beside the sheet for GeometryAwareJudge.
+    import json
+    from scripts.agent.geometry import structural_issues
+    fc, _ = _ok_runners(tmp_path)
+
+    def bl(tmpl, params, **kw):
+        outs = []
+        for i in range(4):
+            p = Path(params["out_dir"]) / f"v{i}.png"; p.write_text("p"); outs.append(str(p))
+        return {"outputs": outs, "checks": {"loose_parts": 17, "major_parts": 17}}
+
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+
+    def route(root, brand, src, mode, seed, **kw):
+        d = Path(root) / "out" / f"{mode}_{seed}{Path(src).suffix}"
+        d.parent.mkdir(parents=True, exist_ok=True); d.write_text("x"); return d
+
+    monkeypatch.setattr(CG, "route_output", route)
+    sheet = Path(CG.make_cad_generate(_args(), tmp_path, _Gen(), freecad_runner=fc, blender_runner=bl)("p", "", 9))
+    checks = json.loads(sheet.with_name(sheet.stem + ".checks.json").read_text(encoding="utf-8"))
+    assert checks["major_parts"] == 17 and structural_issues(checks)      # the gate fails a 17-piece part

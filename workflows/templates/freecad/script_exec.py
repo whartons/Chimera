@@ -22,20 +22,33 @@ with open(p["script"], encoding="utf-8") as fh:
     src = fh.read()
 ns = {"App": App, "FreeCAD": App, "Part": Part, "Mesh": Mesh, "doc": doc, "__name__": "__chimera_cad__"}
 
+import builtins as _b
+_real_import = _b.__import__
+
+
+def _import(name, globals=None, locals=None, fromlist=(), level=0):
+    # FreeCAD 1.1 ships an unrelated top-level `App` namespace package (no Vector), so a script's own
+    # `import App` / `from App import Vector` broke every LLM-authored part that wrote it (2026-10).
+    # Resolve it to FreeCAD, the alias this namespace promises.
+    if name == "App" and not level:
+        return App
+    return _real_import(name, globals, locals, fromlist, level)
+
+
+ns["__builtins__"] = {**vars(_b), "__import__": _import}
+
 if p.get("restrict"):
     # Autonomous (LLM-authored) scripts run with restricted builtins + an import allowlist: no
     # open/eval/exec/compile/getattr/__import__-of-arbitrary-modules, so the python-level escape hatches
     # are closed. NOT a full sandbox (FreeCAD's own Part.export/doc.saveAs can still touch the filesystem),
     # but it raises the bar far past the host-side regex pre-filter. Human `cad --mode script` is trusted
     # and stays unrestricted.
-    import builtins as _b
     _ALLOWED = {"App", "FreeCAD", "Part", "Mesh", "math", "Draft", "PartDesign", "BOPTools", "MeshPart"}
-    _real_import = _b.__import__
 
     def _safe_import(name, *a, **k):
         if name.split(".")[0] not in _ALLOWED:
             raise ImportError(f"restricted CAD script may not import {name!r}")
-        return _real_import(name, *a, **k)
+        return _import(name, *a, **k)
 
     _SAFE = {n: getattr(_b, n) for n in (
         "abs", "min", "max", "round", "sum", "len", "range", "enumerate", "zip", "map", "filter",

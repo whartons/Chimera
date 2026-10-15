@@ -307,7 +307,7 @@ def main():
         from scripts.agent.llm import LLMCadGenerator
         rubric = build_rubric(m, args.subject, modality="3d")   # clean-solid form rubric (BREP is manifold)
         generate = make_cad_generate(args, repo_root, LLMCadGenerator(codegen_llm))
-        judge = build_judge()
+        judge = GeometryAwareJudge(build_judge())   # manifold, but a script can still build disconnected bodies
     elif args.pipeline == "mesh3d":
         # textured: the Phase-4a front bake (--texture) or a 3D model that bakes its own textures
         rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture) or mesh_textured)

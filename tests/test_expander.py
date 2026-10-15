@@ -101,3 +101,55 @@ def test_strip_terms_removes_avoid_and_tidies():
     assert "toy" not in out.lower() and "candy" not in out.lower() and "glossy plastic" not in out.lower()
     assert "rover" in out and "six wheels" in out          # on-brand parts preserved
     assert ", ," not in out                                # tidy: no doubled commas
+
+
+def test_correction_resolves_contradictory_fixes_in_the_brands_favour():
+    # Live 2026-10 (Qwen3-VL-8B, 3 consensus passes) on an off-brand subject: the passes disagreed and one
+    # asked to avoid the brand's own style; applying both sides inverted the correction. The brand wins.
+    e = TemplatedExpander()
+    issues = [
+        "2. NOT-MET: cartoonish. FIX: add smooth rounded cartoonish styling; avoid rugged tactical, #1c1f22",
+        "3. NOT-MET: palette missing. FIX: add candy-red bodywork, #c8442e; avoid candy-red",
+        "5. NOT-MET: toy-like. FIX: add matte armor plating; avoid glossy plastic",
+    ]
+    pos, neg = e.expand("a glossy plastic rover with candy-red bodywork", _m(), prior_issues=issues)
+    ensure = pos.split("Ensure these are present:")[1]
+    assert "cartoonish" not in ensure and "candy" not in ensure       # clash with brand negative / an avoid
+    assert "matte armor plating" in ensure and "#c8442e" in ensure     # brand-consistent adds survive
+    assert "candy" not in pos.lower() and "glossy plastic" not in pos.lower()   # stripped from the subject
+    assert "candy-red" in neg and "glossy plastic" in neg
+    assert "rugged tactical" not in neg and "#1c1f22" not in neg       # never avoid the brand's own traits
+
+
+def test_add_none_is_not_a_term_and_a_structured_fix_never_falls_back_to_raw_issues():
+    e = TemplatedExpander()
+    pos, neg = e.expand("rover", _m(), prior_issues=["5. NOT-MET: toy-like. FIX: add none; avoid toy-like"])
+    assert "ensure these are present" not in pos.lower()
+    assert "toy-like" in neg and "fix:" not in pos.lower()
+    # every term filtered by the guard: still no raw (contradictory) issue text in the prompt
+    pos, _ = e.expand("rover", _m(), prior_issues=["2. NOT-MET. FIX: add cartoonish look; avoid rugged tactical"])
+    assert "cartoonish look" not in pos and "fix:" not in pos.lower()
+    assert pos.lower().startswith("correct the previous attempt")
+
+
+def test_parse_fixes_reads_what_small_judges_actually_write():
+    from scripts.agent.expander import parse_fixes
+    # either order, 'remove' for avoid, 'and' lists (live Qwen3-VL-8B phrasings, 2026-10)
+    assert parse_fixes(["FIX: avoid cartoonish, toy-like; add rugged armor"]) == (["rugged armor"], ["cartoonish", "toy-like"])
+    assert parse_fixes(["FIX: remove candy-red and sunny-yellow; add matte black"]) == (["matte black"], ["candy-red", "sunny-yellow"])
+    # 'none needed' and a mid-clause verb switch: the skipped terms never become additions
+    assert parse_fixes(["FIX: none needed."]) == ([], [])
+    assert parse_fixes(["FIX: none needed, change the palette to pastel shades, add rugged armor, hard edges"]) == (
+        ["rugged armor", "hard edges"], [])
+    # no cap across consensus passes at 10 terms: a later pass's avoid list still arrives
+    many = [f"FIX: add a{i}, b{i}, c{i}; avoid x{i}" for i in range(6)]
+    add, avoid = parse_fixes(many)
+    assert len(add) == 18 and avoid == [f"x{i}" for i in range(6)]
+
+
+def test_correct_subject_drops_flagged_styling_but_keeps_the_object():
+    from scripts.agent.expander import correct_subject
+    s = "a six-wheeled rover, bright candy-red plastic bodywork, cheerful kids' toy, pastel colors, knobby tires"
+    assert correct_subject(s, ["candy-red", "toy", "pastel colors"]) == "a six-wheeled rover, knobby tires"
+    assert correct_subject("a glossy candy-red toy rover", ["glossy", "candy-red", "toy"]) == "a rover"
+    assert correct_subject("a rover", ["rover"]) == "a rover"          # never strips the object away

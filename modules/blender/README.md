@@ -1,8 +1,8 @@
 # `blender` — image-and-scene DCC bridge
 
-![A 360-degree headless Cycles turntable of a generated mesh](../../docs/images/chimera-sample-blender.gif)
+![A 360-degree headless Cycles turntable of a textured rover mesh](../../docs/images/chimera-sample-blender.gif)
 
-*Headless Cycles turntable of a generated mesh — `chimera render --from mesh.glb --turntable`. Brand-neutral sample.*
+*Headless Cycles turntable of the example brand's textured TRELLIS.2 rover: `chimera render --from mesh.glb --turntable`. Brand-neutral sample.*
 
 This module covers **two shipped paths** for driving Blender from Chimera:
 

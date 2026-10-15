@@ -158,3 +158,32 @@ def test_image_rubric_has_no_contact_sheet_preamble():
     from scripts.brandkit.manifest import default_manifest
     p = build_rubric(default_manifest(), "a rover").as_prompt().lower()
     assert "contact sheet" not in p
+
+
+def test_branded_subject_criterion_lets_the_brand_win_and_brandless_is_unchanged():
+    from scripts.brandkit.manifest import default_manifest
+    first = build_rubric(_m(), "a glossy candy-red toy rover").criteria[0]
+    assert first.startswith("The image clearly depicts: a glossy candy-red toy rover.")
+    assert "the brand wins" in first
+    assert "the brand wins" in build_rubric(_m(), "a rover", modality="3d").criteria[0]
+    assert build_rubric(default_manifest(), "a fox").criteria[0] == "The image clearly depicts: a fox."
+
+
+def test_fix_instruction_forbids_contradicting_another_criterion():
+    p = build_rubric(_m(), "rover").as_prompt()
+    assert "never add a trait another criterion says to avoid" in p
+    assert "never avoid a trait another criterion requires" in p
+
+
+def test_palette_criterion_names_colors_a_small_judge_can_check():
+    # A small VLM can't read hex codes as colors: it failed a correct near-black/slate render as
+    # 'monochromatic, not the brand palette' (2026-10). Name each color; keep the hex; allow a subset.
+    from scripts.agent.rubric import color_words
+    assert [color_words(c) for c in ("#1c1f22", "#2e3338", "#b6c0c8", "#c8442e", "#00ffcc", "#2a0a4a")] == [
+        "near-black (#1c1f22)", "dark grey (#2e3338)", "light grey (#b6c0c8)", "red (#c8442e)",
+        "teal (#00ffcc)", "dark purple (#2a0a4a)"]
+    assert color_words("brushed steel") == "brushed steel"          # non-hex palette entries pass through
+    crit = " ".join(build_rubric(_m(), "rover").criteria)
+    assert "near-black (#1c1f22), red (#c8442e)" in crit and "only some of these colors is on-palette" in crit
+    tex = " ".join(build_rubric(_m(), "rover", modality="3d", textured=True).criteria)
+    assert "coloring stays within the brand palette: near-black (#1c1f22)" in tex

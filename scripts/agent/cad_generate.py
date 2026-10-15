@@ -5,9 +5,10 @@ the model-free loop core is reused unchanged. No ComfyUI in the loop unless the 
 (the LLM judge / --backend api makes it a pure LLM+FreeCAD+Blender loop). pos carries the subject + the
 expander's accumulated FIX feedback; the LLMCadGenerator revises its previous script from it."""
 from __future__ import annotations
-import re, shutil, tempfile
+import json, re, shutil, tempfile
 from pathlib import Path
 
+from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
 from scripts.brandkit import montage  # noqa: F401 (seam: tests patch montage.contact_sheet here)
 from scripts.brandkit.outputs import route_output
 from scripts.brandkit.freecad import run_template as fc_run
@@ -71,7 +72,7 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
             if not stl:
                 raise RuntimeError("cad code-gen produced no STL")
             # 3. render a 4-view contact sheet (Blender) for the judge — shared eval stage
-            _mani, sheet_tmp = eval_contact_sheet(
+            mani, sheet_tmp = eval_contact_sheet(
                 stl, tmp, stem, template=eval_tmpl, samples=args.samples, res=args.res,
                 seed=seed, blender_runner=blender_runner, blender_bin=args.blender_bin,
                 timeout=bl_timeout)
@@ -80,6 +81,11 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
             route_output(repo_root, args.brand, Path(stl), "cad", seed)
             # keep the winning script beside the sheet for reproducibility/inspection
             (Path(sheet).with_name(Path(sheet).stem + ".cad.py")).write_text(script, encoding="utf-8")
+            # geometry facts beside the sheet for the loop's GeometryAwareJudge: BREP is manifold, but a
+            # script can still build disconnected bodies (a VLM passed a fan rotor whose 16 blades floated
+            # free of the hub, 2026-10)
+            (Path(sheet).with_name(Path(sheet).stem + RENDER_CHECKS_SUFFIX)).write_text(
+                json.dumps(mani.get("checks", {})), encoding="utf-8")
             return str(sheet)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

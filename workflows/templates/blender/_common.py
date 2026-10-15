@@ -70,7 +70,9 @@ def studio(scn, radius=2.0, world_strength=0.25):
 
 
 def floor(scn, radius=2.0, rough=0.4):
-    bpy.ops.mesh.primitive_plane_add(size=40 * max(radius, 1e-3) / 2.0, location=(0, 0, 0))
+    # 400 radii: at 20 the camera saw past the far edge, a hard black band across the top of upright
+    # objects (a CAD fan, a standing robot); now the floor runs to the horizon and falls off into shadow
+    bpy.ops.mesh.primitive_plane_add(size=400 * max(radius, 1e-3), location=(0, 0, 0))
     m = bpy.data.materials.new("Floor")
     m.use_nodes = True
     b = m.node_tree.nodes["Principled BSDF"]
@@ -128,6 +130,9 @@ def frame_object(scn, obj, lens=70, margin=1.12):
     studio(scn, radius)
     cam = bpy.data.cameras.new("Cam")
     cam.lens = lens
+    # scale the clip range with the object: Blender's default 100-unit clip_end cut the floor off behind a
+    # mm-scale CAD part (it sits hundreds of units from the camera), leaving a hard black band at the top
+    cam.clip_start, cam.clip_end = radius * 0.001, radius * 1000.0
     co = bpy.data.objects.new("Cam", cam)
     scn.collection.objects.link(co)
     scn.camera = co

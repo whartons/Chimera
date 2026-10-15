@@ -1,8 +1,8 @@
 # `cad` — parametric CAD bridge
 
-![A machined L-bracket with bolt holes, authored by a FreeCAD script and rendered in Blender](../../docs/images/chimera-sample-cad.png)
+![A shrouded fan rotor with 18 twisted blades, built by a FreeCAD script and rendered in Blender](../../docs/images/chimera-sample-cad.png)
 
-*Generative script-mode part — an agent-authored FreeCAD script (`chimera cad --mode script`) → STEP/STL, rendered headless in Blender. Brand-neutral sample.*
+*Script-mode part: [`examples/turbofan.py`](examples/turbofan.py) (18 lofted blades twisting from 55° at the root to 25° at the tip, fused to a hub, spinner and shroud) run with `chimera cad --mode script` → STEP/STL, rendered headless in Blender. Brand-neutral sample.*
 
 This module is the glue that lets an AI assistant **drive a live FreeCAD session**:
 create and edit parametric solids, run FEM simulations, export STEP/STL/glTF, and
