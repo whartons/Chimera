@@ -50,23 +50,58 @@ def _read(wf, spec):
         return ""
 
 
+def _is_link(v):
+    return isinstance(v, list) and len(v) == 2 and isinstance(v[0], str) and isinstance(v[1], int)
+
+
 def graph_signature(wf):
     """A short, stable hash of the built graph's STRUCTURE — each node's id, class_type, title, and
     its connection edges (list-valued [node_id, output_index] inputs) — EXCLUDING scalar input values
     (seed, prompt, steps, sizes). Two renders from the same template version share a signature; a
-    structural template edit changes it. Provenance only — not read by replay. '' for an empty graph."""
+    structural template edit changes it. Replay compares it to flag a changed template. '' for an
+    empty graph."""
     parts = []
     for nid, node in sorted(wf.items()):
         if not isinstance(node, dict):
             continue
         title = node.get("_meta", {}).get("title", "")
-        edges = sorted([k, v[0], v[1]] for k, v in node.get("inputs", {}).items()
-                       if isinstance(v, list) and len(v) == 2
-                       and isinstance(v[0], str) and isinstance(v[1], int))
+        edges = sorted([k, v[0], v[1]] for k, v in node.get("inputs", {}).items() if _is_link(v))
         parts.append([nid, node.get("class_type", ""), title, edges])
     if not parts:
         return ""
     blob = json.dumps(parts, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+# Scalar inputs that legitimately differ between a render and its replay: the seed (`replay --seed`)
+# and the output filename prefix. Everything else is a render setting.
+_VOLATILE_INPUTS = {"seed", "noise_seed", "filename_prefix"}
+
+
+def graph_values(wf, modality=None, mode=None):
+    """A short, stable hash of the built graph's scalar SETTINGS (sizes, steps, guidance, LoRA, model
+    and asset names, watermark geometry...) — every non-link input except seeds, output filename
+    prefixes and the prompt/negative text (replay compares those separately, readably). With
+    graph_signature it lets replay notice that a brand edit would change the render. '' for an empty
+    graph."""
+    skip = set()
+    if modality:
+        for spec in _key(modality, mode, _PROMPT_NODES):
+            if spec:
+                try:
+                    skip.add((find_node_by_title(wf, spec[0])[0], spec[1]))
+                except NodeNotFound:
+                    pass
+    parts = []
+    for nid, node in sorted(wf.items()):
+        if not isinstance(node, dict):
+            continue
+        vals = sorted([k, v] for k, v in node.get("inputs", {}).items()
+                      if not _is_link(v) and k not in _VOLATILE_INPUTS and (nid, k) not in skip)
+        parts.append([nid, vals])
+    if not parts:
+        return ""
+    blob = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
@@ -91,9 +126,9 @@ def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, 
     are kept for backward-compat with schema-1 sidecars; `format` is set only when fmt is given.
 
     A `provenance` block records what produced the render so it traces back exactly: a structural
-    `graph_signature` (always), plus the ComfyUI engine version and the pipeline's git commit
-    (`-dirty` if the tree had uncommitted changes) when the caller can supply them (both best-effort,
-    omitted when None). Replay ignores `provenance`."""
+    `graph_signature` and a settings `graph_values` hash (always; replay compares both to detect
+    drift), plus the ComfyUI engine version and the pipeline's git commit (`-dirty` if the tree had
+    uncommitted changes) when the caller can supply them (both best-effort, omitted when None)."""
     pos, neg = graph_prompts(wf, modality, mode)
     meta = {
         "schema": SCHEMA_VERSION,
@@ -105,7 +140,7 @@ def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, 
     }
     if fmt is not None:
         meta["format"] = fmt
-    prov = {"graph_signature": graph_signature(wf)}
+    prov = {"graph_signature": graph_signature(wf), "graph_values": graph_values(wf, modality, mode)}
     if comfyui_version:
         prov["comfyui_version"] = comfyui_version
     if pipeline_git_sha:

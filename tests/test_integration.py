@@ -265,3 +265,58 @@ def test_main_doctor_exits_1_on_fail(monkeypatch):
     with pytest.raises(SystemExit) as e:
         generate.main()
     assert e.value.code == 1
+
+
+def test_main_replay_pins_the_recorded_model_and_passes_the_drift_flags(monkeypatch, tmp_path):
+    data = {"schema": 2, "modality": "image", "mode": "txt2img", "brand": "b", "seed": 7,
+            "model": "flux2_dev_fp8mixed.safetensors", "inputs": {"subject": "x"}, "comfy_url": "http://x"}
+    sidecar = tmp_path / "s.json"
+    sidecar.write_text(json.dumps(data), encoding="utf-8")
+    seen = []
+    monkeypatch.setattr(generate, "run", lambda args, repo_root, ap: seen.append(
+        (args.model, args.model_override, args.accept_drift, args.expect)))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(sidecar)])
+    generate.main()
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(sidecar), "--model", "q.safetensors",
+                                      "--accept-drift"])
+    generate.main()
+    assert seen == [("flux2_dev_fp8mixed.safetensors", None, False, data),
+                    ("q.safetensors", "q.safetensors", True, data)]
+
+
+def _recorded_render(repo, monkeypatch):
+    """Render once through run() and build the sidecar a real render would write."""
+    from scripts.brandkit.sidecar import build_meta
+    fake = FakeComfy()
+    monkeypatch.setattr(generate, "ComfyClient", lambda url: fake)
+    args = _img_args(seed=5)
+    generate.run(args, repo, _StubAp())
+    m = generate.load_manifest(repo / "brands" / "b" / "brand.yaml")
+    meta = build_meta(modality="image", mode="txt2img", brand="b", seed=5,
+                      model=generate._resolve_model_used(args, m), watermark=False, comfy_url="http://x",
+                      wf=fake.wf, inputs=generate._resolve_sidecar_inputs(args, m), timestamp="t")
+    return meta, fake
+
+
+def test_replay_of_an_unchanged_brand_renders(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    meta, fake = _recorded_render(repo, monkeypatch)
+    fake.wf = None
+    generate.run(_img_args(seed=5, expect=meta, accept_drift=False, model_override=None), repo, _StubAp())
+    assert fake.wf is not None
+
+
+def test_replay_stops_when_the_brand_changed_since_the_render(monkeypatch, tmp_path, capsys):
+    repo = _tmp_repo(tmp_path)
+    meta, fake = _recorded_render(repo, monkeypatch)
+    (repo / "brands" / "b" / "brand.yaml").write_text(
+        'name: "B"\nstyle: "neon noir"\ndefaults: { model: z_image_turbo_nvfp4.safetensors, width: 640 }\n',
+        encoding="utf-8")
+    fake.wf = None
+    with pytest.raises(SystemExit) as e:
+        generate.run(_img_args(seed=5, expect=meta, accept_drift=False, model_override=None), repo, _StubAp())
+    assert e.value.code == 1 and fake.wf is None          # nothing was queued
+    err = capsys.readouterr().err
+    assert "prompt changed" in err and "render settings changed" in err and "--accept-drift" in err
+    generate.run(_img_args(seed=5, expect=meta, accept_drift=True, model_override=None), repo, _StubAp())
+    assert fake.wf is not None                             # accepted: renders with today's brand

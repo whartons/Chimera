@@ -13,12 +13,13 @@ reproducibility loop:
       [--seed 999] [--comfy-url <url>] [--comfy-output-dir <dir>]
 
 Replay reconstructs the CLI inputs from the sidecar's `inputs` block and feeds them back
-through the SAME prepare -> filler -> queue -> route -> sidecar flow as a normal render. It
-re-derives the prompt from the recorded `subject` via build_prompt/build_audio_prompt (it does
-NOT replay the stored prompt string verbatim), so with an unchanged brand.yaml it reproduces the
-identical prompt/seed/model. The stored prompt/negative stay as the human-readable as-rendered
-record. Schema-1 (pre-enriched) sidecars lack `inputs` and cannot be replayed -- re-render once
-to upgrade them.
+through the SAME prepare -> filler -> queue -> route -> sidecar flow as a normal render, with the
+recorded model PINNED (a later brand pin or Chimera default change can't swap it). It re-derives the
+prompt from the recorded `subject` and today's brand.yaml, then compares the built graph with the
+record (prompt/negative text, model, structure, settings) and stops, listing the differences, unless
+`--accept-drift`. `replay --model <file>` deliberately re-runs old work on a different model (only the
+prompt is then checked). Schema-1 (pre-enriched) sidecars lack `inputs` and cannot be replayed --
+re-render once to upgrade them.
 """
 import argparse, json, random, struct, sys, datetime
 from pathlib import Path
@@ -44,6 +45,7 @@ FREE_BEFORE_DEFAULT = {"image": False, "video": True, "audio": True, "3d": True}
 from scripts.brandkit.replay import SIDECAR_INPUT_KEYS  # noqa: E402,F401 (re-export)
 from scripts.brandkit.replay import (  # noqa: E402
     args_from_sidecar as _args_from_sidecar,
+    replay_drift,
     resolve_model_used as _resolve_model_used,
     resolve_sidecar_inputs as _resolve_sidecar_inputs,
 )
@@ -132,6 +134,7 @@ def _prepare_video(args, m, brand_dir, client, ap):
     return {"from_image": client.upload_image(path),
             "length": args.length, "fps": args.fps, "audio": args.audio,
             "width": args.width, "height": args.height,
+            "model": getattr(args, "model", None),   # set by replay (pinned) ; else brand/default
             "upscale": args.upscale,
             "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
 
@@ -163,9 +166,10 @@ def _probe_video(path):
 
 
 def _prepare_audio(args, m, brand_dir, client, ap):
+    model = getattr(args, "model", None)   # set by replay (pinned); else brand/default
     if args.mode == "music":
         return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
-                "keyscale": args.keyscale}
+                "keyscale": args.keyscale, "model": model}
     # foley: locate + upload the source video, probe its fps/duration/size
     # outputs/video/ first (media-type-routed location), then legacy flat outputs/, then sources
     path = _resolve_asset(brand_dir, args.from_video,
@@ -178,7 +182,7 @@ def _prepare_audio(args, m, brand_dir, client, ap):
               " (pass --fps/--duration to override)", file=sys.stderr)
     return {"mode": "foley", "from_video": client.upload_video(path),
             "frame_rate": frame_rate, "duration": duration, "fps": frame_rate,
-            "width": w or 768, "height": h or 512}
+            "width": w or 768, "height": h or 512, "model": model}
 
 
 def _prepare_3d(args, m, brand_dir, client, ap):
@@ -263,6 +267,19 @@ def run(args, repo_root, ap):
 
     wf = FILLERS[args.modality](repo_root, m, positive=pos, negative=neg, seed=seed,
                                watermark=do_watermark, **fkw)
+    expect = getattr(args, "expect", None)   # replay: the sidecar being reproduced
+    if expect is not None:
+        drift = replay_drift(expect, model=_resolve_model_used(args, m), wf=wf, modality=args.modality,
+                             mode=args.mode, model_override=getattr(args, "model_override", None))
+        if drift:
+            print("this replay would not reproduce the recorded render:", file=sys.stderr)
+            for d in drift:
+                print(f"  - {d}", file=sys.stderr)
+            if not getattr(args, "accept_drift", False):
+                print("nothing rendered; re-run with --accept-drift to render with today's settings "
+                      "(the new sidecar records what was actually used)", file=sys.stderr)
+                sys.exit(1)
+            print("--accept-drift: rendering anyway", file=sys.stderr)
     pid = client.queue_prompt(wf)
     print(f"queued {pid} (modality={args.modality} brand={args.brand or '-'} mode={args.mode} seed={seed})")
     timeout = args.timeout or TIMEOUTS[args.modality]
@@ -446,6 +463,12 @@ def main():
                     help="route the result into the brand folder + write a fresh sidecar "
                          "(omit to just re-render and print the raw ComfyUI filename)")
     rp.add_argument("--comfy-url", default=None, help="override (default: the sidecar's recorded comfy_url)")
+    rp.add_argument("--model", default=None,
+                    help="re-run the recorded render on a different model (e.g. old brand work on a newer "
+                         "model); without it replay pins the model the render used")
+    rp.add_argument("--accept-drift", dest="accept_drift", action="store_true",
+                    help="render even if the brand or a template changed since the original render "
+                         "(replay stops and lists the differences otherwise)")
     nb = sub.add_parser("new-brand", help="scaffold a new brand folder from brands/_template/")
     nb.add_argument("name", help="brand folder name (used as --brand later)")
     lt = sub.add_parser("lint", help="validate a brand.yaml + check referenced assets")
@@ -503,11 +526,12 @@ def main():
         try:
             rargs = _args_from_sidecar(data, seed=args.seed,
                                        comfy_output_dir=args.comfy_output_dir,
-                                       comfy_url=args.comfy_url)
+                                       comfy_url=args.comfy_url, model=args.model)
         except (ValueError, KeyError) as e:
             ap.error(f"cannot replay {args.sidecar}: {e}")
+        rargs.expect, rargs.accept_drift, rargs.model_override = data, args.accept_drift, args.model
         print(f"replaying {args.sidecar} (modality={rargs.modality} mode={rargs.mode} "
-              f"brand={rargs.brand} seed={rargs.seed})")
+              f"brand={rargs.brand} seed={rargs.seed} model={rargs.model})", flush=True)
         run(rargs, repo_root, ap)
         return
     if args.modality == "render":

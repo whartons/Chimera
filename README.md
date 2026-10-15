@@ -104,10 +104,10 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **MCP bridges** | drive ComfyUI / Blender / FreeCAD from an AI assistant, with per-tool approval gates | [modules/agent/](modules/agent/) |
 | **Standalone CLI** | `chimera` over image / video / audio / 3D / render / cad — no assistant, no brand | [Quickstart](#-quickstart) |
 | **Brand Kits** *(opt-in)* | `--brand` → style/palette injection, alpha-exact logo overlay, product re-render, optional LoRA | [brand-kits.md](modules/image/brand-kits.md) |
-| **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it exactly | [below](#-reproducibility--replay) |
+| **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **597 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **611 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -157,12 +157,18 @@ in [`docs/STACK.md`](docs/STACK.md).
 ## 🔁 Reproducibility & replay
 
 Every output ships a `<output>.json` sidecar recording the resolved seed, model, prompt/negative, and inputs
-— plus a `provenance` block (ComfyUI version, pipeline git commit, structural graph signature) so an asset
-traces back to exactly what produced it. Re-run any render exactly:
+— plus a `provenance` block (ComfyUI version, pipeline git commit, graph structure and settings
+fingerprints) so an asset traces back to exactly what produced it. Re-run any render:
 
 ```bash
-chimera replay brands/<brand>/outputs/images/<name>.json   # [--seed N] to vary
+chimera replay brands/<brand>/outputs/images/<name>.json                  # [--seed N] to vary
+chimera replay brands/<brand>/outputs/images/<name>.json --model <file>   # run it back on a newer model
 ```
+
+Replay pins the model the render used, so changing a brand's pinned model or a Chimera default never
+silently changes an old replay. It rebuilds the render, compares the prompt, structure and settings with
+the sidecar, and if the brand or a template changed since, stops and lists the differences
+(`--accept-drift` renders anyway; the new sidecar records what was actually used).
 
 ## 🎨 Brand Kits & the example-brand showcase
 
