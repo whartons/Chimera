@@ -1,7 +1,7 @@
 """Route a finished render to the per-brand outputs/ folder, organized by media type."""
 from __future__ import annotations
 import itertools, json, shutil, time
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from .nodes import find_node_by_title, NodeNotFound
 
 # Outputs are grouped by what the file IS (extension-driven), so a foley clip (a video) lands
@@ -109,14 +109,19 @@ def select_output(client, prompt_id, wf, save_title="brand:save", history=None):
     return first_output(client.output_files_by_node(prompt_id, **hkw), prefer_node_id=save_id)
 
 
+def unsafe_path(value) -> bool:
+    """True for an absolute or '..' path in either OS's spelling (a drive, a root, a climb): names that
+    arrive from outside (a sidecar, ComfyUI's /history) must stay inside the folder they are joined to."""
+    return any(p.anchor or ".." in p.parts for p in (PureWindowsPath(str(value)), PurePosixPath(str(value))))
+
+
 def comfy_output_path(out_dir, subfolder, fname) -> Path:
     """The local path of a file ComfyUI reports in /history, under the host's output dir. The names come
     from the server, so an absolute or '..' one (which a hostile server could send to make the CLI move
     any local file into outputs/) is refused."""
-    rel = Path(subfolder or "") / str(fname)
-    if rel.anchor or ".." in rel.parts:
-        raise NoOutputError(f"ComfyUI reported an output outside its output folder: {rel}")
-    return Path(out_dir) / rel
+    if unsafe_path(subfolder or "") or unsafe_path(fname):
+        raise NoOutputError(f"ComfyUI reported an output outside its output folder: {subfolder}/{fname}")
+    return Path(out_dir) / (subfolder or "") / str(fname)
 
 
 def run_graph_to_file(client, wf, out_dir, *, timeout=900):

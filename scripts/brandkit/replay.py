@@ -8,13 +8,13 @@ Lives beside sidecar.py, which owns the sidecar's on-disk shape (build_meta et a
 from __future__ import annotations
 import argparse
 import re
-from pathlib import PurePosixPath, PureWindowsPath
 
 from . import audio as audio_filler
 from . import threed as threed_filler
 from . import video as video_filler
 from . import workflow as image_filler
 from .comfy import DEFAULT_URL as DEFAULT_COMFY_URL
+from .outputs import unsafe_path as _unsafe_path
 from .sidecar import graph_prompts, graph_signature, graph_values
 
 # CLI args harvested into the sidecar `inputs` dict (sidecar.relevant_inputs then keeps the
@@ -25,11 +25,6 @@ SIDECAR_INPUT_KEYS = ("subject", "asset", "variant", "model", "from_image", "fro
                       "keyscale", "octree", "upscale", "upscale_model", "camera", "quality")
 _FILE_INPUTS = ("asset", "from_image", "from_video")
 _BRAND = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
-
-
-def _unsafe_path(value) -> bool:
-    """True for an absolute or '..' path, in either OS's spelling."""
-    return any(p.anchor or ".." in p.parts for p in (PureWindowsPath(str(value)), PurePosixPath(str(value))))
 
 
 def _file_name(value) -> str:
