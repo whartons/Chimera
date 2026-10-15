@@ -164,7 +164,10 @@ def main():
                          "script -> cad -> render -> judge -> revise (autonomous generative CAD)")
     ap.add_argument("--from-image", dest="from_image", default=None,
                     help="(mesh3d) fix the concept image and reroll only the mesh (skips txt2img)")
-    ap.add_argument("--octree", type=int, default=None, help="(mesh3d) Hunyuan3D octree_resolution")
+    ap.add_argument("--octree", type=int, default=None, help="(mesh3d, Hunyuan3D only) octree_resolution")
+    ap.add_argument("--mesh-model", dest="mesh_model", default=None,
+                    help="(mesh3d) 3D model: trellis2 (default, textured) | pixal3d (textured) | hunyuan21 "
+                         "(shape only, ~4x faster; needed for --texture / --finalize), or a file name")
     ap.add_argument("--samples", type=int, default=48, help="(mesh3d) Cycles samples per still")
     ap.add_argument("--res", type=int, nargs=2, default=[640, 640],
                     help="(mesh3d) per-still resolution W H")
@@ -229,7 +232,8 @@ def main():
                     help="(--backend api) number of LLM vision passes to consensus-judge (default 1)")
     ap.add_argument("--variant", choices=["base", "turbo"], default=None,
                     help="Z-Image fidelity (turbo=8-step default, base=25-step)")
-    ap.add_argument("--model", default=None, help="image model/family override")
+    ap.add_argument("--model", default=None,
+                    help="image model/family override (the concept image for mesh3d; the 3D model is --mesh-model)")
     ap.add_argument("--timeout", type=int, default=900, help="per-render wait (s)")
     args = ap.parse_args()
     backend_err = _backend_error(args.backend)
@@ -257,6 +261,14 @@ def main():
 
     repo_root = Path(__file__).resolve().parents[2]
     m = _resolve_manifest(repo_root, args.brand)
+    mesh_textured = False
+    if args.pipeline == "mesh3d":
+        from scripts.brandkit import threed as threed_filler
+        mesh_file = threed_filler.resolved_model(m, args.mesh_model)
+        mesh_textured = threed_filler.is_textured(mesh_file)
+        if mesh_textured and (args.texture or args.finalize):
+            ap.error(f"--texture / --finalize color a shape-only mesh, but {mesh_file} already comes out "
+                     "textured; add --mesh-model hunyuan21 for the shape-only + bake path")
     client = ComfyClient(args.comfy_url)
     # Per-role LLM clients (codegen / judge / rewriter), each independently configurable and falling
     # back to the shared --llm-* / CHIMERA_LLM_*. Built only for the roles a run uses. An AI agent
@@ -297,7 +309,8 @@ def main():
         generate = make_cad_generate(args, repo_root, LLMCadGenerator(codegen_llm))
         judge = build_judge()
     elif args.pipeline == "mesh3d":
-        rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture))
+        # textured: the Phase-4a front bake (--texture) or a 3D model that bakes its own textures
+        rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture) or mesh_textured)
         generate = _hand_gpu_back(make_render_generate(args, repo_root, m, client), [judge_llm, rewriter_llm])
         judge = GeometryAwareJudge(build_judge())
     else:

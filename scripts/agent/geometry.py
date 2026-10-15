@@ -11,7 +11,12 @@ non_manifold_edges and open_edges are NO LONGER hard fails (gating on them rejec
 mesh and thrashed the loop); they stay in the checks.json sidecar for provenance. What remains
 is genuinely diagnostic AND hard for a VLM to read off a render: an empty/degenerate mesh, or a
 generation that fragmented into many disconnected islands (a few parts — body + antenna, etc. —
-are fine)."""
+are fine).
+
+Fragmentation counts SIGNIFICANT parts (`major_parts`: islands with at least 1% of the mesh's
+vertices) when mesh_eval reports them. TRELLIS.2 / Pixal3D model eyes, an antenna tip or claws as
+separate tiny shells: a clean toy robot had 12 islands but only 3 significant ones (2026-10). Older
+checks files without `major_parts` fall back to the raw `loose_parts` count."""
 from __future__ import annotations
 
 RENDER_CHECKS_SUFFIX = ".checks.json"
@@ -28,10 +33,17 @@ def structural_issues(checks: dict, *, max_loose_parts: int = DEFAULT_MAX_LOOSE_
     image-to-3D output (see module docstring), so failing on them rejects every real mesh. Fails only
     on an empty/degenerate mesh or a fragmentation into more than `max_loose_parts` islands."""
     issues: list[str] = []
-    lp = int(checks.get("loose_parts", 1) or 1)
-    if lp > max_loose_parts:
-        issues.append(f"NOT-MET: mesh fragmented into {lp} disconnected parts "
-                      f"(more than {max_loose_parts}; the form did not generate as one coherent solid)")
+    major = checks.get("major_parts")
+    if major is not None:
+        if int(major) > max_loose_parts:
+            issues.append(f"NOT-MET: mesh fragmented into {int(major)} significant parts (each at least 1% "
+                          f"of the mesh; more than {max_loose_parts}, so the form did not generate as one "
+                          "coherent solid)")
+    else:
+        lp = int(checks.get("loose_parts", 1) or 1)
+        if lp > max_loose_parts:
+            issues.append(f"NOT-MET: mesh fragmented into {lp} disconnected parts "
+                          f"(more than {max_loose_parts}; the form did not generate as one coherent solid)")
     # An explicit 0 means an empty mesh (flag it); a missing key or None means "not measured"
     # (treat as good, consistent with the other checks) — so guard on `is not None`.
     tc = checks.get("tri_count")

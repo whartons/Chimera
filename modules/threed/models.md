@@ -1,18 +1,36 @@
 # 3D module — models
 
-One checkpoint, one destination. Download the file and drop it into
-`ComfyUI/models/checkpoints/`. The filename must match what is in the template
-JSON (or edit the template to match what you downloaded). No machine-absolute
-paths — all destinations are relative to your `ComfyUI/` root.
-
-No custom node pack is required. All nodes used (`ImageOnlyCheckpointLoader`,
-`ModelSamplingAuraFlow`, `CLIPVisionEncode`, `Hunyuan3Dv2Conditioning`,
-`EmptyLatentHunyuan3Dv2`, `KSampler`, `VAEDecodeHunyuan3D`, `VoxelToMesh`,
-`SaveGLB`) ship with ComfyUI 0.22.3.
+Three models. Filenames must match what is in the template JSON (or edit the template to match what you
+downloaded). No machine-absolute paths — all destinations are relative to your `ComfyUI/` root. No custom
+node pack is required for any of them.
 
 ---
 
-## Hunyuan3D 2.1
+## TRELLIS.2 (default) and Pixal3D — textured, ComfyUI ≥ 0.40
+
+One graph ([`brand-3d-trellis2.json`](../../workflows/templates/brand-3d-trellis2.json)) serves both. Its
+nodes (`Trellis2*`, `Pixal3DConditioning`, `MoGe*`, `RemoveBackground`, `UnwrapMesh`, `Bake*`,
+`ApplyTextureToMesh`, `Save3DAdvanced`, …) are core in ComfyUI 0.40. The weights are the Comfy-Org int8
+"convrot" builds; nothing is gated (the old `facebook/dinov3` login is not needed).
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License | Needed by |
+|------|-----------------|----------------------------------|------|---------|-----------|
+| `trellis_2_int8_convrot.safetensors` | `Comfy-Org/TRELLIS.2` | `diffusion_models/` | ~4.9 GB | ✅ MIT | TRELLIS.2 |
+| `pixal3d_int8_convrot.safetensors` | `Comfy-Org/Pixal3D` | `diffusion_models/` | ~5.2 GB | ✅ MIT | Pixal3D |
+| `trellis_2_shape_vae_bf16.safetensors` | `Comfy-Org/Pixal3D` | `vae/` | ~1.0 GB | ✅ MIT | both |
+| `trellis_2_texture_vae_bf16.safetensors` | `Comfy-Org/Pixal3D` | `vae/` | ~0.9 GB | ✅ MIT | both |
+| `dino_v3_L_naf_fp32.safetensors` | `Comfy-Org/Pixal3D` | `clip_vision/` | ~1.1 GB | ⚠️ repo lists MIT; upstream DINOv3 is under Meta's DINOv3 license | both |
+| `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT | both |
+| `moge_2_vitl_normal_fp16.safetensors` | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT | Pixal3D |
+
+---
+
+## Hunyuan3D 2.1 — fast, shape only
+
+One checkpoint, one destination: drop it into `ComfyUI/models/checkpoints/`. All nodes used
+(`ImageOnlyCheckpointLoader`, `ModelSamplingAuraFlow`, `CLIPVisionEncode`, `Hunyuan3Dv2Conditioning`,
+`EmptyLatentHunyuan3Dv2`, `KSampler`, `VAEDecodeHunyuan3D`, `VoxelToMesh`, `SaveGLB`) ship with ComfyUI
+0.22.3.
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|

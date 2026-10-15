@@ -169,3 +169,25 @@ def test_texture_off_still_writes_winner_sidecar(monkeypatch, tmp_path):
     assert meta["seed"] == 7                         # winning seed recorded
     # the concept is NOT routed — route_output MOVES, which would destroy a --from-image source
     assert not any(p.name == "concept.png" for p in calls["routed_src"])
+
+
+def test_the_image_model_override_never_reaches_the_3d_model(monkeypatch, tmp_path):
+    # P1 (2026-10-14 review): `--model` (the concept IMAGE model) was passed to the 3D build as its
+    # checkpoint, so every mesh3d iteration failed validation. The mesh comes from --mesh-model only.
+    client = _FakeClient()
+    calls, fake_runner = _wire(monkeypatch, tmp_path, client)
+    seen = []
+
+    def img_build(*a, **k):
+        seen.append(("image", k.get("model")))
+        return {"g": "txt2img"}
+
+    def mesh_build(*a, **k):
+        seen.append(("3d", k.get("model")))
+        return {"g": "mesh"}
+    monkeypatch.setattr(rg.image_filler, "build", img_build)
+    monkeypatch.setattr(rg.threed_filler, "build", mesh_build)
+    gen = rg.make_render_generate(_args(model="flux2_dev_fp8mixed.safetensors", mesh_model="pixal3d"),
+                                  tmp_path, manifest=object(), client=client, blender_runner=fake_runner)
+    gen("a knight", "", 7)
+    assert seen == [("image", "flux2_dev_fp8mixed.safetensors"), ("3d", "pixal3d")]

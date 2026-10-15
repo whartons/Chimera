@@ -107,7 +107,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **629 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **642 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -117,7 +117,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | [`image`](modules/image/) | Qwen-Image-2.1 (default) · Z-Image · FLUX.2 — txt2img / logo / product edit / relight · `--upscale` | ✅ |
 | [`video`](modules/video/) | LTX-2.3 image-to-video + native synced audio · `--upscale` | ✅ |
 | [`audio`](modules/audio/) | ACE-Step (music) · HunyuanVideo-Foley (video → SFX) | ✅ |
-| [`threed`](modules/threed/) | Hunyuan3D 2.1 image → mesh (GLB / STL / OBJ) | ✅ |
+| [`threed`](modules/threed/) | TRELLIS.2 (default, textured PBR) · Pixal3D · Hunyuan3D 2.1 (shape only) — image → mesh (GLB / STL / OBJ) | ✅ |
 | [`blender`](modules/blender/) | MCP bridge (live GUI); `generate.py render` (headless mesh render, ComfyUI→scene, finish/figurine); `finalize-texture` (all-around bake) | ✅ |
 | [`cad`](modules/cad/) | MCP bridge (live GUI); `generate.py cad` (parametric primitives, CAD/mesh convert, agent-authored scripts) → STEP/STL/OBJ | ✅ |
 
@@ -130,7 +130,7 @@ the judge either accepts the candidate or folds its `FIX` directives back into t
 flowchart LR
     M["brand.yaml<br/>(optional)"] --> P["build_prompt<br/>style · palette · negative"]
     P --> G["validated ComfyUI graph<br/>(title-addressed nodes)"]
-    G -->|"POST /prompt"| C["ComfyUI<br/>Qwen-Image · LTX-2.3 · ACE-Step · Hunyuan3D"]
+    G -->|"POST /prompt"| C["ComfyUI<br/>Qwen-Image · LTX-2.3 · ACE-Step · TRELLIS.2"]
     C --> R["route_output<br/>outputs/ or brands/[brand]/"]
     R --> S["sidecar<br/>seed · model · prompts · provenance"]
     C -. "candidate" .-> J["VLM judge<br/>rubric → MET / NOT-MET · score"]

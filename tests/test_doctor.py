@@ -148,3 +148,16 @@ def test_print_doctor_returns_fail_count(capsys):
     assert doctor.print_doctor("b", results) == 2
     out = capsys.readouterr().out
     assert "[FAIL]" in out and "-> 2 fail, 1 warn" in out
+
+
+def test_doctor_resolves_a_3d_short_name_before_checking_it_is_installed(tmp_path):
+    # a brand may pin threed.model: pixal3d; doctor must look for the FILE that resolves to
+    from scripts.brandkit.doctor import run_checks
+    (tmp_path / "workflows" / "templates").mkdir(parents=True)
+    bdir = tmp_path / "brands" / "b"; bdir.mkdir(parents=True)
+    (bdir / "brand.yaml").write_text('name: "B"\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\n'
+                                     'threed: { model: pixal3d }\n', encoding="utf-8")
+    client = FakeClient(stats={"system": {}}, object_info=_oi(set(), models=[
+        "z_image_turbo_nvfp4.safetensors", "pixal3d_int8_convrot.safetensors"]))
+    out = run_checks(client, tmp_path, "b")
+    assert any(lvl == "ok" and "pixal3d_int8_convrot.safetensors" in msg for lvl, msg in out)

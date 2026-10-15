@@ -45,8 +45,8 @@ def _wire_main(monkeypatch, tmp_path, seen):
 def test_finalize_tail_called_when_flag_set(monkeypatch, tmp_path):
     seen = {}
     sheet = _wire_main(monkeypatch, tmp_path, seen)
-    _run(["--pipeline", "mesh3d", "--subject", "a mug", "--finalize",
-          "--comfy-output-dir", str(tmp_path)], monkeypatch)
+    _run(["--pipeline", "mesh3d", "--mesh-model", "hunyuan21", "--subject", "a mug", "--finalize",
+          "--comfy-output-dir", str(tmp_path)], monkeypatch)   # finalize colors a shape-only mesh
     assert seen.get("hit") and seen["best"] == str(sheet)
 
 

@@ -40,7 +40,8 @@ def test_main_mesh3d_wires_geometry_judge_and_3d_rubric(monkeypatch):
 
     from scripts.agent.judge import GeometryAwareJudge
     assert isinstance(captured["judge"], GeometryAwareJudge)
-    assert captured["rubric"].noun == "3D render"
+    # the default 3D model (TRELLIS.2) comes out textured, so the loop judges color too
+    assert captured["rubric"].noun == "textured 3D render"
     assert captured["max_iters"] == 3   # mesh3d default
 
 
@@ -77,11 +78,48 @@ def test_texture_flag_builds_textured_rubric(monkeypatch):
 
     monkeypatch.setattr(AG, "run_loop", fake_run_loop)
     monkeypatch.setattr(sys, "argv",
-                        ["auto_generate.py", "--pipeline", "mesh3d", "--texture",
+                        ["auto_generate.py", "--pipeline", "mesh3d", "--mesh-model", "hunyuan21", "--texture",
                          "--subject", "a knight", "--comfy-output-dir", "/tmp/out"])
     with pytest.raises(SystemExit):   # nothing passed -> exit status 1
         AG.main()
     assert captured["rubric"].noun == "textured 3D render"
+
+
+def _mesh3d_rubric_noun(monkeypatch, extra):
+    captured = {}
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+    monkeypatch.setattr(AG, "make_render_generate", lambda *a, **k: (lambda p, n, s: "x.png"))
+    monkeypatch.setattr(AG, "LocalVLMJudge", lambda *a, **k: object())
+
+    def fake_run_loop(**kw):
+        captured.update(kw)
+        from scripts.agent.loop import LoopResult
+        return LoopResult(best_image=None, best_verdict=None, passed=False, history=[])
+    monkeypatch.setattr(AG, "run_loop", fake_run_loop)
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "mesh3d", "--subject", "a knight",
+                                      "--comfy-output-dir", "/tmp/out", *extra])
+    with pytest.raises(SystemExit):
+        AG.main()
+    return captured["rubric"].noun
+
+
+def test_a_shape_only_mesh_model_keeps_the_form_only_rubric(monkeypatch):
+    assert _mesh3d_rubric_noun(monkeypatch, ["--mesh-model", "hunyuan21"]) == "3D render"
+    assert _mesh3d_rubric_noun(monkeypatch, ["--mesh-model", "pixal3d"]) == "textured 3D render"
+
+
+def test_texture_and_finalize_need_a_shape_only_mesh_model(monkeypatch):
+    # both paint color onto an untextured mesh; on the (textured) default they would overwrite it.
+    # Stub every network seam so a regression fails here instead of rendering on a live server.
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+    monkeypatch.setattr(AG, "make_render_generate", lambda *a, **k: (lambda p, n, s: "x.png"))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: pytest.fail("the loop must not start"))
+    for flag in ("--texture", "--finalize"):
+        monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "mesh3d", flag,
+                                          "--subject", "x", "--comfy-output-dir", "/tmp/out"])
+        with pytest.raises(SystemExit) as e:
+            AG.main()
+        assert e.value.code == 2          # argparse error, before any render
 
 
 def test_bad_back_fill_is_rejected(monkeypatch):

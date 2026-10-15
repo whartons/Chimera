@@ -1,6 +1,6 @@
-"""The 3D self-correction generator: subject -> concept image -> Hunyuan3D mesh -> Blender
+"""The 3D self-correction generator: subject -> concept image -> 3D mesh (TRELLIS.2 by default) -> Blender
 mesh_eval (4 orbit stills + bmesh geometry checks) -> host-side contact sheet -> return the sheet
-path for the judge. Mesh GENERATION stays in ComfyUI (Hunyuan3D is image-conditioned); Blender only
+path for the judge. Mesh GENERATION stays in ComfyUI (the 3D models are image-conditioned); Blender only
 renders + probes. Returns a generate(pos, neg, seed) closure with the same signature the loop's
 image generator uses, so run_loop is untouched. The geometry facts ride a '<stem>.checks.json'
 sidecar that GeometryAwareJudge reads."""
@@ -63,15 +63,17 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         return client.upload_image(local), local
 
     def generate(pos, neg, seed):
-        # Expensive: one txt2img graph (unless --from-image) + one Hunyuan3D mesh graph + one
+        # Expensive: one txt2img graph (unless --from-image) + one 3D mesh graph + one
         # headless Blender render per call. A single iteration can take minutes — the loop's
         # --max-iters defaults to 3 for mesh3d for this reason.
         uploaded, concept_path = _concept(pos, neg, seed)
 
-        # Stage B: Hunyuan3D mesh. Leave the GLB in the ComfyUI output dir; only route it after the
+        # Stage B: the 3D mesh. Leave the GLB in the ComfyUI output dir; only route it after the
         # render succeeds, so a failed Blender job doesn't orphan a meshless GLB in outputs/3d.
+        # --mesh-model picks the 3D model; --model is the CONCEPT image's model and must never reach
+        # the 3D build (it did, as the Hunyuan3D checkpoint, until 2026-10).
         wf3d = threed_filler.build(repo_root, manifest, from_image=uploaded, seed=seed,
-                                   octree=args.octree, model=args.model)
+                                   octree=args.octree, model=getattr(args, "mesh_model", None))
         glb_src = run_graph_to_file(client, wf3d, out_dir, timeout=comfy_timeout)
 
         # Stage C+D: render 4 orbit stills + geometry checks (+ Phase-4a: bake + textured GLB),

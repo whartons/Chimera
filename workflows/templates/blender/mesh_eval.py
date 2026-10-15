@@ -50,35 +50,43 @@ non_manifold = sum(1 for e in bm.edges if len(e.link_faces) > 2)   # >2 faces = 
 open_edges = sum(1 for e in bm.edges if len(e.link_faces) < 2)     # <2 faces = boundary/hole
 
 
-def _loose_parts(bmesh_obj):
-    """Connected-component count via a vertex walk over link_edges."""
-    seen, parts = set(), 0
+def _part_sizes(bmesh_obj):
+    """Vertex count of each connected component (a vertex walk over link_edges)."""
+    seen, sizes = set(), []
     for v in bmesh_obj.verts:
         if v.index in seen:
             continue
-        parts += 1
-        stack = [v]
+        size, stack = 0, [v]
         while stack:
             cur = stack.pop()
             if cur.index in seen:
                 continue
             seen.add(cur.index)
+            size += 1
             for e in cur.link_edges:
                 ov = e.other_vert(cur)
                 if ov is not None and ov.index not in seen:
                     stack.append(ov)
-    return parts
+        sizes.append(size)
+    return sizes
 
 
 bm.verts.index_update()
-loose_parts = _loose_parts(bm)
+part_sizes = _part_sizes(bm)
+loose_parts = len(part_sizes)
+# SIGNIFICANT parts (>= 1% of the vertices): TRELLIS.2 models eyes / antenna tips / claws as separate
+# tiny shells, which are not fragmentation (scripts/agent/geometry.py gates on this count)
+_total = max(sum(part_sizes), 1)
+major_parts = sum(1 for s in part_sizes if s >= 0.01 * _total)
+main_part_share = round(max(part_sizes, default=0) / _total, 3)
 bounds_ok = all(d > 1e-4 for d in obj.dimensions)
 bmesh.ops.triangulate(bm, faces=bm.faces[:])   # do last — mutates faces
 tri_count = len(bm.faces)
 bm.free()
 
 checks = {"non_manifold_edges": int(non_manifold), "open_edges": int(open_edges),
-          "loose_parts": int(loose_parts), "tri_count": int(tri_count),
+          "loose_parts": int(loose_parts), "major_parts": int(major_parts),
+          "main_part_share": main_part_share, "tri_count": int(tri_count),
           "bounds_ok": bool(bounds_ok)}
 
 # --- Phase 4a: optional front-projection albedo bake (colors the stills + exports a textured GLB) ---
