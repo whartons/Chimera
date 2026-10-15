@@ -1,5 +1,6 @@
 """GPU hand-off between ComfyUI and a local Ollama (network-free: a fake opener plays both servers)."""
 import json
+import sys
 import urllib.error
 
 from scripts.brandkit import gpu
@@ -149,3 +150,36 @@ def test_gpu_checks_quiet_when_ollama_idle_or_stopped():
     assert not [1 for lvl, _ in gpu.gpu_checks(_Comfy([]), "http://o", _opener=_server(idle, [])) if lvl == "warn"]
     stopped = gpu.gpu_checks(_Comfy([]), "http://o", _opener=_server({}, []))
     assert any("Ollama not running" in msg for _, msg in stopped)
+
+
+def test_unload_says_false_instead_of_raising():
+    # a refused request (Ollama stopped or restarting) is a normal state for a best-effort hand-off
+    assert gpu.unload("http://o", "qwen3-vl:8b-instruct", _opener=_server({}, [])) is False
+
+
+def test_print_free_reports_what_each_app_did(capsys):
+    gpu.print_free({"ollama": [("qwen3.6-27b", 20 * 2**30)], "comfy": "freed"})
+    out = capsys.readouterr().out
+    assert "Ollama: unloaded qwen3.6-27b (20.0 GB of GPU memory)" in out
+    assert "ComfyUI: asked to unload" in out
+    gpu.print_free({"ollama": [], "comfy": "not running"})
+    out = capsys.readouterr().out
+    assert "Ollama: no models were loaded" in out and "ComfyUI: not running" in out
+    gpu.print_free({"ollama": None, "comfy": "freed"})
+    assert "Ollama: not running" in capsys.readouterr().out
+
+
+def test_free_subcommand_runs_free_all_with_the_given_urls(monkeypatch, capsys):
+    from scripts import generate
+    seen = {}
+
+    def fake_free_all(client, ollama_url=None):
+        seen.update(client=client, ollama_url=ollama_url)
+        return {"ollama": None, "comfy": "freed"}
+    monkeypatch.setattr(gpu, "free_all", fake_free_all)
+    monkeypatch.setattr(generate, "ComfyClient", lambda url: ("comfy", url))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "free", "--comfy-url", "http://c:1",
+                                      "--ollama-url", "http://o:2/v1"])
+    generate.main()
+    assert seen == {"client": ("comfy", "http://c:1"), "ollama_url": "http://o:2/v1"}
+    assert "ComfyUI: asked to unload" in capsys.readouterr().out

@@ -122,6 +122,25 @@ def test_every_run_releases_its_llms_when_it_ends(monkeypatch):
     assert sorted(log) == [("release", "codegen"), ("release", "judge")]
 
 
+def test_finalize_hands_the_gpu_back_before_its_repaint(monkeypatch):
+    # --finalize repaints the winner through ComfyUI, so the judge/rewriter models leave the GPU first
+    import scripts.agent.finalize as FIN
+    log = []
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: _Releasable(log, role))
+    monkeypatch.setattr(AG, "make_render_generate", lambda *a, **k: (lambda *x: "s"))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: _Result(True))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+    monkeypatch.setattr(AG, "_print_summary", lambda r: None)
+    monkeypatch.setattr(AG, "_write_run_sidecar", lambda *a, **k: None)
+    monkeypatch.setattr(FIN, "finalize_winner", lambda *a, **k: log.append(("finalize", None)))
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "mesh3d", "--backend", "api",
+                                      "--finalize", "--rewrite-prompts", "--subject", "a robot",
+                                      "--comfy-output-dir", "/tmp/o", "--llm-base-url", "http://x/v1",
+                                      "--llm-model", "Z"])
+    AG.main()
+    assert log[:3] == [("release", "judge"), ("release", "rewriter"), ("finalize", None)]
+
+
 def _run_to_end(passed, monkeypatch):
     monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: _Releasable([], role))
     monkeypatch.setattr(AG, "run_loop", lambda **kw: _Result(passed))
