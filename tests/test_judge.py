@@ -17,7 +17,9 @@ def test_judge_abc_cannot_instantiate():
         Judge()  # abstract
 
 
-def test_parse_pass_with_score_and_issue():
+def test_parse_a_pass_contradicted_by_a_not_met_criterion_fails():
+    # PASS only if every criterion is MET (the rubric's own rule): the not-met palette wins over the
+    # self-contradicting "Overall: PASS", while the score and the issue still come through
     text = (
         "1. depicts rover: MET\n"
         "2. brand palette: not-met: brand palette is washed out and not dominant\n"
@@ -25,7 +27,7 @@ def test_parse_pass_with_score_and_issue():
         "score 0.82\n"
     )
     v = parse_verdict(text)
-    assert v.passed is True
+    assert v.passed is False
     assert v.score == 0.82
     assert any("palette" in i.lower() for i in v.issues)
 
@@ -257,3 +259,27 @@ def test_localvlmjudge_missing_verdict_degrades_to_fail(tmp_path):
     assert v.passed is False
     assert v.score == 0.0
     assert any("no verdict file" in i.lower() for i in v.issues)
+
+
+# --- a criterion marked NOT-MET fails the verdict even when the judge's last line says PASS (2026-10) ----
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.mark.parametrize("text", [
+    "1. NOT-MET: The head is completely absent. FIX: add head\n2. MET: clean render\nOverall: PASS\nscore: 0.0",
+    "**1. Not met** - only two robots. FIX: add a third robot\nOVERALL: PASS\nscore: 0.9",
+    "- Palette: NOT-MET (warm tones)\nOverall verdict: PASS\nscore: 0.83",
+    "| 4 | NOT-MET | the icon sits between the words |\nPASS\nscore: 1.0",
+])
+def test_a_not_met_criterion_fails_a_pass_verdict(text):
+    # the rubric says PASS only if every criterion is MET; a small judge wrote "NOT-MET: the head is
+    # completely absent" and then "Overall: PASS", and the loop accepted the headless robot
+    from scripts.agent.judge import parse_verdict
+    v = parse_verdict(text)
+    assert v.passed is False and v.issues
+
+
+def test_prose_mentioning_unmet_in_a_met_line_still_passes():
+    from scripts.agent.judge import parse_verdict
+    assert parse_verdict("1. MET: nothing about the subject is unmet\n2. MET - sharp - nothing unmet\n"
+                         "Overall: PASS\nscore: 1.0").passed is True

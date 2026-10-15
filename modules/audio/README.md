@@ -173,8 +173,8 @@ The graph uses:
 | Music (ACE-Step Turbo) | ~12–14 GB | `--free-before` default ON |
 | Foley (HunyuanVideo-Foley) | ~12–16 GB peak | `force_offload` default ON; offloads between passes |
 
-`--free-before` (default ON for the `audio` modality) calls `clear_vram` via
-the MCP bridge before enqueuing, unloading any resident image or video models.
+`--free-before` (default ON for the `audio` modality) asks ComfyUI to unload its models (`POST /free`) just
+before queueing, so resident image or video models don't crowd the audio graph.
 
 ## Watermark
 

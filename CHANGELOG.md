@@ -129,6 +129,12 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
   Verified on the reference machine: ComfyUI frees 15 GB in about a second, a 2-iteration loop on the default
   judge kept it fully on the GPU, and a request for more than the card holds is refused without loading.
   `CHIMERA_KEEP_LLM_LOADED=1` turns the unloading off (only for a second GPU).
+- **The judge's verdict could contradict its own checklist.** The rubric says PASS only if every criterion is
+  MET, but the parser read only the final verdict line, and a small judge often wrote "NOT-MET: the head is
+  completely absent" and then "Overall: PASS". That way the loop accepted a headless robot, a two-goat Chimera
+  and a portrait missing the requested raincoat. A criterion marked NOT-MET now fails the verdict. On a new
+  32-case judge benchmark (hard cases: wrong counts, misplaced elements, missing attributes, off-brand colors),
+  this took the default judge from 27 to 30 correct.
 - **The self-correction loop inverted its own fixes when a subject's styling fought the brand.** Found with
   the local Qwen3-VL-8B judge while regenerating the README demo. Under a gunmetal brand, a subject such as
   "a glossy candy-red toy rover" made the subject criterion demand the candy colors while the style, palette

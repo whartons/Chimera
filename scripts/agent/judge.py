@@ -35,6 +35,12 @@ _SCORE = re.compile(
 # Issues are the rubric's genuine NOT-MET lines only. A plain 'MET - ...' line never
 # contains 'not met', so MET criteria (even ones mentioning 'avoids'/'missing') are excluded.
 _NOTMET = re.compile(r"\bnot[\s\-]?met\b|\bunmet\b", re.IGNORECASE)
+# A criterion whose STATUS is NOT-MET: the token leads the line, after any numbering, markdown, table bars
+# or a short label ('1. NOT-MET: ...', '**2. Not met** - ...', 'Criterion 3: NOT-MET', '- Palette: NOT-MET',
+# '| 4 | NOT-MET |'), so a MET line whose reason says 'nothing is unmet' doesn't count.
+_NOTMET_STATUS = re.compile(
+    r"^[\s*#>|\-_]*(?:criterion\s*)?\d*\s*[.):|\-]*[\s*_|]*"
+    r"(?:[A-Za-z][\w\s/&'(),]{0,40}?[:–\-]\s*[*_]*)?(?:not[\s\-]?met|unmet)\b", re.IGNORECASE)
 # Also carry any line bearing a 'FIX:' directive (the judge's structured add/avoid correction) so
 # the expander receives it even if the model puts it on its own line rather than the NOT-MET line.
 _FIXLINE = re.compile(r"\bfix\b\s*[:\-]", re.IGNORECASE)
@@ -66,9 +72,12 @@ def parse_verdict(text: str) -> Verdict:
                 (l for l in reversed(lines) if "overall" in l.lower() and _has_token(l)), None)
         if verdict_line is None:
             verdict_line = next((l for l in reversed(lines) if _has_token(l)), "")
-        # FAIL takes precedence; PASS only on an explicit standalone token.
+        # FAIL takes precedence; PASS only on an explicit standalone token. The rubric says PASS only if
+        # every criterion is MET, so a criterion marked NOT-MET also fails it: a small judge wrote "NOT-MET:
+        # the head is completely absent" and then "Overall: PASS" (2026-10 judge benchmark).
         failed = bool(_FAIL.search(verdict_line))
-        passed = bool(_PASS.search(verdict_line)) and not failed
+        criterion_unmet = any(_NOTMET_STATUS.match(l) for l in lines if l.strip() != verdict_line.strip())
+        passed = bool(_PASS.search(verdict_line)) and not failed and not criterion_unmet
 
         # Score: prefer the dedicated trailing 'score: ...' line (rubric instruction); fall back
         # to the LAST match anywhere, so prose like 'scored 7 criteria' can't clamp to 1.0.

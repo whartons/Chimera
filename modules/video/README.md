@@ -171,10 +171,10 @@ implied by the image. From production use (e.g. a logo/crest stinger):
 
 ### VRAM
 
-The 22B nvfp4 model requires roughly the full 32 GB card. The CLI defaults
-`--free-before ON` for the `video` modality, which calls `clear_vram` via the
-MCP bridge before enqueuing — this unloads any resident image or audio models
-first. Per-modality `--timeout` defaults to `3600 s` (video generation is slow).
+The 22B nvfp4 LTX model needs roughly the full 32 GB card, and Wan 2.2 loads two 14B experts. The CLI
+defaults `--free-before ON` for the `video` modality: it asks ComfyUI to unload its models (`POST /free`) just
+before queueing, so resident image or audio models go first. Per-modality `--timeout` defaults to `3600 s`
+(video generation is slow).
 
 ## Local-only & security
 
