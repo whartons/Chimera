@@ -118,8 +118,10 @@ def test_seed_override():
 
 
 def test_comfy_url_fallback_and_override():
-    # no override -> recorded comfy_url
-    a = _args_from_sidecar(_video_sidecar(), comfy_url=None)
+    # no override -> the local default, never the sidecar's recorded URL (sidecars get shared)
+    s = _video_sidecar()
+    s["comfy_url"] = "http://attacker.invalid:8000"
+    a = _args_from_sidecar(s, comfy_url=None)
     assert a.comfy_url == "http://127.0.0.1:8000"
     # explicit override wins
     b = _args_from_sidecar(_video_sidecar(), comfy_url="http://10.0.0.5:9000")
@@ -267,3 +269,76 @@ def test_a_wan_camera_render_replays_its_move_and_quality():
     s["inputs"].update(camera="pan-left", quality="full", length=81, fps=16, audio=False)
     a = _args_from_sidecar(s)
     assert (a.camera, a.quality, a.model) == ("pan-left", "full", s["model"])
+
+
+
+# --- 2026-10 review: --model, cross-family replays, and sidecars as untrusted input ------------------
+def _neg_wf(neg="brand negative", width=1024):
+    wf = _drift_wf(width=width)
+    wf["7"] = {"class_type": "CLIPTextEncode", "_meta": {"title": "brand:negative"},
+               "inputs": {"text": neg, "clip": ["2", 0]}}
+    return wf
+
+
+def test_a_cross_family_model_override_does_not_compare_the_negative():
+    # each family builds its own negative (Z-Image none, LTX/Wan their own lists): every cross-family
+    # `replay --model` stopped on a false "negative changed"
+    meta = _drift_meta(_neg_wf(neg=""), model="z_image_turbo_nvfp4.safetensors")
+    assert _drift(meta, _neg_wf(), model="q.safetensors", model_override="q.safetensors") == []
+
+
+def test_an_override_naming_the_recorded_model_keeps_every_check():
+    meta = _drift_meta(_neg_wf(), model="q.safetensors")
+    drift = _drift(meta, _neg_wf(neg="changed", width=640), model="q.safetensors", model_override="q.safetensors")
+    assert any("negative changed" in d for d in drift) and any("render settings" in d for d in drift)
+
+
+def _wan_sidecar():
+    s = _video_sidecar()
+    s["model"] = "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors"
+    s["inputs"].update(length=81, fps=16, audio=False, quality="full")
+    return s
+
+
+def test_a_cross_family_video_replay_drops_the_old_familys_clip_settings():
+    s = _video_sidecar()                                    # LTX: 97 frames at 25 fps with audio, upscaled
+    s["inputs"].update(upscale=True, upscale_model="ltx-2.3-spatial-upscaler-x2-1.1.safetensors")
+    a = _args_from_sidecar(s, model="wan22")
+    assert (a.length, a.fps, a.audio, a.quality, a.camera, a.upscale, a.upscale_model) == \
+        (None, None, None, None, None, False, None)
+    assert (a.width, a.height) == (768, 512)                # the framing carries over
+    b = _args_from_sidecar(_wan_sidecar(), model="ltx23")
+    assert (b.length, b.fps, b.audio, b.quality) == (None, None, None, None)
+
+
+def test_a_same_family_video_override_keeps_the_recorded_clip():
+    a = _args_from_sidecar(_wan_sidecar(), model="wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors")
+    assert (a.length, a.fps, a.quality) == (81, 16, "full")
+
+
+def test_cross_family_image_and_3d_overrides_drop_family_only_inputs():
+    assert _args_from_sidecar(_image_sidecar(), model="qwen_image_2.1_int8_convrot.safetensors").variant is None
+    assert _args_from_sidecar(_image_sidecar(), model="z_image_turbo_nvfp4.safetensors").variant == "base"
+    assert _args_from_sidecar(_threed_sidecar(), model="trellis2").octree is None
+    assert _args_from_sidecar(_threed_sidecar(), model="hunyuan21").octree == 256
+
+
+@pytest.mark.parametrize("brand", ["../..", "a/b", "..", ".hidden", "a b"])
+def test_replay_refuses_a_brand_that_is_not_a_folder_name(brand):
+    s = _image_sidecar(); s["brand"] = brand
+    with pytest.raises(ValueError, match="brand"):
+        _args_from_sidecar(s)
+
+
+@pytest.mark.parametrize("key, value", [("asset", "C:\\Users\\x\\secret.png"), ("from_image", "/home/x/id_rsa"),
+                                        ("from_image", "../../notes.txt"), ("from_video", "a\\..\\..\\b.mp4")])
+def test_replay_refuses_an_absolute_or_climbing_input_path(key, value):
+    # a crafted sidecar uploaded any local file this way (2026-10 audit)
+    s = _image_sidecar(); s["inputs"][key] = value
+    with pytest.raises(ValueError, match="plain relative file name"):
+        _args_from_sidecar(s)
+
+
+def test_replay_takes_plain_relative_names():
+    s = _image_sidecar(); s["inputs"]["asset"] = "sub/primary.png"
+    assert _args_from_sidecar(s).asset == "sub/primary.png"

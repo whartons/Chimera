@@ -94,8 +94,9 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
   GPU); three backends slot in — a provider-agnostic OpenAI-compatible **LLMJudge** (`--backend api`,
-  the recommended path: **Qwen3-VL-8B-Instruct** served via Ollama), an optional headless local
-  **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass.
+  the default: unconfigured, it calls **Qwen3-VL-8B-Instruct** on a local Ollama), an optional headless
+  **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass (an
+  interactive agent following `workflows/agent/README.md`; `auto_generate.py` refuses `--backend assistant`).
   `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
 - **An MCP bridge**: a pinned, security-audited ComfyUI MCP server exposes pipeline actions
   so an assistant can drive ComfyUI. Build on an **existing** server (e.g. `comfyui-mcp`)
@@ -117,10 +118,12 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   → `cad` → `render` → judge → revise) are **shipped** — both **assistant-driven** (`cad --mode script`)
   and **autonomous** (`auto_generate.py --pipeline cad`, where a **provider-agnostic LLM** writes/revises
   the script — `scripts/agent/llm.py`, OpenAI-compatible/no-SDK, env-configured for
-  OpenAI/Anthropic/OpenRouter/local). The same backend gives an **`--backend api`** AI judge for any loop
-  (local Qwen stays the default). Each loop role — **codegen / judge / rewriter** — can take its own
-  per-role endpoint (`--codegen-*`/`--judge-*`/`--rewriter-*` + `CHIMERA_{CODEGEN,JUDGE,REWRITER}_*`,
-  specific-wins over the shared `--llm-*`/`CHIMERA_LLM_*` via `client_for_role`); **`--rewrite-prompts`**
+  OpenAI/Anthropic/OpenRouter/local). The same backend gives the **`--backend api`** AI judge for any loop
+  (the default; with nothing configured it calls local Ollama's `qwen3-vl:8b-instruct`, and any
+  `--judge-*`/`--llm-*` flag or `CHIMERA_*` variable wins). Each loop role — **codegen / judge /
+  rewriter** — can take its own per-role endpoint (`--codegen-*`/`--judge-*`/`--rewriter-*` +
+  `CHIMERA_{CODEGEN,JUDGE,REWRITER}_*`, specific-wins over the shared `--llm-*`/`CHIMERA_LLM_*` via
+  `client_for_role`); **`--rewrite-prompts`**
   swaps in an `LLMExpander` that rewrites prompts from the judge's FIX feedback (falling back to the
   template). An **interactive AI agent in the IDE supersedes all of this** — the endpoint config/keys are
   read only by headless `auto_generate.py` runs. **Phase-4b in-loop finalize is shipped:** `auto_generate.py --pipeline

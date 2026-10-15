@@ -11,7 +11,7 @@ custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
 - **The self-correction loop** — the **orchestration** layer on top: a
   `generate → judge → refine` loop that iterates to a candidate passing a brand/brief
   rubric, with an assistant multi-judge-consensus backend and a headless VLM backend
-  (Qwen3-VL-8B-Instruct — recommended via Ollama `--backend api`, with an optional
+  (Qwen3-VL-8B-Instruct — by default on a local Ollama via `--backend api`, with an optional
   ComfyUI judge node) sharing one model-free core (`scripts/agent/`). See
   [`self-correction.md`](self-correction.md) (and the assistant recipe in
   [`../../workflows/agent/README.md`](../../workflows/agent/README.md)).
@@ -70,8 +70,9 @@ entry to:
   never in a tracked file. See [`../../.env.example`](../../.env.example).
 - This server runs with your user privileges and **can install custom nodes,
   download models, and stop/restart ComfyUI**. That power is the point — but treat
-  anything you ask it to install as untrusted code, and the pin (`@0.18.0`) stops it
-  changing under you.
+  anything you ask it to install as untrusted code. The pin (`@0.18.0`) fixes the server's
+  own code, not its dependencies: 0.18.0 ships no lockfile, so its npm dependencies resolve
+  within their caret ranges whenever `npx` installs it.
 
 ## Security audit (v0.18.0) & per-tool gates
 This repo pins `comfyui-mcp@0.18.0`. The original `0.9.4` adoption was read-through +
@@ -119,9 +120,13 @@ ComfyUI — that's the point, but a prompt-injected workflow could abuse it. So:
   `127.0.0.1` only. The optional `cloudflared` / S3 / Azure / LLM-SDK deps do get installed
   (`NPM_CONFIG_INCLUDE=optional` is set so `sharp`'s native binary loads — see the audit above), but
   the features they back are **env-gated and stay inert** unless you set their opt-in env/CLI flags.
+  Installing them is not inert: the `cloudflared` package's postinstall downloads the latest
+  `cloudflared` binary from GitHub, with no checksum.
 - **Per-call approval gates:** [`../../.claude/settings.json`](../../.claude/settings.json)
-  forces an `ask` prompt (uncoverable by a broad allow) on the ~17 code-execution /
-  process-control / destructive tools. Read-only + generation tools stay frictionless.
+  forces an `ask` prompt (uncoverable by a broad allow) on the code-execution, install/download/
+  config-changing, process-control and destructive tools (`tests/test_mcp_gates.py` pins the set), and on
+  `generate_with_api_node`, which runs paid partner API nodes. Read-only + local generation tools stay
+  frictionless.
 - **Pin + re-audit on update:** never track `@latest`. A **scheduled weekly job**
   ([`../../.github/workflows/update-check.yml`](../../.github/workflows/update-check.yml)) flags in an
   issue when the pin falls behind upstream; the pin is advanced only after a fresh **manual re-audit**
@@ -146,7 +151,8 @@ backend (Phase 2), 3D self-correction over Blender renders (Phase 3,
 `--texture`), all-around multi-view texture (Phase 4b — `finalize-texture`, manual views **and**
 `--auto-repaint`), headless FreeCAD geometry (`generate.py cad`), and the **FreeCAD-driven CAD
 self-correction loop** (`cad --mode script` + autonomous `auto_generate.py --pipeline cad` via a
-provider-agnostic LLM) are all **shipped**. A `--backend api` LLM judge works on every pipeline.
+provider-agnostic LLM) are all **shipped**. The `--backend api` LLM judge (the default) works on every
+pipeline.
 
 ## Practical note: API format vs UI format
 `POST /prompt` (what "run a workflow" uses) accepts only the **API/"prompt" JSON**

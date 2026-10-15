@@ -45,7 +45,8 @@ python scripts/generate.py 3d \
   cutout (it meshes the background too).
 - `--octree` (**Hunyuan3D only**) sets `VAEDecodeHunyuan3D`'s `octree_resolution` (default `256`).
   Higher values produce denser geometry at the cost of VRAM and file size;
-  lower values produce lighter meshes. See the `--octree` section below.
+  lower values produce lighter meshes. See the `--octree` section below. TRELLIS.2 and Pixal3D ignore
+  it (a note says so), and their sidecars don't record it.
 - `--format` picks the export format (default `glb`). ComfyUI only saves GLB,
   so `stl` and `obj` are converted **host-side** by `brandkit/mesh.py` (a
   dependency-free glTF→STL/OBJ writer). All three carry geometry only — use
@@ -62,7 +63,8 @@ Output routes to `brands/<brand>/outputs/3d/<brand>_image_<seed>.glb`.
 
 ## How it works — TRELLIS.2 / Pixal3D (default)
 
-One core graph (ComfyUI ≥ 0.40) serves both models; `brand:use_trellis2` switches between them:
+One core graph (ComfyUI ≥ 0.40) serves both models; `brand:use_trellis2` switches between them. Chimera
+folds that switch before queueing, so ComfyUI validates (and you need the files of) only the chosen model:
 
 1. **`RemoveBackground`** (BiRefNet) and **`ImageCropToMask`**: cut the subject out and square-crop it.
 2. **Conditioning:** `Trellis2Conditioning` (DINOv3 features of the cutout), or for Pixal3D
@@ -188,7 +190,7 @@ as **one watertight solid**, not an assembly:
 - **Clean stray geometry first.** Hunyuan3D often meshes the concept image's flat
   background/ground as stray plane geometry. Before slicing, **weld** coincident vertices,
   **separate by loose parts**, and **drop near-planar fragments** (thinnest dimension < ~2% of
-  the longest). The Blender `mesh_finish` path (`generate.py render ... --finish`) does the
+  the longest). The Blender `mesh_finish` path (`generate.py render ... --mode finish`) does the
   weld / voxel-remesh / decimate / scale pass and exports a clean STL + GLB.
 - **Watertight + real wall thickness.** Slicers need a manifold, watertight solid; surface-net
   output can have thin or open shells — thicken/voxel-remesh as needed.
@@ -230,6 +232,10 @@ In the 2026-10 review (three photos, same seeds), TRELLIS.2 and Pixal3D both bea
 **Hunyuan3D still wins on speed** (about 4×), and its dense shape-only mesh is a good start for **3D
 printing**: `--format stl` plus the `mesh_finish` path below. The Blender color bakes (`--texture`,
 `--finalize`, `finalize-texture`) also target it.
+
+**TRELLIS.2 GLBs are big:** about 60–77 MB (700k faces plus PNG PBR textures). To share or commit one,
+`chimera render --from mesh.glb --mode finish --target-tris 70000 --formats glb` keeps its textures and
+writes a ~10 MB copy (decimated, JPEG textures capped at 2048 px).
 
 ## Local-only and offline
 

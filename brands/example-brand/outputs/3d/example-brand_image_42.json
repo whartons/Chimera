@@ -13,12 +13,12 @@
     "format": "glb"
   },
   "comfy_url": "http://127.0.0.1:8000",
-  "timestamp": "2026-10-15T11:25:01",
+  "timestamp": "2026-10-15T12:28:07",
   "format": "glb",
   "provenance": {
-    "graph_signature": "9f3b619bfbec131c",
-    "graph_values": "5462d67b63d3d637",
+    "graph_signature": "794b35be7bd2d9ab",
+    "graph_values": "62d722beacb2eaf5",
     "comfyui_version": "0.40.0",
-    "pipeline_git_sha": "558e0b9-dirty"
+    "pipeline_git_sha": "9682b1a-dirty"
   }
 }

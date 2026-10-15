@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Headless self-correction loop (local backend): generate -> VLM-judge -> refine, until PASS.
+"""Headless self-correction loop: generate -> VLM-judge -> refine, until PASS.
 
-Wires the model-free agent core (expander + run_loop) to a real generator and a Qwen3-VL judge — a
-ComfyUI Qwen3-VL node (`--backend local`, default) or the OpenAI-compatible LLMJudge (`--backend api`,
-recommended: Qwen3-VL-8B via Ollama). Each iteration the expander folds the previous verdict's
-unmet-criterion issues back into the prompt, so candidates converge on the rubric.
+Wires the model-free agent core (expander + run_loop) to a real generator and a Qwen3-VL judge — the
+OpenAI-compatible LLMJudge (`--backend api`, default: with nothing configured it calls a local Ollama
+serving qwen3-vl:8b-instruct) or the optional ComfyUI Qwen3-VL node (`--backend local`). Each iteration
+the expander folds the previous verdict's unmet-criterion issues back into the prompt, so candidates
+converge on the rubric.
 
-Two pipelines (--pipeline):
+Pipelines (--pipeline):
   * image (default) — ComfyUI txt2img; the rubric scores the 2D render.
-  * mesh3d         — txt2img concept -> Hunyuan3D mesh -> headless Blender contact-sheet render
-                     (4 orbit views) -> a FORM rubric judged on the grey-clay render, with
-                     deterministic bmesh geometry checks (watertight/manifold/loose-parts) folded
-                     into the verdict via GeometryAwareJudge. --from-image fixes the concept and
-                     rerolls only the mesh.
+  * mesh3d         — txt2img concept -> image-to-3D mesh (TRELLIS.2 by default, textured; --mesh-model)
+                     -> headless Blender contact-sheet render (4 orbit views) -> a FORM rubric (plus color
+                     for a textured mesh), with deterministic bmesh geometry checks (loose parts, empty
+                     mesh) folded into the verdict via GeometryAwareJudge. --from-image fixes the concept
+                     and rerolls only the mesh.
 
 --brand is OPTIONAL. With a brand, the rubric enforces that brand's style/palette/negative and the
 winner routes into brands/<brand>/outputs/. Brandless (omit --brand), the rubric collapses to
@@ -26,18 +27,20 @@ subject + quality (image) or subject + form (mesh3d), and the winner routes into
 A third pipeline, `cad`, is fully autonomous generative CAD: a provider-agnostic LLM writes/revises a
 FreeCAD script -> `cad --mode script` -> Blender contact-sheet render -> form judge -> revise.
 
-Judge backends (--backend): `local` (a ComfyUI Qwen3-VL judge node, default) or `api` (RECOMMENDED — a
-provider-agnostic, OpenAI-compatible LLM judge; point --judge-base-url/--judge-model at local Ollama
-qwen3-vl:8b-instruct, OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible
-server — use a NON-thinking '-instruct' VLM judge (a thinking model returns empty content); see
-.env.example / scripts/agent/llm.py). --comfy-output-dir routes ComfyUI renders and is where the local
-judge drops verdicts; required except for `--pipeline cad --backend api` (no ComfyUI).
+Judge backends (--backend): `api` (default — a provider-agnostic, OpenAI-compatible LLM judge; with no
+--judge-*/--llm-* flags or CHIMERA_* env it uses local Ollama's qwen3-vl:8b-instruct, else point it at
+OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible server — use a
+NON-thinking '-instruct' VLM judge (a thinking model returns empty content); see .env.example /
+scripts/agent/llm.py) or `local` (the optional ComfyUI-QwenVL judge node). --comfy-output-dir routes
+ComfyUI renders and is where the local judge drops verdicts; required except for `--pipeline cad
+--backend api` (no ComfyUI).
 """
 import argparse, datetime, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.agent.expander import TemplatedExpander
+from scripts.agent.llm import DEFAULT_JUDGE_MODEL
 from scripts.agent.judge import LocalVLMJudge, GeometryAwareJudge
 from scripts.agent.loop import run_loop
 from scripts.agent.rubric import build_rubric
@@ -46,15 +49,30 @@ from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
 from scripts.brandkit.manifest import load_manifest, default_manifest
 from scripts.brandkit.outputs import route_output, run_graph_to_file, write_sidecar
+from scripts.brandkit import gpu
 from scripts.brandkit.comfy import DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.provenance import git_provenance
 
 
 def _parse_seeds(raw):
-    """'7,8,9' -> [7, 8, 9]; None/'' -> None (loop falls back to its deterministic seeds)."""
+    """'7,8,9' -> [7, 8, 9]; None/'' -> None (the caller picks fresh seeds)."""
     if not raw:
         return None
     return [int(s) for s in raw.split(",") if s.strip()]
+
+
+def _run_seeds(raw, max_iters):
+    """--seeds as given, else a fresh random run of seeds. The loop's fixed 1000+i default made a second run
+    overwrite the first run's winner (outputs are named <mode>_<seed>); the seeds are printed so a run can
+    be repeated with --seeds."""
+    seeds = _parse_seeds(raw)
+    if seeds:
+        return seeds
+    import random
+    base = random.randrange(1, 2**31 - 1000)
+    seeds = [base + i for i in range(max_iters)]
+    print(f"[agent] seeds {','.join(map(str, seeds))} (repeat this run with --seeds)", file=sys.stderr)
+    return seeds
 
 
 def _backend_error(backend):
@@ -110,6 +128,8 @@ def _write_run_sidecar(result, args, repo_root):
         "modality": {"mesh3d": "3d", "cad": "cad"}.get(getattr(args, "pipeline", "image"), "image"),
         "mode": "agent",
         "brand": args.brand, "subject": args.subject, "agent": True,
+        # the subject the loop ended on, when it dropped flagged off-brand styling from the original
+        **({"corrected_subject": result.subject} if getattr(result, "subject", "") not in ("", args.subject) else {}),
         "backend": args.backend, "iterations": len(result.history),
         "passed": result.passed,
         "final_score": result.best_verdict.score if result.best_verdict else 0.0,
@@ -119,6 +139,36 @@ def _write_run_sidecar(result, args, repo_root):
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
     }
     write_sidecar(result.best_image, meta)
+
+
+def _share_gpu(client, llms):
+    """The reverse of _hand_gpu_back: before a local Ollama model loads (judge, rewriter, CAD codegen),
+    ComfyUI unloads its models if the card lacks room (gpu.make_room). ComfyUI keeps its models resident
+    after a render; on 2026-10-15 the judge loading next to it had 0.1 GB free, timed out, and the GPU
+    driver hung. Only for a ComfyUI on this machine (freeing a remote one frees nothing here)."""
+    if not gpu.is_local(getattr(client, "base", "")):
+        return
+    for llm in llms:
+        if llm is not None:
+            llm.make_room = lambda need: gpu.make_room(client, need)
+
+
+def _clear_other_ollama_models(llms):
+    """Before the first render, unload local Ollama models this run didn't load (another tool's, or an
+    earlier run's): ComfyUI can't see their memory, so a render beside them can overcommit the card the way
+    the judge did on 2026-10-15. Checks the run's own local endpoints and the default Ollama; honours
+    CHIMERA_KEEP_LLM_LOADED=1."""
+    if gpu.keep_llms_loaded():
+        return
+    live = [llm for llm in llms if llm is not None and gpu.is_local(getattr(llm, "base_url", ""))]
+    roots = {gpu.ollama_root(llm.base_url) for llm in live} | {gpu.ollama_root()}
+    for root in roots:
+        if not gpu.is_local(root):
+            continue
+        keep = {llm.ollama_name for llm in live if gpu.ollama_root(llm.base_url) == root}
+        for name, vram in gpu.unload_others(root, keep):
+            print(f"[gpu] unloaded {name} ({vram / 2**30:.1f} GB) from Ollama before rendering: ComfyUI can't "
+                  "see that memory, so rendering beside it could overcommit the card", file=sys.stderr)
 
 
 def _hand_gpu_back(generate, clients):
@@ -146,22 +196,22 @@ def _print_summary(result):
 
 def main():
     ap = argparse.ArgumentParser(prog="auto_generate.py",
-                                 description="Headless brand self-correction loop (local VLM judge).")
+                                 description="Headless self-correction loop (generate, VLM-judge, refine).")
     ap.add_argument("--brand", default=None,
                     help="brand folder under brands/; omit for general (non-branded) "
                          "self-correction (subject+quality rubric, output -> outputs/)")
     ap.add_argument("--subject", required=True)
     ap.add_argument("--max-iters", dest="max_iters", type=int, default=None)
     ap.add_argument("--seeds", default=None, help="comma-separated seeds, one per iteration")
-    ap.add_argument("--backend", choices=["local", "api", "assistant"], default="local",
-                    help="local = ComfyUI Qwen3-VL judge node (default); api = OpenAI-compatible LLM judge "
-                         "(RECOMMENDED — point --llm-base-url/--llm-model or CHIMERA_* at local Ollama "
-                         "qwen3-vl:8b-instruct [non-thinking] or any cloud; see .env.example / scripts/agent/llm.py); "
-                         "assistant = agent-driven vision consensus (requires the agent in the loop)")
+    ap.add_argument("--backend", choices=["api", "local", "assistant"], default="api",
+                    help="api = OpenAI-compatible LLM judge (default; unconfigured, it uses local Ollama's "
+                         f"{DEFAULT_JUDGE_MODEL} [non-thinking]; --judge-*/--llm-* or CHIMERA_* point it anywhere, "
+                         "see .env.example); local = the optional ComfyUI-QwenVL judge node; assistant = "
+                         "agent-driven vision consensus (requires the agent in the loop)")
     ap.add_argument("--pipeline", choices=["image", "mesh3d", "cad"], default="image",
-                    help="image = txt2img self-correction (default); mesh3d = concept -> Hunyuan3D "
-                         "mesh -> Blender contact-sheet render -> form judge; cad = LLM writes a FreeCAD "
-                         "script -> cad -> render -> judge -> revise (autonomous generative CAD)")
+                    help="image = txt2img self-correction (default); mesh3d = concept -> image-to-3D mesh "
+                         "(TRELLIS.2 by default) -> Blender contact-sheet render -> form judge; cad = LLM writes "
+                         "a FreeCAD script -> cad -> render -> judge -> revise (autonomous generative CAD)")
     ap.add_argument("--from-image", dest="from_image", default=None,
                     help="(mesh3d) fix the concept image and reroll only the mesh (skips txt2img)")
     ap.add_argument("--octree", type=int, default=None, help="(mesh3d, Hunyuan3D only) octree_resolution")
@@ -191,8 +241,8 @@ def main():
                     help="(mesh3d --finalize) ring views to generate + bake (1..7; default 4)")
     ap.add_argument("--comfy-url", dest="comfy_url", default=DEFAULT_COMFY_URL)
     ap.add_argument("--comfy-output-dir", dest="comfy_output_dir", default=None,
-                    help="ComfyUI output dir: routes renders AND is where the Qwen judge drops verdicts. "
-                         "Required except for `--pipeline cad --backend api` (no ComfyUI in that loop).")
+                    help="ComfyUI output dir: routes renders (and is where the --backend local judge drops "
+                         "verdicts). Required except for `--pipeline cad --backend api` (no ComfyUI in that loop).")
     ap.add_argument("--freecad-bin", dest="freecad_bin", default=None,
                     help="(cad) FreeCADCmd path (else $FREECAD_BIN / PATH / default install)")
     ap.add_argument("--freecad-timeout", dest="freecad_timeout", type=int, default=None,
@@ -273,7 +323,7 @@ def main():
     # Per-role LLM clients (codegen / judge / rewriter), each independently configurable and falling
     # back to the shared --llm-* / CHIMERA_LLM_*. Built only for the roles a run uses. An AI agent
     # driving interactively supersedes all of this (see the role-tagged LLMConfigError hint).
-    from scripts.agent.llm import LLMConfigError, client_for_role
+    from scripts.agent.llm import LLMConfigError, client_for_role, default_judge_base
     codegen_llm = judge_llm = rewriter_llm = None
     try:
         shared = dict(shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model,
@@ -283,12 +333,15 @@ def main():
                                           cli_reasoning=args.codegen_reasoning, **shared)
         if args.backend == "api":
             judge_llm = client_for_role("judge", cli_base=args.judge_base_url, cli_model=args.judge_model,
-                                        cli_reasoning=args.judge_reasoning, **shared)
+                                        cli_reasoning=args.judge_reasoning, default_base=default_judge_base(),
+                                        default_model=DEFAULT_JUDGE_MODEL, **shared)
         if args.rewrite_prompts:
             rewriter_llm = client_for_role("rewriter", cli_base=args.rewriter_base_url, cli_model=args.rewriter_model,
                                            cli_reasoning=args.rewriter_reasoning, **shared)
     except LLMConfigError as e:
         ap.error(str(e))
+    _share_gpu(client, [codegen_llm, judge_llm, rewriter_llm])
+    _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm])
 
     if rewriter_llm is not None:
         from scripts.agent.llm import LLMExpander
@@ -307,7 +360,7 @@ def main():
         from scripts.agent.llm import LLMCadGenerator
         rubric = build_rubric(m, args.subject, modality="3d")   # clean-solid form rubric (BREP is manifold)
         generate = make_cad_generate(args, repo_root, LLMCadGenerator(codegen_llm))
-        judge = GeometryAwareJudge(build_judge())   # manifold, but a script can still build disconnected bodies
+        judge = GeometryAwareJudge(build_judge(), strict=True)   # manifold, but a script can build separate bodies
     elif args.pipeline == "mesh3d":
         # textured: the Phase-4a front bake (--texture) or a 3D model that bakes its own textures
         rubric = build_rubric(m, args.subject, modality="3d", textured=bool(args.texture) or mesh_textured)
@@ -321,7 +374,7 @@ def main():
     try:
         result = run_loop(expander=expander, judge=judge, generate=generate, manifest=m,
                           subject=args.subject, rubric=rubric, max_iters=args.max_iters,
-                          seeds=_parse_seeds(args.seeds))
+                          seeds=_run_seeds(args.seeds, args.max_iters))
 
         _print_summary(result)
         _write_run_sidecar(result, args, repo_root)

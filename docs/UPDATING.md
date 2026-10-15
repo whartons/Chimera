@@ -33,16 +33,21 @@ ComfyUI Desktop versions independently of the `comfyanonymous/ComfyUI` core repo
 so the weekly report only *points* at the core release — the authoritative check is local:
 1. `chimera update-check` (against your running instance) tells you if you're behind.
 2. Update via the **ComfyUI Desktop app**.
-3. Run the gates — especially **`chimera doctor`** (confirms node packs + models still resolve) and a
-   smoke render of **each modality** (a ComfyUI bump can change node schemas).
+3. Run the gates — especially **`chimera doctor`** (confirms the workflow node types, each modality's
+   default model files and, with `--brand`, the brand's pinned models still resolve) and a smoke render of
+   **each modality** (a ComfyUI bump can change node schemas).
 4. If the reference build moved, update the reference-build version in `docs/STACK.md` / `docs/SETUP.md`
    and `COMFY_REF` in [`scripts/update_report.py`](../scripts/update_report.py).
 
 ## 3 · Pinned node packs & the MCP server — *manual, audit-gated*
-LTXVideo, HunyuanVideo-Foley, QwenVL and `freecad-mcp` (GitHub git-pinned commits), `comfyui-mcp`
+LTXVideo, HunyuanVideo-Foley, IPAdapter and `freecad-mcp` (GitHub git-pinned commits), `comfyui-mcp`
 (npm-pinned version), and `blender_mcp` (Gitea git-pinned commit) are **pinned and security-audited**
 — Dependabot can't see them, which is exactly why the weekly report checks them (`freecad-mcp` rides
 the GitHub `check_git_pack`; `blender_mcp` uses the Gitea compare API since it is **not** on GitHub).
+A pin fixes the package's own code, not its dependencies: those still resolve at install time
+(`comfyui-mcp@0.18.0` ships no lockfile, so its npm dependencies float within their caret ranges, and the
+`uvx`-launched bridges resolve their Python dependencies the same way). A project-local install from a
+lockfile is a possible follow-up.
 **Never bump to `@latest` blind.** When the report flags one behind:
 1. **Re-audit the diff** between the current pin and the new commit/version — same standard as the
    original scan (look for new network calls, `eval`/`exec`, `torch.load(weights_only=False)`,

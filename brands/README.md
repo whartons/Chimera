@@ -12,13 +12,12 @@ validated against.
 |---|---|
 | `brands/README.md` | ✅ tracked |
 | `brands/_template/` | ✅ tracked (copy this to start a brand) |
-| `brands/example-brand/` | ✅ tracked (public pilot, sans `outputs/`) |
-| `brands/<your-brand>/` | 🔒 **gitignored** — your brand data is private |
-| `brands/**/outputs/` | 🔒 **gitignored** everywhere (generated media) |
+| `brands/example-brand/` | ✅ tracked in full (public pilot, including its `outputs/` showcase) |
+| `brands/<your-brand>/` | 🔒 **gitignored** — your brand data (and its `outputs/`) is private |
 
 The rules live in [`../.gitignore`](../.gitignore): everything under `brands/` is
-ignored *except* the three tracked paths above, and every `outputs/` subfolder is
-always ignored.
+ignored *except* the three tracked paths above. Even in the example brand, model weights
+(`*.safetensors`, `*.ckpt`, …), `.env` files and `*.local.json` stay ignored.
 
 ## Start a brand
 
@@ -69,7 +68,8 @@ python scripts/generate.py image --brand example-brand \
     --subject "the armored six-wheel recon rover, clean studio product shot, dark seamless background" \
     --mode logo --asset primary.png --comfy-output-dir "<ComfyUI output dir>"
 
-# 3) product mockup (re-renders products/<file> into a new scene, img2img)
+# 3) product mockup (places products/<file> in a new scene: a reference edit on the default
+#    Qwen-Image-2.1, an img2img re-render on Z-Image / FLUX.2)
 python scripts/generate.py image --brand example-brand \
     --subject "on a tactical staging table, soft rim light" \
     --mode product --asset rover.png --comfy-output-dir "<ComfyUI output dir>"

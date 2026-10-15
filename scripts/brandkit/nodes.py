@@ -25,6 +25,13 @@ def node(wf: dict, title: str):
     return find_node_by_title(wf, title)[1]
 
 
+def model_file(name) -> str:
+    """A model reference's file name, lower-cased, for family checks: ComfyUI lists a model in a
+    subfolder with the OS separator (a backslash on Windows), and a prefix test on the raw name sent a
+    Qwen model in a qwen/ subfolder into the FLUX.2 graph."""
+    return (name or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
 def load_template(repo_root, name: str) -> dict:
     """Parse a tracked workflow template by filename. Each call is a fresh parse, so callers
     may mutate the result freely (no deepcopy needed)."""

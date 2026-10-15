@@ -181,7 +181,11 @@ def test_palette_criterion_names_colors_a_small_judge_can_check():
     from scripts.agent.rubric import color_words
     assert [color_words(c) for c in ("#1c1f22", "#2e3338", "#b6c0c8", "#c8442e", "#00ffcc", "#2a0a4a")] == [
         "near-black (#1c1f22)", "dark grey (#2e3338)", "light grey (#b6c0c8)", "red (#c8442e)",
-        "teal (#00ffcc)", "dark purple (#2a0a4a)"]
+        "cyan (#00ffcc)", "dark purple (#2a0a4a)"]
+    # browns/tans/golds read as 'orange', a navy as 'near-black', a cream as 'light yellow' before (2026-10)
+    assert [color_words(c).split(" (")[0] for c in ("#8B5A2B", "#D2B48C", "#C9A24B", "#09172E", "#FFF8E1",
+                                                     "#38DBDA", "#fff", "#1c1f22ff")] == [
+        "brown", "tan", "gold", "navy", "off-white", "cyan", "near-white", "near-black"]
     assert color_words("brushed steel") == "brushed steel"          # non-hex palette entries pass through
     crit = " ".join(build_rubric(_m(), "rover").criteria)
     assert "near-black (#1c1f22), red (#c8442e)" in crit and "only some of these colors is on-palette" in crit

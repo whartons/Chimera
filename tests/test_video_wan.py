@@ -110,3 +110,24 @@ def test_bad_inputs_are_rejected_with_the_valid_choices():
         _build(camera="dolly")
     with pytest.raises(ValueError, match="fast"):
         _build(quality="ultra")
+
+
+
+def test_lengths_snap_to_the_frame_count_the_family_renders():
+    # ComfyUI renders 4k+1 (Wan) / 8k+1 (LTX) frames and floors anything else; Wan's Fun Camera crashed on it
+    from scripts.brandkit.manifest import default_manifest
+    from scripts.brandkit.video import resolved_settings
+    m = default_manifest()
+    assert [resolved_settings(m, length=n)["length"] for n in (81, 96, 100, 120)] == [81, 93, 97, 117]
+    assert [resolved_settings(m, model="ltx23", length=n)["length"] for n in (97, 100, 121)] == [97, 97, 121]
+    assert resolved_settings(m, camera="static", length=96)["length"] == 93
+
+
+def test_family_checks_read_the_file_name_of_a_model_in_a_subfolder():
+    from scripts.brandkit.video import is_wan
+    from scripts.brandkit.workflow import family
+    from scripts.brandkit.threed import family as family3d
+    assert is_wan("video\\wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors")
+    assert family("qwen\\qwen_image_2.1_int8_convrot.safetensors") == "qwen"
+    assert family("diffusion/z_image_turbo_nvfp4.safetensors") == "zimage"
+    assert family3d("3d/trellis_2_int8_convrot.safetensors") == "trellis2"

@@ -23,7 +23,8 @@ def _opener(payload, capture=None):
         if capture is not None:
             capture["url"] = req.full_url
             capture["body"] = json.loads(req.data)
-            capture["headers"] = {k.lower(): v for k, v in req.headers.items()}
+            capture["headers"] = {k.lower(): v for k, v in req.header_items()}
+            capture["redirected"] = {k.lower() for k in req.headers}   # what urllib copies onto a redirect
         return _Resp(payload)
     return open_
 
@@ -57,7 +58,7 @@ def test_config_reads_env(monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("CHIMERA_LLM_BASE_URL", "http://e/v1")
     monkeypatch.setenv("CHIMERA_LLM_MODEL", "envmodel")
-    monkeypatch.setenv("OPENAI_API_KEY", "envkey")
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "envkey")
     c = LLMClient()
     assert c.base_url == "http://e/v1" and c.model == "envmodel" and c.api_key == "envkey"
 
@@ -266,7 +267,7 @@ def test_client_for_role_falls_back_to_shared(monkeypatch):
 
 def test_client_for_role_key_role_beats_generic(monkeypatch):
     _clear_env(monkeypatch)
-    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "ok")
     assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "ok"
     monkeypatch.setenv("CHIMERA_JUDGE_API_KEY", "jk")
     assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "jk"
@@ -314,3 +315,65 @@ def test_llmexpander_falls_back_when_llm_raises():
 def test_llmexpander_falls_back_on_bad_json():
     pos, neg = LLMExpander(_FakeClient(["not json at all"])).expand("a knight", default_manifest(), None)
     assert isinstance(pos, str) and pos
+
+
+def test_vendor_keys_only_go_to_their_own_vendor(monkeypatch):
+    # An OPENAI_API_KEY exported for other tools was sent to ANY base URL (OpenRouter, Gemini, a LAN box).
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    for url in ("https://openrouter.ai/api/v1", "http://localhost:11434/v1", "https://api.openai.com.evil.example/v1",
+                "https://generativelanguage.googleapis.com/v1beta/openai"):
+        assert LLMClient(base_url=url, model="m").api_key is None
+        assert not client_for_role("judge", shared_cli_base=url, shared_cli_model="m").api_key
+    assert LLMClient(base_url="https://api.openai.com/v1", model="m").api_key == "sk-openai"
+    assert client_for_role("codegen", cli_base="https://API.anthropic.com/v1", cli_model="m").api_key == "sk-ant"
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "chimera")                  # an explicit Chimera key still wins
+    assert LLMClient(base_url="https://openrouter.ai/api/v1", model="m").api_key == "chimera"
+
+
+
+def test_the_api_key_is_not_copied_onto_a_redirect(monkeypatch):
+    _clear_env(monkeypatch)
+    cap = {}
+    LLMClient(base_url="https://api.example/v1", api_key="k", model="m").chat(
+        [{"role": "user", "content": "x"}], _opener=_opener(_msg("ok"), cap))
+    assert cap["headers"]["authorization"] == "Bearer k" and "authorization" not in cap["redirected"]
+
+
+def test_the_shared_key_only_goes_to_the_shared_endpoint(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("CHIMERA_LLM_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "sk-shared")
+    monkeypatch.delenv("CHIMERA_CODEGEN_API_KEY", raising=False)
+    assert not client_for_role("codegen", cli_base="https://openrouter.ai/api/v1", cli_model="m").api_key
+    assert client_for_role("codegen", cli_base="https://api.openai.com/v1", cli_model="m2").api_key == "sk-shared"
+    assert client_for_role("judge", cli_model="m").api_key == "sk-shared"
+    assert not LLMClient(base_url="http://192.168.1.50:11434/v1", model="m").api_key
+
+
+def test_vendor_keys_need_https(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    assert LLMClient(base_url="http://api.openai.com/v1", model="m").api_key is None
+
+
+def test_a_key_over_plain_http_to_another_machine_warns(monkeypatch, capsys):
+    _clear_env(monkeypatch)
+    LLMClient(base_url="http://192.168.1.50:8000/v1", api_key="k", model="m")
+    LLMClient(base_url="http://localhost:11434/v1", api_key="k", model="m")
+    err = capsys.readouterr().err
+    assert err.count("unencrypted") == 1 and "192.168.1.50" in err
+
+
+
+def test_client_for_role_falls_back_to_the_callers_default_endpoint(monkeypatch):
+    # the judge works with nothing configured (local Ollama's qwen3-vl:8b-instruct); config always wins
+    _clear_env(monkeypatch)
+    monkeypatch.delenv("CHIMERA_JUDGE_BASE_URL", raising=False)
+    monkeypatch.delenv("CHIMERA_JUDGE_MODEL", raising=False)
+    kw = dict(default_base="http://127.0.0.1:11434/v1", default_model="qwen3-vl:8b-instruct")
+    c = client_for_role("judge", **kw)
+    assert (c.base_url, c.model) == ("http://127.0.0.1:11434/v1", "qwen3-vl:8b-instruct")
+    c = client_for_role("judge", shared_cli_base="https://api.openai.com/v1", shared_cli_model="gpt-4o", **kw)
+    assert (c.base_url, c.model) == ("https://api.openai.com/v1", "gpt-4o")

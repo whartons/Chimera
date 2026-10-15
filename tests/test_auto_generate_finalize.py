@@ -31,7 +31,7 @@ def _wire_main(monkeypatch, tmp_path, seen):
     sheet = tmp_path / "win.png"; sheet.write_text("s")
     monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
     monkeypatch.setattr(AG, "make_render_generate", lambda *a, **k: (lambda *x: str(sheet)))
-    monkeypatch.setattr(AG, "GeometryAwareJudge", lambda j: j)
+    monkeypatch.setattr(AG, "GeometryAwareJudge", lambda j, **k: j)
     monkeypatch.setattr(AG, "LocalVLMJudge", lambda *a, **k: object())
     monkeypatch.setattr(AG, "run_loop",
                         lambda **kw: LoopResult(best_image=str(sheet), best_verdict=None,

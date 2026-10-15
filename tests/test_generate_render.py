@@ -85,3 +85,24 @@ def test_run_render_routes_and_sidecars(tmp_path, monkeypatch, capsys):
     meta = json.loads(side.read_text())
     assert meta["kind"] == "render" and meta["mode"] == "mesh" and meta["seed"] == 7
     assert meta["provenance"]["blender_version"] == "5.1.2"
+
+
+def test_cli_finish_color_defaults_to_auto_and_accepts_keep(monkeypatch):
+    # `auto` keeps a textured mesh's own materials: the old fixed `material` default replaced a TRELLIS.2
+    # GLB's baked PBR textures with clay (2026-10)
+    import sys
+    import scripts.generate as GEN
+    seen = []
+    monkeypatch.setattr(GEN, "run_render", lambda args, root, ap: seen.append(args.color))
+    for extra, want in (([], "auto"), (["--color", "keep"], "keep")):
+        monkeypatch.setattr(sys, "argv", ["generate.py", "render", "--from", "m.glb", "--mode", "finish", *extra])
+        GEN.main()
+        assert seen[-1] == want
+
+
+def test_finish_keep_rejects_watertight(monkeypatch):
+    a = _args(mode="finish", color="keep", watertight=True)
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: Path("/x/m.glb"))
+    monkeypatch.setattr(G.blender_runner, "run_template", lambda *x, **k: pytest.fail("must not run"))
+    with pytest.raises(SystemExit):
+        G.run_render(a, Path("/tmp"), argparse.ArgumentParser())

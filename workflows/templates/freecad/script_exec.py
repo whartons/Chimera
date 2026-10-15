@@ -39,10 +39,11 @@ ns["__builtins__"] = {**vars(_b), "__import__": _import}
 
 if p.get("restrict"):
     # Autonomous (LLM-authored) scripts run with restricted builtins + an import allowlist: no
-    # open/eval/exec/compile/getattr/__import__-of-arbitrary-modules, so the python-level escape hatches
-    # are closed. NOT a full sandbox (FreeCAD's own Part.export/doc.saveAs can still touch the filesystem),
-    # but it raises the bar far past the host-side regex pre-filter. Human `cad --mode script` is trusted
-    # and stays unrestricted.
+    # open/eval/exec/compile/getattr/__import__ of arbitrary modules. This is NOT a sandbox: Python's
+    # object internals (a dunder walk from any object back to a module's globals) still reach `os`, and
+    # FreeCAD's own Part.export/doc.saveAs touch the filesystem. The host-side regex rejects those walks,
+    # and the process gets no API keys in its environment (dcc.scrubbed_env), but only point the loop at
+    # a code-gen model you trust. Human `cad --mode script` is trusted and stays unrestricted.
     _ALLOWED = {"App", "FreeCAD", "Part", "Mesh", "math", "Draft", "PartDesign", "BOPTools", "MeshPart"}
 
     def _safe_import(name, *a, **k):
@@ -56,7 +57,7 @@ if p.get("restrict"):
         "bool", "complex", "print", "isinstance", "issubclass", "type", "repr", "format", "divmod",
         "pow", "any", "all", "ord", "chr", "hex", "oct", "bin", "iter", "next", "slice", "hash",
         "Exception", "ValueError", "TypeError", "RuntimeError", "ZeroDivisionError", "IndexError",
-        "KeyError", "AttributeError", "ImportError") if hasattr(_b, n)}
+        "KeyError", "AttributeError", "ImportError", "__build_class__") if hasattr(_b, n)}   # class statements
     _SAFE["__import__"] = _safe_import
     ns["__builtins__"] = _SAFE
 

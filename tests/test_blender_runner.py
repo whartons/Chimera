@@ -94,3 +94,22 @@ def test_find_blender_raises_when_absent(monkeypatch):
     monkeypatch.setattr(D.glob, "glob", lambda p: [])
     with pytest.raises(B.BlenderJobError):
         B.find_blender()
+
+
+def test_run_template_decodes_utf8_and_reports_a_missing_binary(tmp_path):
+    # the locale codec (cp1252) garbled a non-ASCII path in Blender's output; a wrong --blender-bin
+    # surfaced as a raw FileNotFoundError traceback
+    import pytest as _pytest
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    seen = {}
+
+    def runner(argv, **kw):
+        seen.update(kw)
+        return _fake_proc(stdout='@@CHIMERA_MANIFEST@@ {"outputs": ["C:/Users/\u00e9/r.png"]}')
+    assert B.run_template(tmpl, {}, blender_bin="blender", _runner=runner)["outputs"] == ["C:/Users/\u00e9/r.png"]
+    assert seen["encoding"] == "utf-8" and seen["errors"] == "replace"
+
+    def missing(argv, **kw):
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+    with _pytest.raises(B.BlenderJobError, match="couldn.t start"):
+        B.run_template(tmpl, {}, blender_bin="C:/nope/blender.exe", _runner=missing)

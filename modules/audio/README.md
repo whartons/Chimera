@@ -45,6 +45,8 @@ The brief is the brand's `audio.music_tags` plus `--subject`.
   (e.g. "…, 128 BPM, in A minor"). The brand's ACE-tuned `music_bpm` / `music_keyscale` defaults don't.
 - **ACE-Step** (`--model acestep`) takes the brief as `TextEncodeAceStepAudio1.5` tags, and uses BPM / key
   directly.
+- **Stable Audio 3 renders at least 1 s** (ComfyUI's minimum); a shorter `--duration` is an error before
+  anything is queued. Render 1 s and trim it.
 
 Override any key via CLI; CLI always wins over `brand.yaml`.
 
@@ -59,7 +61,7 @@ python scripts/generate.py audio --mode sfx \
 ```
 
 Stable Audio 3 with its prompt enhancer in sound-effects mode. The brief is the subject alone: a sound
-effect doesn't inherit the brand's musical tags. Default length 4 s. Output:
+effect doesn't inherit the brand's musical tags. Default length 4 s, minimum 1 s. Output:
 `…/outputs/audio/<brand>_sfx_<seed>.mp3`.
 
 ### Foley (video → SFX)
@@ -83,6 +85,8 @@ python scripts/generate.py audio \
   use `--fps` and `--duration` to override.
 - Output routes to `brands/<brand>/outputs/video/<brand>_foley_<seed>.mp4` (a foley
   clip is a video, so it lands under `video/`).
+- Foley always runs HunyuanVideo-Foley: `--model sa3` or `--model acestep` (music models) is an error,
+  raised before the clip is uploaded.
 - `--watermark` composites the brand logo over the **source frame batch**
   before the mux step. The SFX audio edge is untouched.
 

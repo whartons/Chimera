@@ -18,10 +18,13 @@ recorded model PINNED (a later brand pin or Chimera default change can't swap it
 prompt from the recorded `subject` and today's brand.yaml, then compares the built graph with the
 record (prompt/negative text, model, structure, settings) and stops, listing the differences, unless
 `--accept-drift`. `replay --model <file>` deliberately re-runs old work on a different model (only the
-prompt is then checked). Schema-1 (pre-enriched) sidecars lack `inputs` and cannot be replayed --
-re-render once to upgrade them.
+prompt is then checked, and a different video family gets its own clip defaults). The result lands
+beside the original as `<name>_replay`, never over it. Replay treats the sidecar as untrusted: it
+renders on the local default ComfyUI unless `--comfy-url` is given, and only takes plain relative file
+names. Schema-1 (pre-enriched) sidecars lack `inputs` and cannot be replayed -- re-render once to
+upgrade them.
 """
-import argparse, json, random, struct, sys, datetime
+import argparse, json, random, struct, sys, datetime, urllib.error
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.brandkit.manifest import load_manifest, default_manifest
@@ -31,7 +34,8 @@ from scripts.brandkit import video as video_filler
 from scripts.brandkit import audio as audio_filler
 from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
-from scripts.brandkit.outputs import route_output, select_output, NoOutputError, write_sidecar
+from scripts.brandkit.outputs import (NoOutputError, comfy_output_path, route_output, select_output,
+                                      write_sidecar)
 from scripts.brandkit.provenance import git_provenance  # re-exported; historical home was here
 from scripts.brandkit.sidecar import build_meta
 
@@ -94,6 +98,9 @@ def _add_common(sp):
 
 
 def _prepare_image(args, m, brand_dir, client, ap):
+    resolved = _resolve_model_used(args, m)
+    if args.variant and image_filler.family(resolved) != "zimage":
+        print(f"note: --variant picks Z-Image's fidelity; {resolved} ignores it", file=sys.stderr)
     fkw = {"mode": args.mode, "variant": args.variant, "model": args.model,
            "upscale": args.upscale,
            "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
@@ -130,11 +137,24 @@ def _prepare_image(args, m, brand_dir, client, ap):
 
 
 def _prepare_video(args, m, brand_dir, client, ap):
-    path = _resolve_asset(brand_dir, args.from_image, ("products", "references"), ap, "video --from-image")
     model, camera = getattr(args, "model", None), getattr(args, "camera", None)
-    if args.audio and video_filler.is_wan(video_filler.resolved_model(m, model, camera)):
+    try:   # before the upload: a combination the family can't render is a CLI error, not a wasted upload
+        video_filler.check_options(m, model=model, camera=camera, quality=getattr(args, "quality", None),
+                                   upscale=args.upscale)
+    except ValueError as e:
+        ap.error(str(e))
+    path = _resolve_asset(brand_dir, args.from_image, ("products", "references"), ap, "video --from-image")
+    r = video_filler.resolved_settings(m, model=model, camera=camera, length=args.length)
+    wan = video_filler.is_wan(r["model"])
+    if wan and args.audio:
         print("note: Wan 2.2 clips are silent; for built-in synced audio use --model ltx23, or add sound "
               "afterwards with `audio --mode foley --from-video <clip>`", file=sys.stderr)
+    if wan and args.fps and args.fps != video_filler.WAN_FPS:
+        print(f"note: Wan 2.2 times its motion for {video_filler.WAN_FPS} fps; --fps {args.fps} only changes "
+              "the playback speed", file=sys.stderr)
+    if args.length and r["length"] != args.length:
+        print(f"note: {'Wan 2.2' if wan else 'LTX-2.3'} renders {4 if wan else 8}k+1 frames, so --length "
+              f"{args.length} renders {r['length']}", file=sys.stderr)
     return {"from_image": client.upload_image(path),
             "length": args.length, "fps": args.fps, "audio": args.audio,
             "width": args.width, "height": args.height,
@@ -188,6 +208,10 @@ def _clip_timing(path):
 
 def _prepare_audio(args, m, brand_dir, client, ap):
     model = getattr(args, "model", None)   # --model, or pinned by replay; else brand/default
+    try:   # before the foley upload: a request the mode can't render is a CLI error
+        audio_filler.check_options(m, args.mode, model=model, duration=args.duration)
+    except ValueError as e:
+        ap.error(str(e))
     if args.mode == "music":
         return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
                 "keyscale": args.keyscale, "model": model}
@@ -209,6 +233,8 @@ def _prepare_audio(args, m, brand_dir, client, ap):
 
 
 def _prepare_3d(args, m, brand_dir, client, ap):
+    if args.octree is not None and threed_filler.family(threed_filler.resolved_model(m, args.model)) != "hunyuan3d":
+        print("note: --octree is a Hunyuan3D setting; TRELLIS.2 and Pixal3D ignore it", file=sys.stderr)
     path = _resolve_asset(brand_dir, args.from_image,
                           ("products", "references", "outputs/images"), ap, "3d --from-image")
     return {"mode": args.mode, "from_image": client.upload_image(path),
@@ -260,15 +286,14 @@ def run(args, repo_root, ap):
         pos, neg = build_audio_prompt(m, args.subject, args.mode)
     else:
         pos, neg = build_prompt(m, args.subject)
-    do_watermark = (args.watermark or m.watermark.enabled_default) and \
-        _supports_watermark(args.modality, args.mode)
+    expect = getattr(args, "expect", None)   # replay: the sidecar being reproduced
+    # a replay keeps the recorded watermark decision: a brand that later turned enabled_default on used to
+    # stamp old renders without a word
+    want = bool(expect.get("watermark")) if expect is not None else (args.watermark or m.watermark.enabled_default)
+    do_watermark = want and _supports_watermark(args.modality, args.mode)
     if do_watermark and not args.brand:
         ap.error("--watermark needs a --brand (the logo comes from brands/<brand>/logos/)")
     client = ComfyClient(args.comfy_url)
-
-    free_before = args.free_before if args.free_before is not None else _default_free_before(args, m)
-    if free_before:
-        client.free()
 
     fkw = PREPARE[args.modality](args, m, brand_dir, client, ap)
     if do_watermark:
@@ -293,7 +318,6 @@ def run(args, repo_root, ap):
                                    watermark=do_watermark, **fkw)
     except ValueError as e:   # a combination the filler can't render (e.g. --camera with --model ltx23)
         ap.error(str(e))
-    expect = getattr(args, "expect", None)   # replay: the sidecar being reproduced
     if expect is not None:
         drift = replay_drift(expect, model=_resolve_model_used(args, m), wf=wf, modality=args.modality,
                              mode=args.mode, model_override=getattr(args, "model_override", None))
@@ -306,7 +330,15 @@ def run(args, repo_root, ap):
                       "(the new sidecar records what was actually used)", file=sys.stderr)
                 sys.exit(1)
             print("--accept-drift: rendering anyway", file=sys.stderr)
-    pid = client.queue_prompt(wf)
+    # free only now: a replay stopped by drift, or a bad flag, must not unload every ComfyUI model first
+    free_before = args.free_before if args.free_before is not None else _default_free_before(args, m)
+    if free_before:
+        client.free()
+    try:
+        pid = client.queue_prompt(wf)
+    except RuntimeError as e:   # ComfyUI's validation (HTTP 400): a model file it doesn't have, a value out of range
+        print(f"{e}\n(`chimera doctor` checks models and node packs)", file=sys.stderr)
+        sys.exit(1)
     print(f"queued {pid} (modality={args.modality} brand={args.brand or '-'} mode={args.mode} seed={seed})")
     timeout = args.timeout or TIMEOUTS[args.modality]
     try:
@@ -317,12 +349,13 @@ def run(args, repo_root, ap):
         # anchor on the graph's titled brand:save node, not output-dict order; reuse wait()'s
         # history record instead of re-fetching it
         fname, subfolder, _ = select_output(client, pid, wf, history=hist)
+        src = comfy_output_path(args.comfy_output_dir, subfolder, fname) if args.comfy_output_dir else None
     except NoOutputError as e:
         print(str(e), file=sys.stderr); sys.exit(1)
 
-    if args.comfy_output_dir:
-        src = Path(args.comfy_output_dir) / subfolder / fname
-        dest = route_output(repo_root, args.brand, src, args.mode, seed)
+    if src is not None:
+        # a replay keeps the recorded seed, so it must not land on (and replace) the render it reproduces
+        dest = route_output(repo_root, args.brand, src, args.mode, seed, keep_existing=expect is not None)
         fmt = None  # only set for 3d; passed to build_meta (None -> omitted from sidecar)
         if args.modality == "3d":
             # ComfyUI only saves GLB; convert to the requested export format host-side
@@ -345,6 +378,19 @@ def run(args, repo_root, ap):
         print(f"output -> {dest}")
     else:
         print(f"output filename: {fname} (pass --comfy-output-dir to relocate into the brand folder)")
+
+
+def _run_comfy(args, repo_root, ap):
+    """run(), with ComfyUI being down or dropping mid-render reported as one line instead of a traceback."""
+    try:
+        run(args, repo_root, ap)
+    except urllib.error.HTTPError as e:   # reached ComfyUI, which refused a request (an upload, /free)
+        print(f"ComfyUI at {args.comfy_url} answered HTTP {e.code} ({e.reason})", file=sys.stderr)
+        sys.exit(1)
+    except (urllib.error.URLError, ConnectionError) as e:
+        print(f"can't reach ComfyUI at {args.comfy_url} ({getattr(e, 'reason', e)}). Is it running? "
+              "`chimera doctor` checks.", file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
@@ -378,12 +424,15 @@ def main():
                      help="(Wan) a controlled camera via Wan 2.2 Fun Camera: static keeps it locked while the "
                           "scene moves; pans/zooms/rotations move it")
     vid.add_argument("--quality", choices=["fast", "full"], default=None,
-                     help="(Wan) fast = 4-step LoRAs, ~1 min (default without --camera); full = 20 steps, ~3-4 min, "
-                          "more scene motion (default with --camera)")
+                     help="(Wan) fast = 4-step LoRAs, ~35 s on an RTX 5090 (default without --camera); full = 20 "
+                          "steps, ~3 min, more scene motion (default with --camera)")
     # defaults stay None so the brand.yaml video: block (LTX) / Wan's native clip wins in the filler
     vid.add_argument("--length", type=int, default=None,
-                     help="frames (default: Wan 81 at 16 fps; LTX brand video.length, else 97)")
-    vid.add_argument("--fps", type=int, default=None, help="default: Wan 16; LTX brand video.fps, else 25")
+                     help="frames (default: Wan 81 at 16 fps; LTX brand video.length, else 97); snapped down to "
+                          "what the model renders, 4k+1 for Wan and 8k+1 for LTX")
+    vid.add_argument("--fps", type=int, default=None,
+                     help="default: Wan 16; LTX brand video.fps, else 25 (Wan's motion is timed for 16 fps, so "
+                          "another value only changes its playback speed)")
     vid.add_argument("--width", type=int, default=None, help="default: brand video.width, else 768")
     vid.add_argument("--height", type=int, default=None, help="default: brand video.height, else 512")
     vid.add_argument("--audio", dest="audio", action="store_true", default=None,
@@ -405,7 +454,8 @@ def main():
     aud.add_argument("--from-video", dest="from_video", default=None,
                      help="foley source: a file in brands/<brand>/outputs|references|products/")
     aud.add_argument("--duration", type=float, default=None,
-                     help="seconds (default: music = brand audio.music_duration; sfx = 4; foley = the clip)")
+                     help="seconds (default: music = brand audio.music_duration; sfx = 4, at least 1; foley = "
+                          "the clip)")
     aud.add_argument("--bpm", type=int, default=None, help="(music)")
     aud.add_argument("--keyscale", default=None, help="(music)")
     aud.add_argument("--fps", type=float, default=None, help="(foley; default = source fps)")
@@ -435,7 +485,10 @@ def main():
     rn.add_argument("--target-tris", dest="target_tris", type=int, default=200000, help="(finish) decimate target")
     rn.add_argument("--watertight", action="store_true", help="(finish) voxel-remesh to a manifold solid")
     rn.add_argument("--scale-mm", dest="scale_mm", type=float, default=None, help="(finish) longest-dim mm")
-    rn.add_argument("--color", choices=["material", "project"], default="material", help="(finish) color method")
+    rn.add_argument("--color", choices=["auto", "material", "project", "keep"], default="auto",
+                    help="(finish) auto (default): keep a textured mesh's own materials (e.g. a TRELLIS.2 PBR GLB, "
+                         "exported with JPEG textures), else clay; material = clay; project = --project-image; "
+                         "keep = always keep")
     rn.add_argument("--formats", default="stl,glb", help="(finish) comma-separated export formats")
     rn.add_argument("--project-image", dest="project_image", default=None,
                     help="(finish, --color project) image to project as color")
@@ -505,9 +558,11 @@ def main():
     rp.add_argument("sidecar", help="path to a schema-2 sidecar .json")
     rp.add_argument("--seed", type=int, default=None, help="override the recorded seed")
     rp.add_argument("--comfy-output-dir", default=None,
-                    help="route the result into the brand folder + write a fresh sidecar "
-                         "(omit to just re-render and print the raw ComfyUI filename)")
-    rp.add_argument("--comfy-url", default=None, help="override (default: the sidecar's recorded comfy_url)")
+                    help="route the result into the brand folder + write a fresh sidecar, beside the original "
+                         "as <name>_replay (omit to just re-render and print the raw ComfyUI filename)")
+    rp.add_argument("--comfy-url", default=None,
+                    help=f"ComfyUI to render on (default {DEFAULT_COMFY_URL}; the sidecar's recorded URL is not "
+                         "trusted, since sidecars get shared)")
     rp.add_argument("--model", default=None,
                     help="re-run the recorded render on a different model (e.g. old brand work on a newer "
                          "model); without it replay pins the model the render used")
@@ -575,9 +630,13 @@ def main():
         except (ValueError, KeyError) as e:
             ap.error(f"cannot replay {args.sidecar}: {e}")
         rargs.expect, rargs.accept_drift, rargs.model_override = data, args.accept_drift, args.model
+        rec = str(data.get("comfy_url") or "")
+        if rec and not args.comfy_url and rec.rstrip("/") != rargs.comfy_url.rstrip("/"):
+            print(f"note: the render used ComfyUI at {rec}; replaying on {rargs.comfy_url} "
+                  "(pass --comfy-url to change)", file=sys.stderr)
         print(f"replaying {args.sidecar} (modality={rargs.modality} mode={rargs.mode} "
               f"brand={rargs.brand} seed={rargs.seed} model={rargs.model})", flush=True)
-        run(rargs, repo_root, ap)
+        _run_comfy(rargs, repo_root, ap)
         return
     if args.modality == "render":
         run_render(args, repo_root, ap)
@@ -590,7 +649,7 @@ def main():
     if args.modality == "finalize-texture":
         run_finalize_texture(args, repo_root, ap)
         return
-    run(args, repo_root, ap)
+    _run_comfy(args, repo_root, ap)
 
 
 if __name__ == "__main__":

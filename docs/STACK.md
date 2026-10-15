@@ -29,7 +29,7 @@ flowchart TD
     freecad["freecad-mcp (stdio, loopback)"]
     assistant -->|MCP| blender
     assistant -->|MCP| freecad
-    assistant -->|"optional: --backend assistant"| agent
+    assistant -->|"interactive: assistant consensus judge (workflows/agent)"| agent
 ```
 
 ---
@@ -41,10 +41,10 @@ The `chimera` package (**v0.6.0**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (687 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (777 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
-| **pillow** | `>=10` | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
+| **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
 | **av** (PyAV) | `>=12` | optional `[video]` | foley fps/duration auto-probe (`generate._probe_video`) for clips without a Chimera sidecar (Chimera renders carry exact timing in theirs) — degrades to explicit `--fps/--duration` if absent |
 
 `pip install -e ".[dev]"` for the full tooling; `[images]`/`[video]` are opt-in host-side helpers.
@@ -74,9 +74,9 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 ## 4 · MCP bridges (assistant → ComfyUI · Blender · FreeCAD)
 | Server | Package | Version | Transport | Security posture |
 |--------|---------|---------|-----------|------------------|
-| **comfyui-mcp** | npm `comfyui-mcp` (`artokun`) | **0.18.0** | stdio, **loopback only** (127.0.0.1) | MIT; audited not-malicious. Real controls: per-tool **approval gates** on code-exec tools (`.claude/settings.json`) + loopback-only binding + env-gating of the optional cloud/tunnel/Claude-Agent-SDK features (they stay inert unless explicitly enabled); benign `postinstall` (copies a settings template). `.mcp.json` sets **`NPM_CONFIG_INCLUDE=optional`** (replacing `NPM_CONFIG_OMIT=optional`, which on node ≥ 24 stripped `sharp`'s required native binary `@img/sharp-*` and crashed the server); the optional cloud/tunnel/agent deps install but stay inert. Pinned + re-audited on bump; **0.20.x–0.50.x held** (issues #38/#41/#44/#49) — 0.20.9 has a broken upstream import (`@stable-canvas/comfyui-client/dist/main.modern.mjs`, absent from client `1.5.9`); 0.24.5+ adds **default-on startup self-update** (phones `registry.npmjs.org`, can `npm i @latest` on global/local installs) and **panel auto-install** (mutates the ComfyUI install from an unpinned "nightly" channel), 0.48.x layers a large multi-provider agent/network surface on top, and 0.50.x makes `npx` installs auto-update-ELIGIBLE (our exact launch mode). `.mcp.json` sets the opt-outs `COMFYUI_MCP_AUTOUPDATE=0` + `COMFYUI_MCP_PANEL_AUTOINSTALL=0` as defense-in-depth (inert on 0.18.0; they neutralize both behaviors if the pin ever drifts). See `modules/agent/README.md`. |
-| **blender_mcp** | Gitea `lab/blender_mcp` (Blender Foundation) | **v1.0.0 +5** (`4309a396`) | stdio → TCP, **loopback** (127.0.0.1:9876) | GPL-3.0; first-party, **zero telemetry** (deps `docutils`/`mcp[cli]`/`pyyaml`), from-source audited. Tier-1/2 code-exec & path tools gated; launched from the pinned Gitea commit via `uvx --with "mcp[cli]~=1.12" --from "git+…#subdirectory=mcp"` (the `--with` pins the MCP SDK to 1.x — upstream imports the SDK-1.x `mcp.server.fastmcp` path and does not bound the dep) (server pkg is in the repo's `mcp/` subdir; **never** the bare `uvx blender-mcp`); never `-t http`. **Gitea, not GitHub.** |
-| **freecad-mcp** | GitHub `neka-nat/freecad-mcp` (server + addon) | **`78bf023`** (v0.1.27) | stdio → XML-RPC, **loopback** (127.0.0.1:9875) | MIT; no telemetry (deps `mcp[cli]>=1.28.1,<3`/`validators`), from-source audited. Tier-1/2 tools gated; keep "Remote Connections" OFF. **v0.1.25+ is the security floor** ([GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q), HIGH: web pages could run Python in FreeCAD via the RPC server; fixed by refusing browser-originated requests). Pinned by commit; re-audited on bump (last: `3745ff9 → 78bf023`, 83 commits — the GHSA fix, `insert_part_from_library` path confinement, `execute_code` namespace isolation, optional auth token (`FREECAD_MCP_TOKEN`), server↔addon version handshake, threaded RPC; NEW tools `execute_code_headless` (Tier 1, gated) + `get_async_status` (read-only); no new network egress; re-copy the whole addon dir, incl. `package.xml`, into FreeCAD `Mod/`). Host: **FreeCAD 1.1.4+** (earlier releases have HIGH crafted-`.FCStd` advisories). |
+| **comfyui-mcp** | npm `comfyui-mcp` (`artokun`) | **0.18.0** | stdio, **loopback only** (127.0.0.1) | MIT; audited not-malicious. Real controls: per-tool **approval gates** on the code-exec, install/download/config-changing, process-control and destructive tools (`.claude/settings.json`) + loopback-only binding + env-gating of the optional cloud/tunnel/Claude-Agent-SDK features (they stay inert unless explicitly enabled); benign `postinstall` (copies a settings template). `.mcp.json` sets **`NPM_CONFIG_INCLUDE=optional`** (replacing `NPM_CONFIG_OMIT=optional`, which on node ≥ 24 stripped `sharp`'s required native binary `@img/sharp-*` and crashed the server); the optional cloud/tunnel/agent deps install but stay inert, though installing the optional `cloudflared` package runs its postinstall, which downloads the latest `cloudflared` binary from GitHub with no checksum. The version pin fixes the server's own code: it ships no lockfile, so its npm dependencies resolve within their caret ranges at install time. Pinned + re-audited on bump; **0.20.x–0.50.x held** (issues #38/#41/#44/#49) — 0.20.9 has a broken upstream import (`@stable-canvas/comfyui-client/dist/main.modern.mjs`, absent from client `1.5.9`); 0.24.5+ adds **default-on startup self-update** (phones `registry.npmjs.org`, can `npm i @latest` on global/local installs) and **panel auto-install** (mutates the ComfyUI install from an unpinned "nightly" channel), 0.48.x layers a large multi-provider agent/network surface on top, and 0.50.x makes `npx` installs auto-update-ELIGIBLE (our exact launch mode). `.mcp.json` sets the opt-outs `COMFYUI_MCP_AUTOUPDATE=0` + `COMFYUI_MCP_PANEL_AUTOINSTALL=0` as defense-in-depth (inert on 0.18.0; they neutralize both behaviors if the pin ever drifts). See `modules/agent/README.md`. |
+| **blender_mcp** | Gitea `lab/blender_mcp` (Blender Foundation) | **v1.0.0 +5** (`4309a396`) | stdio → TCP, **loopback** (127.0.0.1:9876) | GPL-3.0; first-party, **zero telemetry** (deps `docutils`/`mcp[cli]`/`pyyaml`), from-source audited. Tier-1/2 code-exec & path tools gated; launched from the pinned Gitea commit via `uvx --with "mcp[cli]~=1.12" --from "git+…#subdirectory=mcp"` (the `--with` pins the MCP SDK to 1.x — upstream imports the SDK-1.x `mcp.server.fastmcp` path and does not bound the dep) (server pkg is in the repo's `mcp/` subdir; **never** the bare `uvx blender-mcp`); never `-t http`. The commit pin fixes the server's code; its Python deps resolve when `uvx` installs it. **Gitea, not GitHub.** |
+| **freecad-mcp** | GitHub `neka-nat/freecad-mcp` (server + addon) | **`78bf023`** (v0.1.27) | stdio → XML-RPC, **loopback** (127.0.0.1:9875) | MIT; no telemetry (deps `mcp[cli]>=1.28.1,<3`/`validators`, resolved when `uvx` installs it; the commit pin fixes only the server's code), from-source audited. Tier-1/2 tools gated; keep "Remote Connections" OFF. **v0.1.25+ is the security floor** ([GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q), HIGH: web pages could run Python in FreeCAD via the RPC server; fixed by refusing browser-originated requests). Pinned by commit; re-audited on bump (last: `3745ff9 → 78bf023`, 83 commits — the GHSA fix, `insert_part_from_library` path confinement, `execute_code` namespace isolation, optional auth token (`FREECAD_MCP_TOKEN`), server↔addon version handshake, threaded RPC; NEW tools `execute_code_headless` (Tier 1, gated) + `get_async_status` (read-only); no new network egress; re-copy the whole addon dir, incl. `package.xml`, into FreeCAD `Mod/`). Host: **FreeCAD 1.1.4+** (earlier releases have HIGH crafted-`.FCStd` advisories). |
 
 > **Gitea exception:** `blender_mcp` lives on Blender's Gitea (`projects.blender.org`), not GitHub —
 > Dependabot and the GitHub-compare path in `scripts/update_report.py` can't reach it, so its weekly
@@ -96,7 +96,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > (job runner `scripts/brandkit/freecad.py`, templates in `workflows/templates/freecad/`) to author
 > parametric primitives (box/cylinder/cone/sphere/tube), convert CAD/mesh files, and **`--mode script`**
 > (headless exec of an agent-authored FreeCAD `.py` for generative CAD self-correction) → STEP/STL/OBJ.
-> Also a normal CLI subprocess, no per-call approval. Requires FreeCAD ≥ 1.0 (`FreeCADCmd`) on PATH,
+> Also a normal CLI subprocess, no per-call approval. Requires FreeCAD ≥ 1.1.4 (`FreeCADCmd`) on PATH,
 > `$FREECAD_BIN`, or the default install; CI mocks the subprocess (GPU-free). glTF export is GUI-only
 > (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
 > script`) and **fully autonomous** (`auto_generate.py --pipeline cad` — a provider-agnostic LLM writes +
@@ -119,13 +119,20 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 ## 6 · CI / GitHub Actions
 | Action | Version | Role |
 |--------|---------|------|
-| `actions/checkout` | `v7` | checkout |
-| `actions/setup-python` | `v7` | Python 3.12 + pip cache |
-| `codecov/codecov-action` | `v7` | coverage upload (**non-blocking**; `continue-on-error`) |
+| `actions/checkout` | `v7.0.1` | checkout, with `persist-credentials: false` (the token isn't kept) |
+| `actions/setup-python` | `v7.0.0` | Python 3.12 + pip cache |
+| `actions/upload-artifact` / `download-artifact` | `v7.0.1` / `v8.0.1` | hand `coverage.xml` from the Ubuntu test job to the upload job |
+| `codecov/codecov-action` | `v7.1.1` | coverage upload in its own `coverage` job, the only job with `id-token: write` (OIDC; **non-blocking**, `continue-on-error`) |
 | **CodeQL** | default setup | security scanning |
 
+Every action is pinned by commit SHA (the version above is in a comment; Dependabot keeps the pins current),
+and the workflow's default permissions are read-only (`contents: read`, no `id-token`), so the jobs that
+`pip install` third-party packages can't mint an OIDC token. `pip-audit` runs in its own advisory `audit`
+job (`continue-on-error`). GitHub secret scanning with push protection is on for the repository, and the
+optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
+
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (687 tests local; 680 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (777 tests local; 770 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

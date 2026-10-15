@@ -255,11 +255,13 @@ class GeometryAwareJudge(Judge):
     judge scores the contact sheet, read the sibling '<stem>.checks.json' (written by the render
     generator from mesh_eval's bmesh probe); on any structural failure force passed=False and union
     the structural NOT-MET lines in. A VLM can't see watertightness/holes/disconnected chunks from a
-    render — this is how those get caught. No checks file (or a corrupt one) → pure passthrough."""
+    render — this is how those get caught. No checks file (or a corrupt one) → pure passthrough.
+    `strict` (the CAD loop) demands one solid by raw island count; see geometry.structural_issues."""
 
-    def __init__(self, inner: Judge, *, checks_suffix=RENDER_CHECKS_SUFFIX):
+    def __init__(self, inner: Judge, *, checks_suffix=RENDER_CHECKS_SUFFIX, strict=False):
         self.inner = inner
         self.checks_suffix = checks_suffix
+        self.strict = strict
 
     def judge(self, image_path, rubric) -> Verdict:
         v = self.inner.judge(image_path, rubric)
@@ -271,7 +273,7 @@ class GeometryAwareJudge(Judge):
             checks = json.loads(cf.read_text(encoding="utf-8"))
         except Exception:
             return v
-        extra = structural_issues(checks)
+        extra = structural_issues(checks, strict=self.strict)
         if not extra:
             return v
         seen, issues = set(), []

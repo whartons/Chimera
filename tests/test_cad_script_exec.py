@@ -64,3 +64,11 @@ def test_import_app_resolves_to_freecad_in_both_modes(monkeypatch, tmp_path, res
 def test_restricted_scripts_still_cannot_import_arbitrary_modules(monkeypatch, tmp_path):
     with pytest.raises(ImportError, match="may not import 'os'"):
         _run(monkeypatch, tmp_path, "import os\nRESULT = [Part.Shape()]\n", restrict=True)
+
+
+
+def test_restricted_scripts_can_define_classes(monkeypatch, tmp_path):
+    script = ("class Fin:\n    def __init__(self, h):\n        self.h = h\n"
+              "RESULT = [Part.Shape()] if Fin(3).h == 3 else []\n")
+    _, exported = _run(monkeypatch, tmp_path, script, restrict=True)
+    assert len(exported) == 1

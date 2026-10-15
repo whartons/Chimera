@@ -183,3 +183,127 @@ def test_free_subcommand_runs_free_all_with_the_given_urls(monkeypatch, capsys):
     generate.main()
     assert seen == {"client": ("comfy", "http://c:1"), "ollama_url": "http://o:2/v1"}
     assert "ComfyUI: asked to unload" in capsys.readouterr().out
+
+
+
+# --- the reverse hand-off: ComfyUI makes room before a local Ollama model loads (2026-10-15) --------
+class _Card:
+    """A ComfyUI that holds most of the card until /free, then gives it back after a poll or two."""
+    def __init__(self, free_gb, after_free_gb, polls_to_free=1, up=True):
+        self.free_gb, self.after, self.polls, self.up, self.freed = free_gb, after_free_gb, polls_to_free, up, 0
+
+    def system_stats(self):
+        if not self.up:
+            raise urllib.error.URLError("refused")
+        if self.freed and self.polls <= 0:
+            self.free_gb = self.after
+        elif self.freed:
+            self.polls -= 1
+        return {"devices": [{"vram_free": (self.free_gb + 0.5) * 2**30, "torch_vram_free": 0.5 * 2**30}]}
+
+    def free(self):
+        self.freed += 1
+
+
+def _clock():
+    t = [0.0]
+
+    def now():
+        return t[0]
+
+    def sleep(s):
+        t[0] += s
+    return now, sleep
+
+
+def test_make_room_frees_comfyui_only_when_the_model_does_not_fit():
+    now, sleep = _clock()
+    roomy = _Card(free_gb=20, after_free_gb=20)
+    assert gpu.make_room(roomy, 9 * 2**30, _sleep=sleep, _clock=now) is True and roomy.freed == 0
+    full = _Card(free_gb=0.1, after_free_gb=29, polls_to_free=2)     # the 2026-10-15 state
+    assert gpu.make_room(full, 9 * 2**30, _sleep=sleep, _clock=now) is True and full.freed == 1
+
+
+def test_make_room_counts_comfyuis_own_cache_as_taken():
+    # vram_free includes memory ComfyUI's torch has reserved but not used: another process can't have it
+    now, sleep = _clock()
+    card = _Card(free_gb=0.1, after_free_gb=0.1)
+    card.system_stats = lambda: {"devices": [{"vram_free": 20 * 2**30, "torch_vram_free": 19.9 * 2**30}]}
+    assert gpu.make_room(card, 9 * 2**30, wait=5, _sleep=sleep, _clock=now) is False and card.freed == 1
+
+
+def test_make_room_gives_up_after_the_wait_and_tolerates_a_stopped_comfyui():
+    now, sleep = _clock()
+    stuck = _Card(free_gb=1, after_free_gb=1)
+    assert gpu.make_room(stuck, 9 * 2**30, wait=5, _sleep=sleep, _clock=now) is False
+    assert gpu.make_room(_Card(1, 1, up=False), 9 * 2**30, _sleep=sleep, _clock=now) is None
+
+
+def test_vram_need_estimates_from_the_model_file_size():
+    tags = {("GET", "/api/tags"): {"models": [{"name": "qwen3-vl:8b-instruct", "size": 6 * 2**30}]}}
+    need = gpu.vram_need("http://o", "qwen3-vl:8b-instruct", _opener=_server(tags, []))
+    assert 8 * 2**30 < need < 10 * 2**30
+    assert gpu.vram_need("http://o", "missing:tag", _opener=_server(tags, [])) is None
+    assert gpu.vram_need("http://o", "x", _opener=_server({}, [])) is None
+
+
+_TAGS = {**_OLLAMA, ("GET", "/api/tags"): {"models": [{"name": "judge:8b", "size": 6 * 2**30}]}}
+
+
+def test_a_local_ollama_model_asks_for_room_before_it_loads():
+    asked = []
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c.make_room = asked.append
+    c._ensure_room(_opener=_server(_TAGS, []))
+    assert len(asked) == 1 and asked[0] > 6 * 2**30
+
+
+def test_no_room_is_asked_for_a_resident_model_a_remote_server_or_when_unset():
+    asked = []
+    resident = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
+    resident.make_room = asked.append
+    resident._ensure_room(_opener=_server(_TAGS, []))
+    remote = LLMClient(base_url="http://192.168.1.50:11434/v1", model="judge:8b")
+    remote.make_room = asked.append
+    remote._ensure_room(_opener=_server(_TAGS, []))
+    log = []
+    LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")._ensure_room(_opener=_server(_TAGS, log))
+    assert asked == [] and log == []
+
+
+def test_chat_makes_room_before_the_request():
+    order = []
+    routes = {**_TAGS, ("POST", "/v1/chat/completions"): {"choices": [{"message": {"content": "ok"}}]}}
+    opener = _server(routes, order)
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c.make_room = lambda need: order.append(("ROOM", need, None))
+    assert c.chat([{"role": "user", "content": "x"}], _opener=opener) == "ok"
+    assert [e[0] for e in order].index("ROOM") < [e[1] for e in order].index("/v1/chat/completions")
+
+
+
+def test_a_local_model_is_not_loaded_onto_a_card_that_never_frees():
+    # loading anyway is what froze the PC: Ollama can't see ComfyUI's memory and overcommits the card
+    import pytest
+    from scripts.agent.llm import LLMError
+    order = []
+    routes = {**_TAGS, ("POST", "/v1/chat/completions"): {"choices": [{"message": {"content": "ok"}}]}}
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c.make_room = lambda need: False
+    with pytest.raises(LLMError, match="no room"):
+        c.chat([{"role": "user", "content": "x"}], _opener=_server(routes, order))
+    assert "/v1/chat/completions" not in [p for m, p, b in order]
+
+
+def test_make_room_says_why_the_next_render_reloads(capsys):
+    now, sleep = _clock()
+    gpu.make_room(_Card(free_gb=0.1, after_free_gb=29), 9 * 2**30, _sleep=sleep, _clock=now)
+    assert "asking ComfyUI to unload" in capsys.readouterr().err
+
+
+
+def test_unload_others_keeps_the_runs_own_models():
+    log = []
+    done = gpu.unload_others("http://o", keep={"qwen3-vl:8b-instruct"}, _opener=_server(_OLLAMA, log))
+    assert done == [("qwen3.6-27b", 20_000_000_000)]
+    assert [b for m, p, b in log if m == "POST"] == [{"model": "qwen3.6-27b", "keep_alive": 0}]

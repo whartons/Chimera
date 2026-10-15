@@ -53,13 +53,59 @@ def _available_models(object_info):
     for spec in (object_info or {}).values():
         if not isinstance(spec, dict):
             continue
-        req = spec.get("input", {}).get("required", {})
-        if not isinstance(req, dict):
-            continue
-        for field in req.values():
-            if isinstance(field, list) and field and isinstance(field[0], list):
-                models.update(c for c in field[0] if isinstance(c, str))
+        inputs = spec.get("input", {})
+        for section in ("required", "optional"):
+            fields = inputs.get(section, {}) if isinstance(inputs, dict) else {}
+            for field in (fields.values() if isinstance(fields, dict) else ()):
+                if not (isinstance(field, list) and field):
+                    continue
+                if isinstance(field[0], list):              # classic dropdown: [[choice, ...], {...}]
+                    models.update(c for c in field[0] if isinstance(c, str))
+                elif field[0] == "COMBO" and len(field) > 1 and isinstance(field[1], dict):
+                    # v3 nodes (ComfyUI 0.40): ["COMBO", {"options": [...]}] - missed before, so doctor
+                    # flagged an installed birefnet.safetensors as missing
+                    models.update(c for c in field[1].get("options", []) if isinstance(c, str))
     return models
+
+
+_MODEL_EXTS = (".safetensors", ".sft", ".ckpt", ".pth", ".pt", ".gguf", ".bin")
+
+
+def _model_files(wf):
+    """Model files a built graph loads: its string inputs that end in a weights extension."""
+    return sorted({v for k, n in wf.items() if not str(k).startswith("_") and isinstance(n, dict)
+                   for v in (n.get("inputs") or {}).values()
+                   if isinstance(v, str) and v.lower().endswith(_MODEL_EXTS)})
+
+
+def _default_model_files(repo_root):
+    """[(label, model, docs, files)] for every modality's DEFAULT model, read off a dummy build of the real
+    default graph, so the list can't drift from the fillers. A build that fails is skipped."""
+    from . import audio, threed, video, workflow
+    from .manifest import default_manifest
+    m, r = default_manifest(), repo_root
+    specs = (
+        ("image", "Qwen-Image-2.1", "modules/image/models.md",
+         lambda: _model_files(workflow.build(r, m, positive="p", negative="", seed=0))),
+        ("--upscale", "SeedVR2 7B", "modules/image/models.md",
+         lambda: [workflow.DEFAULT_UPSCALE_MODEL, workflow.SEEDVR2_VAE]),
+        ("video", "Wan 2.2", "modules/video/models.md",
+         lambda: _model_files(video.build(r, m, positive="p", negative="", seed=0, from_image="x.png"))),
+        ("video --camera", "Wan 2.2 Fun Camera", "modules/video/models.md",
+         lambda: _model_files(video.build(r, m, positive="p", negative="", seed=0, from_image="x.png",
+                                          camera="static"))),
+        ("music / sfx", "Stable Audio 3", "modules/audio/models.md",
+         lambda: _model_files(audio.build(r, m, positive="p", seed=0))),
+        ("3d", "TRELLIS.2", "modules/threed/models.md",
+         lambda: _model_files(threed.build(r, m, seed=0, from_image="x.png"))),
+    )
+    out = []
+    for label, model, docs, files in specs:
+        try:
+            out.append((label, model, docs, files()))
+        except Exception:   # a missing/edited template: skip the row rather than break doctor
+            continue
+    return out
 
 
 def run_checks(client, repo_root, brand=None):
@@ -94,6 +140,15 @@ def run_checks(client, repo_root, brand=None):
                                 f"need (see docs/CATALOG.md): {', '.join(missing)}"))
         else:
             out.append(("ok", "all required workflow node types are installed"))
+        # every modality's default model files (each needed only if you use that modality)
+        avail = _available_models(object_info)
+        for label, model, docs, files in _default_model_files(repo_root):
+            missing = [f for f in files if f not in avail]
+            if not missing:
+                out.append(("ok", f"{label} default ({model}) installed"))
+            else:
+                out.append(("warn", f"{label} default ({model}): {len(missing)} of {len(files)} model file(s) "
+                                    f"missing - {', '.join(missing)} - needed only for {label} (see {docs})"))
 
     # 3. brand manifest + assets (reuse the lint checklist verbatim), then 4. its models.
     # Load the manifest ONCE and share it with lint; on a load failure lint reports it.

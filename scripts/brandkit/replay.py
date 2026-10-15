@@ -7,6 +7,8 @@ graph), and how a schema-2 sidecar reconstructs the argparse.Namespace `run()` e
 Lives beside sidecar.py, which owns the sidecar's on-disk shape (build_meta et al.)."""
 from __future__ import annotations
 import argparse
+import re
+from pathlib import PurePosixPath, PureWindowsPath
 
 from . import audio as audio_filler
 from . import threed as threed_filler
@@ -21,6 +23,17 @@ from .sidecar import graph_prompts, graph_signature, graph_values
 SIDECAR_INPUT_KEYS = ("subject", "asset", "variant", "model", "from_image", "from_video",
                       "length", "fps", "width", "height", "audio", "duration", "bpm",
                       "keyscale", "octree", "upscale", "upscale_model", "camera", "quality")
+_FILE_INPUTS = ("asset", "from_image", "from_video")
+_BRAND = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
+
+def _unsafe_path(value) -> bool:
+    """True for an absolute or '..' path, in either OS's spelling."""
+    return any(p.anchor or ".." in p.parts for p in (PureWindowsPath(str(value)), PurePosixPath(str(value))))
+
+
+def _file_name(value) -> str:
+    return str(value).replace("\\", "/").rsplit("/", 1)[-1]
 
 
 def resolve_model_used(args, m):
@@ -42,6 +55,13 @@ def resolve_sidecar_inputs(args, m, fmt=None):
     own resolver (single source of truth with the graph; off renders stay clean), and the resolved
     3d export format."""
     inputs = {k: getattr(args, k, None) for k in SIDECAR_INPUT_KEYS}
+    for k in _FILE_INPUTS:   # sidecars get shared and committed: no local folder layout or user name
+        if inputs.get(k) and _unsafe_path(inputs[k]):
+            inputs[k] = _file_name(inputs[k])
+    if args.modality == "image" and image_filler.family(resolve_model_used(args, m)) != "zimage":
+        inputs["variant"] = None   # only Z-Image reads it
+    if args.modality == "3d" and threed_filler.family(threed_filler.resolved_model(m, args.model)) != "hunyuan3d":
+        inputs["octree"] = None    # only Hunyuan3D reads it
     if args.modality in ("image", "video"):
         resolver = (image_filler.resolved_upscale_model if args.modality == "image"
                     else video_filler.resolved_upscale_model)
@@ -71,7 +91,12 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
     neither override the recorded seed is reused. The model is PINNED: an explicit `model` override
     (replay --model: re-run old work on a newer model) wins, else the render's own --model override,
     else the model the render actually loaded — so a later brand pin or Chimera default change can't
-    silently swap it. run() then checks the rest for drift (replay_drift)."""
+    silently swap it. run() then checks the rest for drift (replay_drift).
+
+    Sidecars get shared (the example brand's are in the repo), so replay trusts none of their routing: it
+    renders on the local default ComfyUI unless `comfy_url` is passed, and refuses a brand that isn't a
+    folder name or a file input that is absolute or climbs with '..' (a crafted sidecar used those to upload
+    any local file to a URL of its choosing, 2026-10 audit)."""
     if data.get("schema", 1) < 2:
         raise ValueError("sidecar is schema-1 (pre-enriched); replay needs schema>=2 — "
                          "re-render once to upgrade it.")
@@ -86,12 +111,19 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
                          "ComfyUI render)")
     modality = data["modality"]
     inp = data.get("inputs", {})
-    return argparse.Namespace(
+    brand = data["brand"]
+    if brand is not None and not _BRAND.fullmatch(str(brand)):
+        raise ValueError(f"brand {brand!r} is not a brand folder name")
+    for k in _FILE_INPUTS:
+        if inp.get(k) is not None and _unsafe_path(inp[k]):
+            raise ValueError(f"inputs.{k} {inp[k]!r} is not a plain relative file name; put the file in the "
+                             "brand folder (or the current folder, brandless) and name it in the sidecar")
+    ns = argparse.Namespace(
         modality=modality,
         mode=data.get("mode"),
-        brand=data["brand"],
+        brand=brand,
         seed=seed if seed is not None else data.get("seed"),
-        comfy_url=comfy_url or data.get("comfy_url") or DEFAULT_COMFY_URL,
+        comfy_url=comfy_url or DEFAULT_COMFY_URL,   # never the sidecar's (see above)
         comfy_output_dir=comfy_output_dir,  # host path, not stored; only relocates if passed
         watermark=bool(data.get("watermark", False)),
         out_name=None, timeout=None, free_before=None,
@@ -119,6 +151,25 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
         octree=inp.get("octree"),
         format=inp.get("format") or data.get("format"),
     )
+    return _clear_family_settings(ns, data.get("model"), model) if model else ns
+
+
+def _clear_family_settings(ns, recorded, override):
+    """A cross-family `replay --model` must not carry the old family's settings into the new one. The
+    record holds RESOLVED values: Wan's clip (81 frames at 16 fps, silent) or LTX's (97 at 25 fps with
+    audio, perhaps the 2x upscaler), a Z-Image variant, a Hunyuan3D octree. Clear them so the new family's
+    defaults apply: an LTX clip replayed on Wan played about 1.56x fast (2026-10 review)."""
+    if ns.modality == "video":
+        if video_filler.is_wan(video_filler.canonical(override)) != video_filler.is_wan(recorded):
+            ns.length = ns.fps = ns.audio = ns.quality = ns.camera = ns.upscale_model = None
+            ns.upscale = False
+    elif ns.modality == "image":
+        if image_filler.family(override) != image_filler.family(recorded):
+            ns.variant = None
+    elif ns.modality == "3d":
+        if threed_filler.family(threed_filler.canonical(override)) != threed_filler.family(recorded):
+            ns.octree = None
+    return ns
 
 
 def _clip(text, n=160):
@@ -130,20 +181,27 @@ def replay_drift(expect, *, model, wf, modality, mode, model_override=None):
     """What a replay would render differently from the recorded one (pure). `expect` is the sidecar,
     `model`/`wf` the replay's resolved model and built graph. Returns human-readable lines; [] means
     the replay reproduces the record. With a model override (replay --model, a deliberate re-run on
-    a newer model) the model, graph structure and settings change by design, so only the prompt text
-    is compared. Older sidecars without a provenance block get the model + prompt checks only."""
+    a newer model) the model, graph structure, settings and negative change by design (each family
+    builds its own negative: Z-Image none, LTX and Wan their own lists), so only the prompt text is
+    compared; an override naming the recorded model is no override. Older sidecars without a
+    provenance block get the model + prompt checks only."""
     out = []
     recorded = expect.get("model")
-    if model_override is None and recorded and model != recorded:
+    overridden = model_override is not None and model != recorded
+    if not overridden and recorded and model != recorded:
         out.append(f"model: recorded {recorded}, would now load {model}")
     pos, neg = graph_prompts(wf, modality, mode)
-    for label, now, then in (("prompt", pos, expect.get("prompt")), ("negative", neg, expect.get("negative"))):
+    texts = [("prompt", pos, expect.get("prompt"))]
+    if not overridden:
+        texts.append(("negative", neg, expect.get("negative")))
+    for label, now, then in texts:
         if then is not None and now != then:
             out.append(f"{label} changed\n      recorded: {_clip(then)}\n      now:      {_clip(now)}")
-    if model_override is None:
+    if not overridden:
         prov = expect.get("provenance") or {}
         if prov.get("graph_signature") and graph_signature(wf) != prov["graph_signature"]:
-            out.append("graph structure changed (Chimera's workflow template for this modality changed)")
+            out.append("graph structure changed (a Chimera template update, or a brand change that adds or "
+                       "removes nodes, such as a LoRA)")
         if prov.get("graph_values") and graph_values(wf, modality, mode) != prov["graph_values"]:
             out.append("render settings changed (e.g. the brand's size, steps, guidance, LoRA or watermark)")
     return out

@@ -146,3 +146,41 @@ def test_run_graph_to_file_queues_waits_selects_and_reuses_history(tmp_path):
                     for nid, n in rec["outputs"].items() for i in n["images"]]
     p = run_graph_to_file(C(), wf, tmp_path, timeout=123)
     assert p == _P(tmp_path) / "sub" / "a.png"
+
+
+# --- a replay never replaces the render it reproduces (2026-10 review, P1) ---------------------------
+def test_route_keep_existing_takes_the_next_free_name(tmp_path):
+    out = tmp_path / "brands" / "b" / "outputs" / "images"; out.mkdir(parents=True)
+    (out / "b_txt2img_7.png").write_bytes(b"ORIGINAL"); (out / "b_txt2img_7.json").write_text("{}")
+    names = []
+    for i in range(3):
+        src = tmp_path / f"r{i}.png"; src.write_bytes(b"REPLAY")
+        names.append(route_output(tmp_path, "b", src, "txt2img", 7, keep_existing=True).name)
+    assert names == ["b_txt2img_7_replay.png", "b_txt2img_7_replay2.png", "b_txt2img_7_replay3.png"]
+    assert (out / "b_txt2img_7.png").read_bytes() == b"ORIGINAL"
+
+
+def test_route_keep_existing_counts_a_sidecar_without_its_render(tmp_path):
+    # a 3D render converted to STL leaves no GLB under its stem, only the .stl + sidecar
+    out = tmp_path / "outputs" / "3d"; out.mkdir(parents=True)
+    (out / "image_5.stl").write_text("solid"); (out / "image_5.json").write_text("{}")
+    src = tmp_path / "m.glb"; src.write_bytes(b"glb")
+    assert route_output(tmp_path, None, src, "image", 5, keep_existing=True).name == "image_5_replay.glb"
+
+
+def test_route_keep_existing_uses_the_plain_name_when_free(tmp_path):
+    src = tmp_path / "a.png"; src.write_bytes(b"x")
+    assert route_output(tmp_path, "b", src, "txt2img", 9, keep_existing=True).name == "b_txt2img_9.png"
+
+
+@pytest.mark.parametrize("sub, name", [("", "C:/Users/x/notes.docx"), ("", "/etc/passwd"),
+                                        ("../..", "x.png"), ("a/../../b", "x.png"), ("C:/", "x.png")])
+def test_comfy_output_path_refuses_names_outside_the_output_dir(tmp_path, sub, name):
+    # the names come from ComfyUI's /history: a hostile server could point the CLI at any local file
+    with pytest.raises(NoOutputError, match="outside"):
+        outputs.comfy_output_path(tmp_path, sub, name)
+
+
+def test_comfy_output_path_keeps_a_normal_subfolder(tmp_path):
+    assert outputs.comfy_output_path(tmp_path, "video", "clip_00001_.mp4") == tmp_path / "video" / "clip_00001_.mp4"
+    assert outputs.comfy_output_path(tmp_path, "", "img.png") == tmp_path / "img.png"

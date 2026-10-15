@@ -98,6 +98,8 @@ def run_render(args, repo_root, ap):
     brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
     if args.mode == "finish" and args.color == "project" and not args.project_image:
         ap.error("--color project needs --project-image <file>")
+    if args.mode == "finish" and args.color == "keep" and args.watertight:
+        ap.error("--color keep can't be combined with --watertight: the voxel remesh drops the UVs the textures need")
     if args.mode == "finish":
         # host-side validation like the cad path: mesh_finish.py only exports these — anything
         # else would silently exit 0 with no export

@@ -88,9 +88,13 @@ Three modes, all live-validated on Blender 5.1 / RTX 5090:
   + focal object → Cycles render. This is the **ComfyUI → Blender handoff**: a
   ComfyUI-generated image becomes a scene element in a lit Blender set.
 - **`--mode finish`** — AI mesh → clean → optional `--watertight` voxel remesh →
-  decimate (`--target-tris`) → optional `--scale-mm` → material (or `--color project`)
-  → export STL / GLB (+ hero render). The **figurine / character-finish** pipeline for
-  print-ready output.
+  decimate (`--target-tris`) → optional `--scale-mm` → material → export STL / GLB (+ hero render).
+  The **figurine / character-finish** pipeline for print-ready output. `--color` picks the material:
+  `auto` (default) keeps a textured mesh's own materials, otherwise (or with `--watertight`) clay;
+  `material` is always clay; `project` projects `--project-image`; `keep` always keeps. Kept textures
+  skip the clean step (it would break a baked normal map), are capped at 2048 px and written as JPEG, so
+  `--target-tris 70000 --formats glb` slims a ~75 MB TRELLIS.2 GLB to about 10 MB. `keep` can't be
+  combined with `--watertight`, since the voxel remesh drops the UVs.
 
 All modes are **brand-aware**: outputs route to `brands/<brand>/outputs/` (or `outputs/`
 when brandless) with a `kind:"render"` sidecar. The test suite mocks the subprocess,

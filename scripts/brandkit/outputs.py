@@ -1,6 +1,6 @@
 """Route a finished render to the per-brand outputs/ folder, organized by media type."""
 from __future__ import annotations
-import json, shutil, time
+import itertools, json, shutil, time
 from pathlib import Path
 from .nodes import find_node_by_title, NodeNotFound
 
@@ -29,16 +29,30 @@ def media_subdir(suffix: str) -> str:
     return ""
 
 
-def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4) -> Path:
+def _unused_stem(out_dir: Path, stem: str) -> str:
+    """The first of stem, stem_replay, stem_replay2, ... that no file in out_dir uses (render, sidecar or
+    checks file). The sidecar counts: a 3D render converted to STL leaves no GLB under its stem."""
+    names = [p.name for p in out_dir.iterdir()]
+    cands = itertools.chain((stem, f"{stem}_replay"), (f"{stem}_replay{n}" for n in itertools.count(2)))
+    return next(c for c in cands if not any(n.startswith(c + ".") for n in names))
+
+
+def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4, *,
+                 keep_existing=False) -> Path:
     """Relocate a finished render into its outputs folder, grouped by media type. With a brand it
     goes to brands/<brand>/outputs/<media>/<brand>_<mode>_<seed>; brandless (brand falsy) it goes to
-    the global outputs/<media>/<mode>_<seed> — both gitignored. Idempotent + lock-retry."""
+    the global outputs/<media>/<mode>_<seed> — both gitignored. Idempotent + lock-retry.
+    `keep_existing` (replay) never replaces a file: a replay keeps the recorded seed, so it used to
+    overwrite the very render and sidecar it reproduced, which is permanent for gitignored brand
+    outputs. It takes the next free name instead (`<stem>_replay`, `<stem>_replay2`, ...)."""
     src = Path(src)
     base = brand_output_dir(repo_root, brand) if brand else Path(repo_root) / "outputs"
     sub = media_subdir(src.suffix)
     out_dir = base / sub if sub else base
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"
+    if keep_existing:
+        stem = _unused_stem(out_dir, stem)
     dest = out_dir / f"{stem}{src.suffix}"
     last = None
     for _ in range(max(1, _retries)):
@@ -95,6 +109,16 @@ def select_output(client, prompt_id, wf, save_title="brand:save", history=None):
     return first_output(client.output_files_by_node(prompt_id, **hkw), prefer_node_id=save_id)
 
 
+def comfy_output_path(out_dir, subfolder, fname) -> Path:
+    """The local path of a file ComfyUI reports in /history, under the host's output dir. The names come
+    from the server, so an absolute or '..' one (which a hostile server could send to make the CLI move
+    any local file into outputs/) is refused."""
+    rel = Path(subfolder or "") / str(fname)
+    if rel.anchor or ".." in rel.parts:
+        raise NoOutputError(f"ComfyUI reported an output outside its output folder: {rel}")
+    return Path(out_dir) / rel
+
+
 def run_graph_to_file(client, wf, out_dir, *, timeout=900):
     """Queue a built graph, wait for it, and return the produced file's LOCAL path under
     `out_dir` (the host's ComfyUI output dir). Anchors on the graph's brand:save node via
@@ -103,7 +127,7 @@ def run_graph_to_file(client, wf, out_dir, *, timeout=900):
     pid = client.queue_prompt(wf)
     hist = client.wait(pid, max_wait=timeout)
     fname, subfolder, _ = select_output(client, pid, wf, history=hist)
-    return Path(out_dir) / subfolder / fname
+    return comfy_output_path(out_dir, subfolder, fname)
 
 
 def write_sidecar(output_path, meta: dict):

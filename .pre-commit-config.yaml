@@ -15,5 +15,6 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
+      - id: detect-private-key         # a pasted SSH/TLS private key never reaches a commit
       - id: check-added-large-files
         args: [--maxkb=15000]          # backstop against committing model weights (GB-scale); showcase media stays well under this

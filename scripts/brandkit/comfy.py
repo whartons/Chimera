@@ -99,10 +99,21 @@ class ComfyClient:
         except Exception:
             return None
 
-    def wait(self, prompt_id: str, poll=3, max_wait=900) -> dict:
-        end = time.time() + max_wait
+    def wait(self, prompt_id: str, poll=3, max_wait=900, max_misses=20) -> dict:
+        end, misses = time.time() + max_wait, 0
         while time.time() < end:
-            hist = self._get(f"/history/{prompt_id}")
+            try:
+                hist = self._get(f"/history/{prompt_id}")
+            except OSError as e:   # URLError, a reset socket, a 5xx while ComfyUI is busy
+                # a brief drop must not abort a long render whose output is still there to route; give up
+                # only after ~max_misses polls in a row fail
+                misses += 1
+                if misses >= max_misses:
+                    raise ConnectionError(f"lost contact with ComfyUI at {self.base} while waiting for "
+                                          f"{prompt_id} ({e})") from e
+                time.sleep(poll)
+                continue
+            misses = 0
             rec = hist.get(prompt_id) if isinstance(hist, dict) else None
             if rec:
                 status = rec.get("status", {})

@@ -47,27 +47,56 @@ class Rubric:
         return "\n".join(lines)
 
 
-_HUES = ((15, "red"), (40, "orange"), (65, "yellow"), (165, "green"), (200, "teal"), (255, "blue"),
+_HUES = ((15, "red"), (45, "orange"), (65, "yellow"), (160, "green"), (200, "cyan"), (250, "blue"),
          (290, "purple"), (345, "pink"), (360, "red"))
+
+
+def _hue_name(hue, light, chroma):
+    """Name a chromatic color by hue band, with the special cases a judge reads differently: brown and tan
+    are dark or muted oranges, gold a mid yellow-orange, navy a dark blue, teal a dark cyan."""
+    base = next(n for limit, n in _HUES if hue < limit)
+    if base == "orange" or (base == "yellow" and hue < 52):
+        if light < 0.42:
+            return "brown"
+        if chroma < 0.35:
+            return "tan"
+        if 34 <= hue and light < 0.62:
+            return "gold"
+    if base == "yellow" and light < 0.35:
+        return "olive"
+    if base == "blue" and light < 0.25:
+        return "navy"
+    if base == "cyan" and light < 0.45:
+        return "teal"
+    return ("dark " if light < 0.3 else "light " if light > 0.75 else "") + base
 
 
 def color_words(hex_color) -> str:
     """'#c8442e' -> 'red (#c8442e)': a plain color name for the judge. A small VLM can't read hex codes
     as colors; on a correct near-black/slate/steel render it failed the palette criterion as
-    'monochromatic, not the brand palette' (2026-10). Non-hex entries pass through unchanged."""
+    'monochromatic, not the brand palette' (2026-10). Accepts #rgb, #rrggbb and #rrggbbaa; other entries
+    pass through unchanged. Greys are told apart by chroma, not HLS saturation (which calls a navy or an
+    off-white 'saturated')."""
     import colorsys
     import re
     h = str(hex_color).strip()
-    if not re.fullmatch(r"#?[0-9a-fA-F]{6}", h):
+    m = re.fullmatch(r"#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})", h)
+    if not m:
         return h
-    r, g, b = (int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
-    hue, light, sat = colorsys.rgb_to_hls(r, g, b)
-    if sat < 0.2 or light < 0.12:
+    x = m.group(1)
+    x = "".join(c * 2 for c in x) if len(x) == 3 else x[:6]
+    r, g, b = (int(x[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    hue, light, _ = colorsys.rgb_to_hls(r, g, b)
+    chroma = max(r, g, b) - min(r, g, b)
+    if light > 0.88:
+        name = "off-white" if chroma > 0.04 else "near-white"
+    elif chroma < 0.1:
         name = ("near-black" if light < 0.15 else "dark grey" if light < 0.35 else "grey" if light < 0.65
-                else "light grey" if light < 0.9 else "near-white")
+                else "light grey")
+    elif light < 0.06:
+        name = "near-black"
     else:
-        base = next(n for limit, n in _HUES if hue * 360 < limit)
-        name = ("dark " if light < 0.3 else "light " if light > 0.75 else "") + base
+        name = _hue_name(hue * 360, light, chroma)
     return f"{name} ({h})"
 
 

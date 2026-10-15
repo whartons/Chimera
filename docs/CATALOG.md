@@ -36,7 +36,7 @@ It's core-native in ComfyUI 0.40 (no custom node pack). The `image` module dispa
 | `qwen3vl_8b_int8_convrot.safetensors` | `Comfy-Org/Qwen-Image-2.1` | `text_encoders/` | ~8.7 GB | ⚠️ Qwen research license |
 | `qwen_image_2.1_vae_bf16.safetensors` | `Comfy-Org/Qwen-Image-2.1` | `vae/` | ~0.6 GB | ⚠️ Qwen research license |
 
-**Fast alternative: Z-Image** (the public example-brand pins it; Apache-2.0)
+**Fast alternative: Z-Image** (`--model z_image_turbo_nvfp4.safetensors`; Apache-2.0)
 
 Z-Image is ComfyUI core-native (support added in 0.22.3 — **no custom node
 pack**), uses a **Qwen-3-4B text encoder loaded via `CLIPLoader(type="lumina2")`
@@ -179,7 +179,6 @@ via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 | Model | Strengths | Notes | License |
 |-------|-----------|-------|---------|
 | **LTX-2 19B dev-fp8** *(already validated)* | Audio-video (synced sound), up to 4K/50fps/20s, RTX-optimized | Solid fallback; existing LoRAs work here | open weights |
-| **Wan 2.2 14B** | Strong motion realism, Apache-2.0 | t2v + i2v | ✅ Apache-2.0 |
 | **HunyuanVideo 1.5** | High-fidelity motion | t2v / i2v | ❓ verify |
 | **FramePack F1** | Long video on modest VRAM | efficient | open |
 | **AnimateDiff** | Legacy but flexible | stylized loops | open |
@@ -311,8 +310,8 @@ takes ~25–35 s, shape only.
 | `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT |
 | `moge_2_vitl_normal_fp16.safetensors` *(Pixal3D)* | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT |
 
-- Both models share one graph, and ComfyUI validates all of it: download all seven files even for TRELLIS.2
-  alone, or the run fails with `Value not in list`.
+- Both models share one graph, but Chimera folds its model switch at build time, so each run needs only its
+  own files: TRELLIS.2 the five rows without *(Pixal3D)*, Pixal3D the Pixal3D model + MoGe + the shared four.
 - `chimera 3d --model trellis2|pixal3d|hunyuan21` (or a brand's `threed.model`); `--octree` is Hunyuan3D-only.
 - The mesh3d agent loop judges the textured render. `--texture` / `--finalize` (Blender bakes for a
   shape-only mesh) need `--mesh-model hunyuan21`.
@@ -362,7 +361,8 @@ for the texturing routes (Blender/Substance, or a cu126 env) and the re-visit pa
 **Agent / VLM judge (self-correction loop): Qwen3-VL-8B-Instruct (via Ollama; cloud OpenAI-compatible also works)**
 
 The vision judge for the self-correction backend (generate → judge → refine). **Default:** served by
-**Ollama** over its OpenAI-compatible `/v1` endpoint (the `LLMJudge`, `--backend api`) —
+**Ollama** over its OpenAI-compatible `/v1` endpoint (the `LLMJudge`, `--backend api`, `auto_generate.py`'s
+default, which with nothing configured calls `http://127.0.0.1:11434/v1` or `$OLLAMA_HOST`) —
 `ollama pull qwen3-vl:8b-instruct` (the **non-thinking** Instruct tag — a *thinking* tag like
 `qwen3-vl:8b` spends its token budget on reasoning and returns empty content, silently scoring every
 render 0.0; the loop now also errors loudly on empty judge output), no API key, zero Blackwell/torch coupling (Ollama runs its own bundled
@@ -370,7 +370,7 @@ runtime). The **same** `--backend api` path also targets any cloud OpenAI-compat
 (OpenAI/Anthropic/Gemini/OpenRouter), so a GPU-poor reuser can judge on the cloud. See
 [`../modules/agent/self-correction.md`](../modules/agent/self-correction.md).
 
-**Optional ComfyUI path:** the judge can instead run as a ComfyUI graph via the
+**Optional ComfyUI path (`--backend local`):** the judge can instead run as a ComfyUI graph via the
 [`1038lab/ComfyUI-QwenVL`](https://github.com/1038lab/ComfyUI-QwenVL) node pack (re-pin to a
 Qwen3-VL-capable commit ≥ v1.0.4 + re-scan before use; no longer a default/auto-checked pin). That graph
 writes the verdict text with the **core** ComfyUI node `SaveImageTextDataSetToFolder`
@@ -384,7 +384,7 @@ writes the verdict text with the **core** ComfyUI node `SaveImageTextDataSetToFo
   (pure config swap via `CHIMERA_JUDGE_MODEL` + `ollama pull`): **8B** (default) · **30B-A3B** MoE
   (≈32B capability at ≈3B speed) · **32B** (sharpest, slower, VRAM-tight) · **2B/4B** for small cards.
 - The **assistant Workflow** backend needs no model — it judges with the assistant's
-  own vision (multi-judge consensus); this VLM is only for the unattended local path.
+  own vision (multi-judge consensus); this VLM is for unattended `auto_generate.py` runs.
 
 ---
 
@@ -425,8 +425,9 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
   provider-agnostic LLM writes the script — see the agent module). The interactive MCP bridge stays the
   route for live edits.
 - Phase 3 (VLM self-correction over renders) is **shipped for Blender**
-  (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
-  judge + geometry checks). **Phase 4a** adds albedo texturing (`--texture`: front-projected bake,
+  (`auto_generate.py --pipeline mesh3d` — concept → image-to-3D mesh (TRELLIS.2 by default, textured;
+  `--mesh-model`) → contact-sheet render → form judge + geometry checks). **Phase 4a** adds albedo
+  texturing for a shape-only Hunyuan3D mesh (`--mesh-model hunyuan21 --texture`: front-projected bake,
   back palette-filled) restoring the color rubric. **Phase 4b** ships all-around texture: the **multi-view
   bake** (`generate.py finalize-texture` → `_common.bake_multiview`, no model, pure bpy/Cycles) **plus
   `--auto-repaint`** which *generates* the views — `render_views` depth + an **SDXL depth-ControlNet +

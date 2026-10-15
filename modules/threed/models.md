@@ -23,8 +23,9 @@ nodes (`Trellis2*`, `Pixal3DConditioning`, `MoGe*`, `RemoveBackground`, `UnwrapM
 | `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT | both |
 | `moge_2_vitl_normal_fp16.safetensors` | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT | Pixal3D |
 
-**Download all seven, whichever model you use.** ComfyUI validates the whole shared graph, so a missing
-file fails the run with `Value not in list`, even one only the other model loads.
+**Download only what your model loads:** the TRELLIS.2 row plus the four "both" rows (about 9 GB) for the
+default, or the two Pixal3D rows plus the four "both" rows for `--model pixal3d`. Chimera folds the shared
+graph's model switch at build time, so ComfyUI never validates the other model's loaders.
 
 ---
 

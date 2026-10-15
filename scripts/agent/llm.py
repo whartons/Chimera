@@ -9,7 +9,8 @@ Config (env, with CLI overrides; no hardcoded vendor default):
   CHIMERA_LLM_BASE_URL  https://generativelanguage.googleapis.com/v1beta/openai (Gemini) |
                         https://api.openai.com/v1 | https://api.anthropic.com/v1 |
                         https://openrouter.ai/api/v1 | http://localhost:11434/v1 (Ollama)
-  CHIMERA_LLM_API_KEY   (falls back to OPENAI_API_KEY / ANTHROPIC_API_KEY; omit for keyless local)
+  CHIMERA_LLM_API_KEY   sent only to CHIMERA_LLM_BASE_URL's host (else OPENAI_API_KEY / ANTHROPIC_API_KEY,
+                        but only to https://api.openai.com / https://api.anthropic.com; omit for keyless local)
   CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen3.6-27b | qwen3-vl:8b-instruct | ...
                         (use a NON-thinking '-instruct' VLM as the judge: a thinking model spends the
                         token budget on reasoning and returns empty content — see chat() empty guard)
@@ -19,7 +20,7 @@ Config (env, with CLI overrides; no hardcoded vendor default):
                         fix for hybrid-thinking models served thinking-ON (e.g. Qwen3.x on Ollama >= 0.40).
 """
 from __future__ import annotations
-import os, json, base64, urllib.request, urllib.error
+import os, sys, json, base64, urllib.parse, urllib.request, urllib.error
 from pathlib import Path
 
 from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict
@@ -29,6 +30,46 @@ from scripts.brandkit import gpu
 
 class LLMConfigError(RuntimeError):
     pass
+
+
+# The judge's out-of-the-box endpoint: the recommended local setup, Ollama serving Qwen3-VL-8B-Instruct
+# (non-thinking). Used only when no judge or shared endpoint/model is configured.
+DEFAULT_JUDGE_MODEL = "qwen3-vl:8b-instruct"
+
+
+def default_judge_base():
+    return gpu.ollama_root() + "/v1"
+
+
+# A vendor's own env key only ever goes to that vendor. Before 2026-10, with no CHIMERA_* key set, an
+# OPENAI_API_KEY (often exported globally for other tools) was sent to ANY base URL: OpenRouter, Gemini,
+# a LAN box, a typo'd host.
+_VENDOR_KEYS = {"api.openai.com": "OPENAI_API_KEY", "api.anthropic.com": "ANTHROPIC_API_KEY"}
+
+
+def _origin(url):
+    u = urllib.parse.urlparse(url or "")
+    return u.scheme.lower(), (u.hostname or "").lower(), u.port
+
+
+def vendor_key(base_url):
+    """OPENAI_API_KEY for an https://api.openai.com base URL, ANTHROPIC_API_KEY for https://api.anthropic.com,
+    else None."""
+    scheme, host, _ = _origin(base_url)
+    env = _VENDOR_KEYS.get(host) if scheme == "https" else None
+    return os.environ.get(env) if env else None
+
+
+def resolve_key(base_url, *, role_key=None, shared_base=None):
+    """The API key to send to `base_url`: a role's own key, else CHIMERA_LLM_API_KEY when base_url is on the
+    shared endpoint's origin (or no shared endpoint is set), else the vendor's own key for its own host. A
+    shared OpenAI key used to follow a role pointed at OpenRouter or a LAN box (2026-10 audit)."""
+    shared = os.environ.get("CHIMERA_LLM_API_KEY")
+    if shared and shared_base and _origin(shared_base) != _origin(base_url):
+        shared = None
+    return role_key or shared or vendor_key(base_url)
+
+
 
 
 class LLMError(RuntimeError):
@@ -44,8 +85,8 @@ class LLMClient:
 
     def __init__(self, *, base_url=None, api_key=None, model=None, timeout=180, reasoning_effort=None):
         self.base_url = (base_url or os.environ.get("CHIMERA_LLM_BASE_URL") or "").rstrip("/")
-        self.api_key = (api_key or os.environ.get("CHIMERA_LLM_API_KEY")
-                        or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+        self.api_key = api_key if api_key is not None else resolve_key(
+            self.base_url, shared_base=os.environ.get("CHIMERA_LLM_BASE_URL"))
         self.model = model or os.environ.get("CHIMERA_LLM_MODEL")
         self.timeout = timeout
         effort = (reasoning_effort or os.environ.get("CHIMERA_LLM_REASONING_EFFORT") or "").strip().lower()
@@ -57,8 +98,14 @@ class LLMClient:
                 "https://openrouter.ai/api/v1, or http://localhost:11434/v1 for Ollama)")
         if not self.model:
             raise LLMConfigError("set CHIMERA_LLM_MODEL (e.g. gpt-4o, claude-opus-4-8, or a local model name)")
+        scheme, host, _ = _origin(self.base_url)
+        if self.api_key and scheme == "http" and not gpu.is_local(self.base_url):
+            print(f"warning: the LLM API key goes to {host} unencrypted (http://); use https", file=sys.stderr)
+        # set by the agent loops: frees ComfyUI's VRAM before this model loads in a local Ollama (gpu.make_room)
+        self.make_room = None
 
     def chat(self, messages, *, max_tokens=2048, temperature=0.4, _opener=urllib.request.urlopen) -> str:
+        self._ensure_room(_opener)
         try:
             return self._chat_once(messages, max_tokens, temperature, self.reasoning_effort, _opener)
         except _ThinkingExhausted as first:
@@ -76,11 +123,10 @@ class LLMClient:
                 "max_tokens": max_tokens, "temperature": temperature}
         if reasoning_effort:
             body["reasoning_effort"] = reasoning_effort
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        req = urllib.request.Request(self.base_url + "/chat/completions",
-                                     data=json.dumps(body).encode("utf-8"), method="POST", headers=headers)
+        req = urllib.request.Request(self.base_url + "/chat/completions", data=json.dumps(body).encode("utf-8"),
+                                     method="POST", headers={"Content-Type": "application/json"})
+        if self.api_key:   # unredirected: urllib copies ordinary headers onto a redirect to any host
+            req.add_unredirected_header("Authorization", f"Bearer {self.api_key}")
         try:
             with _opener(req, timeout=self.timeout) as r:
                 resp = json.loads(r.read())
@@ -116,22 +162,48 @@ class LLMClient:
             raise LLMError(f"LLM at {self.base_url} returned empty content")
         return content
 
+    def _ollama_root(self, _opener):
+        """The Ollama root when base_url is an Ollama server (probed once), else None."""
+        root = gpu.ollama_root(self.base_url)
+        if self._ollama is None:
+            self._ollama = gpu.is_ollama(root, _opener=_opener)
+        return root if self._ollama else None
+
+    def _ollama_name(self):
+        return self.model if ":" in self.model else self.model + ":latest"
+
+    @property
+    def ollama_name(self):
+        """The model as Ollama lists it (an untagged name means ':latest')."""
+        return self._ollama_name()
+
+    def _ensure_room(self, _opener=urllib.request.urlopen):
+        """Before a request that will load this model into a LOCAL Ollama, pass its memory need to make_room
+        (set by the agent loops), so ComfyUI hands the GPU over first. No-op when unset, for hosted or remote
+        endpoints, or when the model is already resident. Raises LLMError when the room never came: Ollama
+        would load onto the full card regardless (it can't see ComfyUI's memory), and that froze a PC."""
+        if self.make_room is None or not gpu.is_local(self.base_url):
+            return
+        root = self._ollama_root(_opener)
+        if root is None or self._ollama_name() in {n for n, _ in gpu.loaded_models(root, _opener=_opener)}:
+            return
+        need = gpu.vram_need(root, self._ollama_name(), _opener=_opener)
+        if need and self.make_room(need) is False:
+            raise LLMError(f"not loading {self.model}: the GPU has no room for it (about {need / 2**30:.0f} GB) "
+                           "even after asking ComfyUI to unload its models. Close other GPU apps or run "
+                           "`python scripts/generate.py free`, then retry.")
+
     def release(self, _opener=urllib.request.urlopen) -> bool:
         """Hand the GPU back: if base_url is a local Ollama and this client's model is resident, unload
         it now (keep_alive 0) instead of letting it sit for Ollama's ~5-minute keep-alive. The loops call
         this before each ComfyUI render. Only a RESIDENT model is unloaded (Ollama may load a missing one
         to unload it). No-op for hosted APIs or with CHIMERA_KEEP_LLM_LOADED=1; never raises."""
-        if os.environ.get("CHIMERA_KEEP_LLM_LOADED", "").strip().lower() in ("1", "true", "yes", "on"):
+        if gpu.keep_llms_loaded():
             return False
-        root = gpu.ollama_root(self.base_url)
-        if self._ollama is None:
-            self._ollama = gpu.is_ollama(root, _opener=_opener)
-        if not self._ollama:
+        root = self._ollama_root(_opener)
+        if root is None or self._ollama_name() not in {n for n, _ in gpu.loaded_models(root, _opener=_opener)}:
             return False
-        name = self.model if ":" in self.model else self.model + ":latest"
-        if name not in {n for n, _ in gpu.loaded_models(root, _opener=_opener)}:
-            return False
-        return gpu.unload(root, name, _opener=_opener)
+        return gpu.unload(root, self._ollama_name(), _opener=_opener)
 
     @staticmethod
     def _image_part(image_path):
@@ -146,22 +218,24 @@ class LLMClient:
 
 def client_for_role(role, *, cli_base=None, cli_model=None, cli_reasoning=None,
                     shared_cli_base=None, shared_cli_model=None, shared_cli_reasoning=None,
-                    timeout=180) -> LLMClient:
+                    default_base=None, default_model=None, timeout=180) -> LLMClient:
     """Build an LLMClient for `role` in {'codegen','judge','rewriter'}. SPECIFIC-WINS precedence for each
     of base_url/model/reasoning_effort:  role CLI > role env (CHIMERA_<ROLE>_*) > shared CLI (--llm-*) >
-    shared env (CHIMERA_LLM_*).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY > OPENAI_API_KEY >
-    ANTHROPIC_API_KEY.
+    shared env (CHIMERA_LLM_*) > the caller's default_base/default_model (the judge's local Ollama).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY (only on the shared
+    endpoint's host) > the vendor's own OPENAI_API_KEY / ANTHROPIC_API_KEY for its own host (`resolve_key`).
     Raises a role-tagged LLMConfigError (with an 'or run interactively' hint) when base_url/model can't be
     resolved, so the user knows which endpoint is missing and that an interactive agent is the alternative."""
     pre = "CHIMERA_" + role.upper()
-    base = cli_base or os.environ.get(pre + "_BASE_URL") or shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL")
-    model = cli_model or os.environ.get(pre + "_MODEL") or shared_cli_model or os.environ.get("CHIMERA_LLM_MODEL")
-    key = (os.environ.get(pre + "_API_KEY") or os.environ.get("CHIMERA_LLM_API_KEY")
-           or os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY"))
+    base = (cli_base or os.environ.get(pre + "_BASE_URL") or shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL")
+            or default_base)
+    model = (cli_model or os.environ.get(pre + "_MODEL") or shared_cli_model or os.environ.get("CHIMERA_LLM_MODEL")
+             or default_model)
+    key = resolve_key(base, role_key=os.environ.get(pre + "_API_KEY"),
+                      shared_base=shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL"))
     effort = (cli_reasoning or os.environ.get(pre + "_REASONING_EFFORT") or shared_cli_reasoning
               or os.environ.get("CHIMERA_LLM_REASONING_EFFORT"))
     try:
-        return LLMClient(base_url=base, api_key=key, model=model, timeout=timeout, reasoning_effort=effort)
+        return LLMClient(base_url=base, api_key=key or "", model=model, timeout=timeout, reasoning_effort=effort)
     except LLMConfigError as e:
         raise LLMConfigError("[" + role + "] " + str(e)
                              + "  (or drive the loop interactively with an AI agent, which supersedes this)") from e

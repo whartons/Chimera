@@ -336,3 +336,96 @@ def test_run_reports_an_unrenderable_combination_as_a_cli_error(monkeypatch, tmp
             raise SystemExit(f"error: {msg}")
     with pytest.raises(SystemExit, match="Fun Camera"):
         generate.run(_img_args(seed=1), repo, _Ap())
+
+
+
+# --- 2026-10 review: replay side effects ------------------------------------------------------------
+class _CountingComfy(FakeComfy):
+    def __init__(self, url=None):
+        self.freed = 0
+        self.wf = None
+
+    def free(self, **k):
+        self.freed += 1
+
+
+def test_a_replay_routes_beside_the_original_instead_of_replacing_it(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    meta, fake = _recorded_render(repo, monkeypatch)
+    out = repo / "brands" / "b" / "outputs" / "images"; out.mkdir(parents=True)
+    (out / "b_txt2img_5.png").write_bytes(b"ORIGINAL"); (out / "b_txt2img_5.json").write_text("{}")
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (comfyout / "out.png").write_bytes(b"REPLAY")
+    generate.run(_img_args(seed=5, comfy_output_dir=str(comfyout), expect=meta, accept_drift=False,
+                           model_override=None), repo, _StubAp())
+    assert (out / "b_txt2img_5.png").read_bytes() == b"ORIGINAL" and (out / "b_txt2img_5.json").read_text() == "{}"
+    assert (out / "b_txt2img_5_replay.png").read_bytes() == b"REPLAY" and (out / "b_txt2img_5_replay.json").exists()
+
+
+def test_a_replay_stopped_by_drift_frees_nothing(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    meta, _ = _recorded_render(repo, monkeypatch)
+    fake = _CountingComfy()
+    monkeypatch.setattr(generate, "ComfyClient", lambda url: fake)
+    (repo / "brands" / "b" / "brand.yaml").write_text(
+        'name: "B"\nstyle: "neon noir"\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\n', encoding="utf-8")
+    with pytest.raises(SystemExit):
+        generate.run(_img_args(seed=5, expect=meta, accept_drift=False, model_override=None, free_before=True),
+                     repo, _StubAp())
+    assert fake.freed == 0 and fake.wf is None
+
+
+def test_a_replay_keeps_the_recorded_watermark_decision(monkeypatch, tmp_path):
+    # the brand turned watermark.enabled_default on after the render: the replay must not stamp it
+    repo = _tmp_repo(tmp_path)
+    meta, fake = _recorded_render(repo, monkeypatch)
+    (repo / "brands" / "b" / "brand.yaml").write_text(
+        'name: "B"\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\nwatermark: { enabled_default: true }\n',
+        encoding="utf-8")
+    fake.wf = None
+    generate.run(_img_args(seed=5, expect=meta, accept_drift=False, model_override=None), repo, _StubAp())
+    assert not any("watermark" in n.get("_meta", {}).get("title", "") for n in fake.wf.values())
+
+
+def test_comfyui_rejecting_the_graph_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    repo = _tmp_repo(tmp_path)
+
+    class _Rejects(FakeComfy):
+        def queue_prompt(self, wf):
+            raise RuntimeError("ComfyUI validation errors: {'3': 'Value not in list: unet_name'}")
+    monkeypatch.setattr(generate, "ComfyClient", _Rejects)
+    with pytest.raises(SystemExit) as e:
+        generate.run(_img_args(seed=1), repo, _StubAp())
+    assert e.value.code == 1 and "Value not in list" in capsys.readouterr().err
+
+
+def test_main_replay_ignores_the_sidecars_comfy_url(monkeypatch, tmp_path, capsys):
+    data = {"schema": 2, "modality": "image", "mode": "txt2img", "brand": "b", "seed": 7,
+            "inputs": {"subject": "x"}, "comfy_url": "http://attacker.invalid:8000"}
+    sidecar = tmp_path / "s.json"
+    sidecar.write_text(json.dumps(data), encoding="utf-8")
+    seen = []
+    monkeypatch.setattr(generate, "run", lambda args, repo_root, ap: seen.append(args.comfy_url))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(sidecar)])
+    generate.main()
+    assert seen == ["http://127.0.0.1:8000"] and "attacker.invalid" in capsys.readouterr().err
+
+
+def test_tracked_sidecars_hold_no_local_paths():
+    # sidecars are committed for the example brand: none may carry a drive, a root path or a home folder
+    import re
+    bad = re.compile(r"^[A-Za-z]:[\\/]|^/(?!/)|[\\/](Users|home)[\\/]")
+    hits = []
+
+    def walk(v, where):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                walk(x, f"{where}.{k}")
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                walk(x, f"{where}[{i}]")
+        elif isinstance(v, str) and bad.search(v):
+            hits.append(f"{where}: {v}")
+    for p in sorted((ROOT / "brands" / "example-brand" / "outputs").rglob("*.json")):
+        walk(json.loads(p.read_text(encoding="utf-8")), p.name)
+    assert hits == []

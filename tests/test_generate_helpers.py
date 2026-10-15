@@ -233,7 +233,7 @@ def test_prepare_image_logo_unsized_warns(tmp_path, monkeypatch, capsys):
 def test_prepare_video_maps_args_and_passes_raw_upscale_model(tmp_path):
     brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
     (brand_dir / "products" / "r.png").write_bytes(b"x")
-    args = _args_ns(modality="video", from_image="r.png", length=49, fps=24, audio=False,
+    args = _args_ns(modality="video", from_image="r.png", length=49, fps=24, audio=False, model="ltx23",
                     width=960, height=544, upscale=True, upscale_model="u.safetensors", brand="b")
     fkw = generate._prepare_video(args, M, brand_dir, _FakeUploadClient(), _StubAp())
     assert fkw["from_image"] == "up:r.png"            # the start frame is an image upload
@@ -451,3 +451,110 @@ def test_prepare_audio_sfx_maps():
     args = _args_ns(modality="audio", mode="sfx", duration=3.0, brand=None)
     assert generate._prepare_audio(args, M, None, _FakeUploadClient(), _StubAp()) == \
         {"mode": "sfx", "duration": 3.0, "model": None}
+
+
+def test_cli_reports_an_unreachable_comfyui_in_one_line(monkeypatch, capsys):
+    import sys, urllib.error
+    import scripts.generate as GEN
+    import pytest as _pytest
+
+    def down(args, root, ap):
+        raise urllib.error.URLError("[WinError 10061] refused")
+    monkeypatch.setattr(GEN, "run", down)
+    monkeypatch.setattr(sys, "argv", ["generate.py", "image", "--subject", "x"])
+    with _pytest.raises(SystemExit) as e:
+        GEN.main()
+    assert e.value.code == 1 and "can't reach ComfyUI" in capsys.readouterr().err
+
+
+
+# --- 2026-10 review + audit -------------------------------------------------------------------------
+def test_sidecars_record_a_file_name_not_a_local_path():
+    # sidecars get shared and committed: an absolute --from-image recorded the user's folder layout
+    args = _args_ns(modality="video", from_image="C:/Users/someone/Pictures/rover.png", width=None, height=None,
+                    length=None, fps=None, audio=None, upscale=False, upscale_model=None)
+    assert generate._resolve_sidecar_inputs(args, M)["from_image"] == "rover.png"
+    args = _args_ns(modality="image", mode="product", asset="../shared/photo.png", upscale=False)
+    assert generate._resolve_sidecar_inputs(args, M)["asset"] == "photo.png"
+    args = _args_ns(modality="image", mode="product", asset="sub/photo.png", upscale=False)
+    assert generate._resolve_sidecar_inputs(args, M)["asset"] == "sub/photo.png"
+
+
+def test_sidecars_drop_settings_the_model_ignores():
+    args = _args_ns(modality="image", mode="txt2img", variant="base", model="qwen_image_2.1_int8_convrot.safetensors",
+                    upscale=False)
+    assert generate._resolve_sidecar_inputs(args, M)["variant"] is None
+    args.model = "z_image_turbo_nvfp4.safetensors"
+    assert generate._resolve_sidecar_inputs(args, M)["variant"] == "base"
+    args = _args_ns(modality="3d", mode="image", octree=384, model="trellis2")
+    assert generate._resolve_sidecar_inputs(args, M, "glb")["octree"] is None
+    args.model = "hunyuan21"
+    assert generate._resolve_sidecar_inputs(args, M, "glb")["octree"] == 384
+
+
+class _CountingUploads(_FakeUploadClient):
+    def __init__(self):
+        self.n = 0
+
+    def upload_image(self, p):
+        self.n += 1
+        return super().upload_image(p)
+
+
+@pytest.mark.parametrize("over, match", [
+    (dict(model="ltx23", camera="pan-left"), "Fun Camera"),
+    (dict(model="ltx23", quality="full"), "--quality"),
+    (dict(model="wan22-camera"), "needs a camera move"),
+    (dict(upscale=True), "latent upscaler"),
+])
+def test_prepare_video_rejects_a_combination_before_uploading(tmp_path, over, match):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    args = _args_ns(modality="video", from_image="r.png", brand="b", **{"upscale": False, **over})
+    client = _CountingUploads()
+    with pytest.raises(_ApError, match=match):
+        generate._prepare_video(args, M, brand_dir, client, _StubAp())
+    assert client.n == 0
+
+
+def test_prepare_video_notes_what_wan_does_with_fps_and_length(tmp_path, capsys):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    args = _args_ns(modality="video", from_image="r.png", brand="b", fps=24, length=96, upscale=False)
+    generate._prepare_video(args, M, brand_dir, _FakeUploadClient(), _StubAp())
+    err = capsys.readouterr().err
+    assert "playback speed" in err and "--length 96 renders 93" in err
+
+
+def test_prepare_notes_settings_the_model_ignores(tmp_path, capsys):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    generate._prepare_3d(_args_ns(modality="3d", mode="image", from_image="r.png", model="trellis2", octree=256,
+                                  brand="b"), M, brand_dir, _FakeUploadClient(), _StubAp())
+    generate._prepare_image(_args_ns(modality="image", mode="txt2img", variant="base", brand="b",
+                                     model="qwen_image_2.1_int8_convrot.safetensors", upscale=False, upscale_model=None),
+                            M, brand_dir, _FakeUploadClient(), _StubAp())
+    err = capsys.readouterr().err
+    assert "--octree is a Hunyuan3D setting" in err and "--variant picks Z-Image" in err
+
+
+@pytest.mark.parametrize("over, match", [(dict(mode="sfx", duration=0.4), "at least 1"),
+                                         (dict(mode="foley", model="sa3", from_video="c.mp4"), "makes music")])
+def test_prepare_audio_rejects_what_the_mode_cannot_render(tmp_path, over, match):
+    with pytest.raises(_ApError, match=match):
+        generate._prepare_audio(_args_ns(modality="audio", brand=None, **over), M, None, _FakeUploadClient(),
+                                _StubAp())
+
+
+def test_cli_reports_an_http_error_from_comfyui_as_one_line(monkeypatch, capsys):
+    import sys, urllib.error
+    import scripts.generate as GEN
+
+    def refused(args, root, ap):
+        raise urllib.error.HTTPError("http://127.0.0.1:8000/upload/image", 413, "Payload Too Large", {}, None)
+    monkeypatch.setattr(GEN, "run", refused)
+    monkeypatch.setattr(sys, "argv", ["generate.py", "image", "--subject", "x"])
+    with pytest.raises(SystemExit) as e:
+        GEN.main()
+    err = capsys.readouterr().err
+    assert e.value.code == 1 and "answered HTTP 413" in err and "can't reach" not in err

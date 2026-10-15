@@ -47,12 +47,18 @@ python scripts/generate.py video \
 
 - **`--quality`**: `fast` = the lightx2v 4-step LoRAs (~30–55 s), the default for plain image-to-video;
   `full` = 20 steps without the LoRAs (~3 min), more motion but it drifted the camera more in the review.
+  Wan only: with `--model ltx23` it is an error.
 - **`--camera <move>`** uses Wan 2.2 **Fun Camera**: `static` locks the camera while the scene moves (the
   fix for LTX's unavoidable push-in on looping backgrounds); the others are controlled moves. It defaults
   to `full` quality, because the 4-step mode kept the camera locked but cut the scene's motion to about a
-  third (measured 2026-10); `--quality fast` (~35 s) is fine when the camera move is the point.
+  third (measured 2026-10); `--quality fast` (~35 s) is fine when the camera move is the point. Naming the
+  Fun Camera model directly (`--model wan22-camera`) also needs a `--camera` move; without one it's an error.
 - Wan's native clip is **81 frames at 16 fps (5 s)**; sizes snap down to multiples of 16. The brand
   `video:` block's `width`/`height` apply; its `length`/`fps`/`audio` are LTX settings.
+- `--length` snaps down to the 4k+1 frame counts Wan renders (`--length 96` renders 93), and a note says
+  so. Wan's motion is timed for 16 fps, so `--fps` only changes the playback speed (also noted).
+- Flag combinations a family can't render are errors raised before the start frame is uploaded or the GPU
+  freed.
 - **Silent.** For sound, run `python scripts/generate.py audio --mode foley --from-video <clip>
   --subject "<the sounds>"`, or use `--model ltx23`.
 - `--upscale` is LTX-only (its latent upscaler); for a bigger Wan clip ask for it with `--width`/`--height`.
@@ -76,7 +82,9 @@ python scripts/generate.py video --model ltx23 \
   directory.
 - Output routes to `brands/<brand>/outputs/video/<brand>_i2v_<seed>.mp4` with a
   reproducibility `.json` sidecar alongside it. If the file already exists it is
-  overwritten (idempotent re-render).
+  overwritten (idempotent re-render); a `chimera replay` lands beside it as `<name>_replay` instead.
+- `--length` snaps down to the 8k+1 frame counts LTX renders (`--length 100` renders 97), with a note.
+- `--quality` and `--camera` are Wan settings: with `--model ltx23` either one is an error.
 - `--no-audio` skips the audio-generation path; all other flags remain the same.
 - `--watermark` composites the brand logo over the final decoded video frames
   entirely in-graph, after the VAE decode — the synced audio track is never

@@ -27,7 +27,12 @@ _BL_TIMEOUT = 1800
 _FORBIDDEN = re.compile(
     r"\b(subprocess|socket|importlib|shutil\s*\.\s*rmtree|os\s*\.\s*(system|popen|remove|unlink|rmdir|"
     r"startfile|environ)|requests|urllib|httpx|http\.client|__import__|eval\s*\(|exec\s*\(|open\s*\(|"
-    r"getattr\s*\(|\.\s*unlink\s*\()")
+    r"getattr\s*\(|\.\s*unlink\s*\()"
+    # introspection escapes: a function's __globals__ reached the runner's own os/import (2026-10 review),
+    # as do __class__/__mro__/__subclasses__ chains and frame objects. Any dunder ATTRIBUTE but .__init__
+    # is out, plus the dangerous bare names; dunder strings ('__main__') stay fine.
+    r"|\.\s*__(?!init__)\w+__|\b__(builtins|loader|spec|globals|code|closure|class|dict|mro|bases|subclasses)__"
+    r"|\b(f_globals|f_locals|f_back|gi_frame|tb_frame|cr_frame)\b")
 
 
 def _assert_safe(script: str):
@@ -48,10 +53,26 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
 
     def generate(pos, neg, seed):
         # 1. code-gen. Brief = the clean subject; the loop's FIX directives (folded into `pos` by the
-        # expander) are passed as explicit revision feedback once we have a prior script to revise.
+        # expander) are passed as explicit revision feedback once we have a prior script to revise. The
+        # last run's error rides along: the loop no longer threads failures into the prompt, but the
+        # codegen needs the FreeCAD traceback to fix its script.
         feedback = None if state["first"] else pos
+        if state.get("error"):
+            feedback = f"{feedback or ''}\nThe previous script failed: {state.pop('error')}".strip()
+        try:
+            return _generate_once(pos, seed, feedback)
+        except Exception as exc:
+            state["error"] = str(exc)[-1500:]
+            raise
+
+    def _generate_once(pos, seed, feedback):
         script = generator.generate_script(args.subject, fix_feedback=feedback)
         state["first"] = False
+        # off the GPU before Blender renders (and a --backend local judge loads in ComfyUI): neither can see
+        # a resident Ollama model's memory on Windows, and a 27B codegen holds about 20 GB
+        release = getattr(getattr(generator, "client", None), "release", None)
+        if release is not None:
+            release()
         try:
             _assert_safe(script)   # the loop execs LLM-authored scripts — reject obvious escapes
         except RuntimeError:

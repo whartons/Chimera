@@ -32,12 +32,17 @@ covers the whole core offline.
 works for every brand immediately. This is the backbone — even brands with no logo/LoRA
 get consistent look from style + palette words.
 
-The manifest `negative` is filled into every graph with a negative slot and recorded in
-the sidecar, but no image recipe uses it. Qwen-Image-2.1 and FLUX.2 sample at CFG 1,
-where ComfyUI skips the negative pass entirely, and Z-Image zeroes its negative with
-`ConditioningZeroOut` (even the CFG-4 `base` variant). It changes the output only for video
-sampled **above CFG 1**: LTX-2.3 and Wan 2.2 `--quality full`. To keep something out of an
-image, word the positive instead.
+The manifest `negative` goes into the image and video graphs' negative text (video appends its own
+family's list) and the sidecar records what the graph carries. Z-Image has no negative text (it zeroes
+its negative with `ConditioningZeroOut`, even the CFG-4 `base` variant, so its sidecars record `""`), and
+audio never takes it: music and sfx have no text negative (Stable Audio 3's stays empty, ACE-Step zeroes
+its conditioning), and foley uses `audio.foley_negative` instead.
+
+No image recipe samples with it: Qwen-Image-2.1 and FLUX.2 run at CFG 1, where ComfyUI skips the negative
+pass entirely. It changes the output only for video sampled **above CFG 1**: LTX-2.3 and Wan 2.2
+`--quality full`. To keep something out of an image, word the positive instead. The self-correction loop
+does use it: the rubric asks the judge to confirm the render avoids these traits, `brand_guard` drops any
+FIX `add` term that names one, and a brand with only a negative still gets the loop's subject correction.
 
 **② IP-Adapter style/subject reference — V2, opt-in (deferred).** The manifest already
 carries an `ip_adapter{}` block (parsed, `enabled: false` by default). FLUX.2 IP-Adapter
@@ -93,4 +98,5 @@ python -m pytest -q          # the offline core: manifest, prompt, workflow, out
 
 End-to-end generation (needs a running ComfyUI at `127.0.0.1:8000` with the relevant
 models) is exercised against the tracked `brands/example-brand/`, whose committed
-outputs + reproducibility sidecars are produced entirely by the CLI.
+outputs + reproducibility sidecars were produced by the CLI. The 3D mesh was then slimmed with
+`chimera render --mode finish` (textures kept); its sidecar describes the TRELLIS.2 render it came from.

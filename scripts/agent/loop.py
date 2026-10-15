@@ -29,6 +29,7 @@ class LoopResult:
     best_verdict: Verdict | None
     passed: bool
     history: list = field(default_factory=list)
+    subject: str = ""   # the subject the run ended on (branded runs may drop flagged styling from it)
 
 
 def _brand_corrected(subject, rubric, manifest, issues):
@@ -73,7 +74,8 @@ def run_loop(*, expander, judge, generate, manifest, subject,
                         issues=[f"iteration failed: {exc}"])
             history.append(IterRecord(iter=i, seed=seed, prompt=pos, verdict=v))
             print(f"[agent] iter {i} seed={seed} FAILED: {exc}", file=sys.stderr)
-            prior_issues = v.issues
+            # keep the last JUDGE issues: threading the error text in put "Fix: iteration failed: prompt did
+            # not finish in 900s" into the next image prompt. (The CAD generator keeps its own last error.)
             continue
 
         history.append(IterRecord(iter=i, seed=seed, prompt=pos, verdict=v))
@@ -87,15 +89,15 @@ def run_loop(*, expander, judge, generate, manifest, subject,
 
         if v.passed:
             return LoopResult(best_image=img, best_verdict=v, passed=True,
-                              history=history)
+                              history=history, subject=subject)
         prior_issues = v.issues
         subject, rubric = _brand_corrected(subject, rubric, manifest, v.issues)
 
     if best is None:  # max_iters <= 0, or every iteration failed to render/judge
         last_v = history[-1].verdict if history else None
         return LoopResult(best_image=None, best_verdict=last_v, passed=False,
-                          history=history)
+                          history=history, subject=subject)
 
     best_v, best_img = best
     return LoopResult(best_image=best_img, best_verdict=best_v, passed=False,
-                      history=history)
+                      history=history, subject=subject)

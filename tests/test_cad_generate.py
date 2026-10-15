@@ -129,3 +129,66 @@ def test_make_cad_generate_writes_geometry_checks_for_the_gate(tmp_path, monkeyp
     sheet = Path(CG.make_cad_generate(_args(), tmp_path, _Gen(), freecad_runner=fc, blender_runner=bl)("p", "", 9))
     checks = json.loads(sheet.with_name(sheet.stem + ".checks.json").read_text(encoding="utf-8"))
     assert checks["major_parts"] == 17 and structural_issues(checks)      # the gate fails a 17-piece part
+
+
+
+def test_make_cad_generate_feeds_the_last_error_to_the_codegen(tmp_path, monkeypatch):
+    # the loop no longer threads failures into the prompt, so the CAD generator carries its own last error
+    import pytest as _pytest
+    gen = _Gen("box = 1")
+    calls = {"n": 0}
+
+    def fc(tmpl, params, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("'Base.Matrix' object has no attribute 'rotate'")
+        stl = Path(params["out_dir"]) / "m.stl"; stl.write_text("stl"); return {"outputs": [str(stl)]}
+    _, bl = _ok_runners(tmp_path)
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+    monkeypatch.setattr(CG, "route_output", lambda root, brand, src, mode, seed, **kw: Path(src))
+    g = CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc, blender_runner=bl)
+    with _pytest.raises(RuntimeError):
+        g("P0", "", 1)
+    g("P1", "", 2)
+    fb = gen.calls[1][1]
+    assert fb.startswith("P1") and "The previous script failed" in fb and "Matrix" in fb
+
+
+
+@pytest.mark.parametrize("bad", ["g = make.__globals__", "x = ().__class__.__mro__[1].__subclasses__()",
+                                 "b = __builtins__", "f = sys._getframe().f_back.f_globals",
+                                 "def f(): pass\nf.__code__"])
+def test_assert_safe_rejects_introspection_escapes(bad):
+    # a restricted script reached the runner's globals (os, the real import) via f.__globals__ (2026-10)
+    with pytest.raises(RuntimeError, match="rejected"):
+        CG._assert_safe(bad)
+
+
+def test_assert_safe_allows_ordinary_modelling_code():
+    CG._assert_safe("class Bracket:\n    def __init__(self):\n        self.w = 40\n"
+                    "if __name__ == '__chimera_cad__':\n    RESULT = [Part.makeBox(40, 20, 5)]\n")
+
+
+
+def test_the_codegen_model_leaves_the_gpu_before_blender_renders(tmp_path, monkeypatch):
+    # Blender (and a ComfyUI judge) can't see a resident Ollama model's memory on Windows
+    log = []
+
+    class _Client:
+        def release(self):
+            log.append("release")
+
+    gen = _Gen("box = 1")
+    gen.client = _Client()
+    fc, _ = _ok_runners(tmp_path)
+
+    def bl(tmpl, params, **kw):
+        log.append("blender")
+        outs = []
+        for i in range(4):
+            p = Path(params["out_dir"]) / f"v{i}.png"; p.write_text("p"); outs.append(str(p))
+        return {"outputs": outs}
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+    monkeypatch.setattr(CG, "route_output", lambda root, brand, src, mode, seed, **kw: Path(src))
+    CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc, blender_runner=bl)("p", "", 1)
+    assert log == ["release", "blender"]

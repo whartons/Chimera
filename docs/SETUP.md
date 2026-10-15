@@ -10,8 +10,11 @@ higher` warning at startup). See [Performance tuning](#performance-tuning-rtx-50
 
 **Version:** Chimera's default models run on **core nodes from ComfyUI 0.40**: Qwen-Image-2.1, the SeedVR2
 upscaler, Wan 2.2 (incl. Fun Camera), Stable Audio 3, and TRELLIS.2 / Pixal3D. On an older build (≥ 0.24),
-pass `--model` to use the earlier models (Z-Image / FLUX.2, LTX-2.3, ACE-Step, Hunyuan3D 2.1). On 0.40,
-LTX-2.3 needs the bundled LTXVideo patch (see [`../modules/video/README.md`](../modules/video/README.md)).
+pass `--model` to use the earlier models (Z-Image / FLUX.2, LTX-2.3, ACE-Step, Hunyuan3D 2.1). There, image
+`--upscale` also needs `--upscale-model 4x-UltraSharp.pth` (SeedVR2's nodes are new in 0.40),
+`audio --mode sfx` has no older path (it is Stable Audio 3 only), and the mesh3d agent loop needs
+`--mesh-model hunyuan21`. On 0.40, LTX-2.3 needs the bundled LTXVideo patch (see
+[`../modules/video/README.md`](../modules/video/README.md)).
 
 ## This repo
 ```bash
@@ -21,13 +24,16 @@ cp .env.example .env        # fill in any API keys (gitignored)
 mkdir -p workflows/personal outputs
 ```
 
+Chimera doesn't load `.env` itself: export the variables you need in your shell before you run the CLI or
+the agent loop.
+
 ## Per-module models
 Each `modules/<name>/models.md` lists the model files, their Hugging Face /
 Civitai URLs, target paths under `ComfyUI/models/...`, and license. Download what
 a module needs before importing its `workflow.template.json`.
 
-The **defaults** come from ungated Comfy-Org repos (no Hugging Face login): about 125 GB in all, or about
-94 GB without the camera-move models.
+The **defaults** come from ungated Comfy-Org repos (no Hugging Face login): about 119 GB in all, or about
+88 GB without the camera-move models.
 
 | Modality | Default | Download |
 |---|---|---|
@@ -35,10 +41,13 @@ The **defaults** come from ungated Comfy-Org repos (no Hugging Face login): abou
 | `--upscale` | SeedVR2 7B | ~9 GB |
 | video | Wan 2.2 | ~38 GB (+ ~31 GB for `--camera` moves) |
 | music / sfx | Stable Audio 3 | ~15 GB |
-| 3D | TRELLIS.2 (its graph also needs the Pixal3D files) | ~15 GB |
+| 3D | TRELLIS.2 | ~9 GB (+ ~6 GB for `--model pixal3d`) |
 
-Skip any modality you don't use; each module's `models.md` lists its exact files. Comfy-Org's "repackaged" repos
-nest files under `split_files/<type>/`: place them in `models/<type>/`, without the `split_files` level.
+Skip any modality you don't use: each module's `models.md` lists its exact files, and `chimera doctor` reports,
+per modality, which default model files ComfyUI can't see. If ComfyUI rejects a job anyway (a model file it
+doesn't have, a value out of range), the CLI prints its validation error on one line with a `chimera doctor`
+hint. Comfy-Org's "repackaged" repos nest files under `split_files/<type>/`: place them in `models/<type>/`,
+without the `split_files` level.
 
 ## VRAM
 Baseline dev hardware: RTX 5090, 32 GB. Most modules run on 8–16 GB via

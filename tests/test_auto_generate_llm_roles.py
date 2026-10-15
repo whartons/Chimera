@@ -19,7 +19,7 @@ def _capture(argv, monkeypatch):
     monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
     monkeypatch.setattr(AG, "make_render_generate", lambda *a, **k: (lambda *x: "s"))
     monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
-    monkeypatch.setattr(AG, "GeometryAwareJudge", lambda j: j)
+    monkeypatch.setattr(AG, "GeometryAwareJudge", lambda j, **k: j)
     monkeypatch.setattr(AG, "LocalVLMJudge", lambda *a, **k: object())
     for k in ("CHIMERA_LLM_BASE_URL", "CHIMERA_LLM_MODEL", "CHIMERA_LLM_API_KEY",
               "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
@@ -185,3 +185,68 @@ def test_cad_pipeline_judge_is_geometry_gated(monkeypatch):
     with pytest.raises(_Stop):
         AG.main()
     assert isinstance(captured["judge"], AG.GeometryAwareJudge)
+
+
+
+def test_run_seeds_are_fresh_per_run_unless_given(capsys):
+    # the loop's fixed 1000+i default made a second run overwrite the first run's winner
+    assert AG._run_seeds("7,8", 3) == [7, 8]
+    a, b = AG._run_seeds(None, 3), AG._run_seeds(None, 3)
+    assert len(a) == 3 and a[1] == a[0] + 1 and a != b
+    assert "repeat this run with --seeds" in capsys.readouterr().err
+
+
+
+def test_the_default_backend_is_the_api_judge_on_local_ollama(monkeypatch):
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    calls, _ = _capture(["--subject", "a knight", "--comfy-output-dir", "/tmp/o"], monkeypatch)
+    judge = _role(calls, "judge")
+    assert judge["default_base"] == "http://127.0.0.1:11434/v1" and judge["default_model"] == "qwen3-vl:8b-instruct"
+
+
+
+def test_the_loop_lets_local_llms_make_room_on_a_local_comfyui(monkeypatch):
+    # the reverse hand-off: before a local Ollama model loads, ComfyUI unloads if the card is full
+    import types
+    seen = {}
+    made = []
+
+    def client_for(role, **kw):
+        seen[role] = types.SimpleNamespace(release=lambda: None, make_room=None)
+        return seen[role]
+    monkeypatch.setattr(LLM, "client_for_role", client_for)
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: types.SimpleNamespace(base=url))
+    monkeypatch.setattr(AG.gpu, "make_room", lambda client, need: made.append((client.base, need)))
+    monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "a knight", "--comfy-output-dir", "/tmp/o"])
+    with pytest.raises(_Stop):
+        AG.main()
+    seen["judge"].make_room(123)
+    assert made == [("http://127.0.0.1:8000", 123)]
+    seen.clear()
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "a knight", "--comfy-output-dir", "/tmp/o",
+                                      "--comfy-url", "http://10.0.0.9:8000"])
+    with pytest.raises(_Stop):
+        AG.main()
+    assert seen["judge"].make_room is None        # a remote ComfyUI can't free this machine's GPU
+
+
+
+def test_the_loop_unloads_other_ollama_models_before_its_first_render(monkeypatch, capsys):
+    # ComfyUI can't see an Ollama model's memory: an 18 GB model left by another tool plus a render overcommits
+    import types
+    unloaded = []
+    judge = types.SimpleNamespace(base_url="http://127.0.0.1:11434/v1", ollama_name="qwen3-vl:8b-instruct",
+                                  release=lambda: None, make_room=None)
+    monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.setattr(AG.gpu, "unload_others",
+                        lambda root, keep: unloaded.append((root, set(keep))) or [("sports:latest", 18 * 2**30)])
+    AG._clear_other_ollama_models([None, judge, None])
+    assert unloaded == [("http://127.0.0.1:11434", {"qwen3-vl:8b-instruct"})]
+    assert "unloaded sports:latest (18.0 GB)" in capsys.readouterr().err
+    monkeypatch.setenv("CHIMERA_KEEP_LLM_LOADED", "1")
+    unloaded.clear()
+    AG._clear_other_ollama_models([judge])
+    assert unloaded == []

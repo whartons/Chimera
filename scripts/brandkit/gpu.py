@@ -3,12 +3,16 @@ Ollama (the agent's judge / codegen / rewriter models).
 
 Ollama keeps a model resident for ~5 minutes after its last request. On a 32 GB card a 27B model
 (plus its context cache) then starves ComfyUI, and ComfyUI 0.40 can even run out of CUDA memory
-inside its own /free and hang (the 2026-10-14 smoke). These helpers unload Ollama models on demand
-and report who holds the GPU. Stdlib only; every call is best-effort and never raises, because a
-stopped Ollama (or ComfyUI) is a normal state."""
+inside its own /free and hang (the 2026-10-14 smoke). The reverse happens too: ComfyUI keeps its
+models resident after a render, so an Ollama model loading next has no room (make_room). These
+helpers unload either side on demand and report who holds the GPU. Stdlib only; every call is
+best-effort and never raises, because a stopped Ollama (or ComfyUI) is a normal state."""
 from __future__ import annotations
 import json
 import os
+import sys
+import time
+import urllib.parse
 import urllib.request
 
 DEFAULT_OLLAMA = "http://127.0.0.1:11434"
@@ -26,6 +30,17 @@ def ollama_root(base_url=None):
     if host:
         return (host if host.startswith(("http://", "https://")) else "http://" + host).rstrip("/")
     return DEFAULT_OLLAMA
+
+
+def keep_llms_loaded():
+    """CHIMERA_KEEP_LLM_LOADED=1: leave Ollama's models resident (only on a card with room for both apps)."""
+    return os.environ.get("CHIMERA_KEEP_LLM_LOADED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def is_local(url):
+    """True for a loopback URL: an app sharing this machine's GPU."""
+    host = (urllib.parse.urlparse(url or "").hostname or "").lower()
+    return host == "localhost" or host.startswith("127.") or host == "::1"
 
 
 def _call(url, body=None, timeout=5, _opener=urllib.request.urlopen):
@@ -67,6 +82,57 @@ def unload(root, model, _opener=urllib.request.urlopen):
         return True
     except Exception:
         return False
+
+
+def vram_need(root, model, _opener=urllib.request.urlopen):
+    """Bytes of GPU memory `model` needs to load in Ollama, estimated from its file size plus room for the
+    context cache and the CUDA context; None when Ollama doesn't list it."""
+    try:
+        models = _call(root + "/api/tags", _opener=_opener).get("models") or []
+    except Exception:
+        return None
+    for m in models:
+        if (m.get("name") or m.get("model")) == model and m.get("size"):
+            return int(int(m["size"]) * 1.2) + 2 * _GB
+    return None
+
+
+def make_room(comfy_client, need_bytes, *, wait=30.0, poll=1.0, _sleep=time.sleep, _clock=time.monotonic):
+    """Before a local Ollama model loads: when ComfyUI reports less than `need_bytes` of the card free
+    (outside its own cache), ask it to unload its models (POST /free) and wait, up to `wait` seconds, for
+    the memory to come back. True once there is room, False if it never came, None if ComfyUI isn't
+    reachable.
+
+    Ollama can't do this itself on Windows: it doesn't see ComfyUI's allocations (it reported 30 GB free
+    while ComfyUI held 15), so it loads onto a full card, and the driver pages GPU memory to system RAM.
+    On 2026-10-15 ComfyUI held all but 0.1 GB after a day of renders; the judge loaded anyway, crawled
+    past its 180 s timeout, nvidia-smi hung, and the PC froze. ComfyUI does see its own holdings."""
+    def free_outside_comfy():
+        dev = (comfy_client.system_stats().get("devices") or [{}])[0]
+        return (dev.get("vram_free") or 0) - (dev.get("torch_vram_free") or 0)
+    try:
+        free = free_outside_comfy()
+        if free >= need_bytes:
+            return True
+        print(f"[gpu] ComfyUI leaves {free / _GB:.1f} GB of the card free and the local LLM needs about "
+              f"{need_bytes / _GB:.1f} GB: asking ComfyUI to unload its models first", file=sys.stderr)
+        comfy_client.free()
+        deadline = _clock() + wait
+        while _clock() < deadline:
+            _sleep(poll)
+            if free_outside_comfy() >= need_bytes:
+                return True
+        return False
+    except Exception:
+        return None
+
+
+def unload_others(root, keep=(), _opener=urllib.request.urlopen):
+    """Unload the resident Ollama models not named in `keep` (names as Ollama lists them); return the
+    [(name, vram_bytes)] unloaded. The loops call it before their first render: ComfyUI can't see an Ollama
+    model's memory, so rendering beside, say, an 18 GB model left loaded by another tool overcommits the card."""
+    return [(name, vram) for name, vram in loaded_models(root, _opener=_opener)
+            if name not in keep and unload(root, name, _opener=_opener)]
 
 
 def unload_all(root, _opener=urllib.request.urlopen):
