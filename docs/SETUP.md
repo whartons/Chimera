@@ -92,6 +92,21 @@ The `modules/agent/` layer drives ComfyUI through an existing MCP server — see
 instance: ComfyUI **Desktop defaults to `127.0.0.1:8000`**; a manual `python main.py`
 install uses `8188`.
 
+### Local models for the self-correction loops
+`scripts/agent/auto_generate.py` judges, rewrites prompts and writes CAD scripts with local
+[Ollama](https://ollama.com) models picked by your GPU's memory (`--llm-tier` or `CHIMERA_LLM_TIER` to choose).
+Pull your tier's models; `chimera doctor` shows the tier it picked and the `ollama pull` command for any
+model that's missing.
+
+| GPU memory | Tier | Pull |
+|---|---|---|
+| 24 GB+ | large | `qwen3.8:27b` |
+| 12–24 GB | medium | `qwen3-vl:8b-instruct`, plus `qwen3.8:27b` for `--pipeline cad` |
+| under 12 GB | small | `qwen3-vl:4b-instruct`, plus `qwen3.8:27b` for `--pipeline cad` (mostly on the CPU, slow) |
+
+Any role can use a hosted OpenAI-compatible API instead: see [`.env.example`](../.env.example) and
+[Local models by GPU tier](../modules/agent/self-correction.md#local-models-by-gpu-tier).
+
 ## DCC / CAD bridges (Blender + FreeCAD)
 These add an assistant-driven bridge to a **live** Blender and FreeCAD (interactive, Phase 1). Both run
 100% locally over a loopback socket. **Headless automation also ships** — `generate.py render` (Blender)

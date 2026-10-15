@@ -94,7 +94,8 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
   GPU); three backends slot in — a provider-agnostic OpenAI-compatible **LLMJudge** (`--backend api`,
-  the default: unconfigured, it calls **Qwen3-VL-8B-Instruct** on a local Ollama), an optional headless
+  the default: unconfigured, it calls a local Ollama model from a GPU tier, **Qwen 3.8 27B** on 24 GB+ and a
+  Qwen3-VL 8B/4B on smaller cards, `--llm-tier` to choose), an optional headless
   **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass (an
   interactive agent following `workflows/agent/README.md`; `auto_generate.py` refuses `--backend assistant`).
   `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
@@ -119,8 +120,8 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   and **autonomous** (`auto_generate.py --pipeline cad`, where a **provider-agnostic LLM** writes/revises
   the script — `scripts/agent/llm.py`, OpenAI-compatible/no-SDK, env-configured for
   OpenAI/Anthropic/OpenRouter/local). The same backend gives the **`--backend api`** AI judge for any loop
-  (the default; with nothing configured it calls local Ollama's `qwen3-vl:8b-instruct`, and any
-  `--judge-*`/`--llm-*` flag or `CHIMERA_*` variable wins). Each loop role — **codegen / judge /
+  (the default; with nothing configured every role uses its GPU tier's local Ollama model, Qwen 3.8 27B on the
+  large tier, and any `--judge-*`/`--llm-*` flag or `CHIMERA_*` variable wins). Each loop role — **codegen / judge /
   rewriter** — can take its own per-role endpoint (`--codegen-*`/`--judge-*`/`--rewriter-*` +
   `CHIMERA_{CODEGEN,JUDGE,REWRITER}_*`, specific-wins over the shared `--llm-*`/`CHIMERA_LLM_*` via
   `client_for_role`); **`--rewrite-prompts`**
@@ -135,6 +136,9 @@ Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (3
 CUDA 12.8+ is the minimum to drive Blackwell at all; the **reference build is cu130 / torch
 2.10**, which unlocks comfy-kitchen's FP4 path (the headline ~2.7× win). Do **not** assume
 others have a 5090 — always note per-module VRAM needs and quantized (GGUF / NVFP4 / fp8) options.
+Defaults are chosen high because the reference box can run them; every default needs a documented
+smaller-card path (a lighter option, an override, or automatic tiers like the agent loop's `--llm-tier`),
+and the README's Hardware table must stay current.
 
 ## Keep the docs in sync (every change)
 These docs are **living** — update them in the SAME change that alters behavior, never "later". A

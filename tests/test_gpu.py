@@ -6,6 +6,8 @@ import urllib.error
 from scripts.brandkit import gpu
 from scripts.agent.llm import LLMClient
 
+_real_smi = gpu._nvidia_smi_gb   # captured at import, before the autouse fixture swaps it out
+
 
 class _Resp:
     def __init__(self, payload):
@@ -355,3 +357,41 @@ def test_a_model_bigger_than_the_card_empties_comfyui_and_then_loads():
             return s
     card = _Full(free_gb=27.5, after_free_gb=30.0)                  # ComfyUI holds 4 GB
     assert gpu.make_room(card, 35 * 2**30, _sleep=sleep, _clock=now) is True and card.freed == 1
+
+
+
+def test_total_memory_prefers_comfyui_then_nvidia_smi(monkeypatch):
+    class _C:
+        def system_stats(self):
+            return {"devices": [{"vram_total": 31.8 * 2**30}]}
+    assert gpu.total_memory_gb(_C()) == 31.8
+    monkeypatch.setattr(gpu, "_nvidia_smi_gb", lambda: 12.0)
+    assert gpu.total_memory_gb(object()) == 12.0              # no ComfyUI answer -> nvidia-smi
+    assert gpu.total_memory_gb() == 12.0
+
+
+def test_nvidia_smi_reading_is_parsed_and_time_limited(monkeypatch):
+    import subprocess as _sp
+    seen = {}
+
+    def fake_run(argv, **kw):
+        seen.update(kw)
+        return _sp.CompletedProcess(argv, 0, stdout="32607\n8192\n", stderr="")
+    monkeypatch.setattr(gpu.subprocess, "run", fake_run)
+    monkeypatch.setattr(gpu, "_nvidia_smi_gb", _real_smi)   # the real reader, on the faked subprocess
+    assert round(gpu._nvidia_smi_gb(), 1) == 31.8 and seen["timeout"] == 5
+
+    monkeypatch.setattr(gpu.subprocess, "run",           # a driver error prints words, not numbers
+                        lambda argv, **kw: _sp.CompletedProcess(argv, 9, stdout="No devices were found\n", stderr=""))
+    assert gpu._nvidia_smi_gb() is None
+
+    def boom(argv, **kw):
+        raise FileNotFoundError("nvidia-smi")
+    monkeypatch.setattr(gpu.subprocess, "run", boom)
+    assert gpu._nvidia_smi_gb() is None
+
+
+def test_pulled_models_lists_tags_and_tolerates_a_stopped_ollama():
+    tags = {("GET", "/api/tags"): {"models": [{"name": "qwen3.8:27b"}, {"model": "qwen3-vl:8b-instruct"}]}}
+    assert gpu.pulled_models("http://o", _opener=_server(tags, [])) == ["qwen3.8:27b", "qwen3-vl:8b-instruct"]
+    assert gpu.pulled_models("http://o", _opener=_server({}, [])) == []

@@ -184,3 +184,38 @@ def test_comfy_output_path_refuses_names_outside_the_output_dir(tmp_path, sub, n
 def test_comfy_output_path_keeps_a_normal_subfolder(tmp_path):
     assert outputs.comfy_output_path(tmp_path, "video", "clip_00001_.mp4") == tmp_path / "video" / "clip_00001_.mp4"
     assert outputs.comfy_output_path(tmp_path, "", "img.png") == tmp_path / "img.png"
+
+
+
+# --- a repeated identical job still writes a new file (2026-10) ------------------------------------------
+def test_fresh_output_name_makes_each_queued_save_unique():
+    def wf():
+        return {"9": {"class_type": "SaveImage", "_meta": {"title": "brand:save"},
+                      "inputs": {"filename_prefix": "brand_txt2img", "images": ["8", 0]}}}
+    a, b = outputs.fresh_output_name(wf()), outputs.fresh_output_name(wf())
+    pa, pb = a["9"]["inputs"]["filename_prefix"], b["9"]["inputs"]["filename_prefix"]
+    assert pa.startswith("brand_txt2img_") and pb.startswith("brand_txt2img_") and pa != pb
+    assert outputs.fresh_output_name({"1": {"class_type": "X", "inputs": {}}}) == {"1": {"class_type": "X", "inputs": {}}}
+
+
+def test_run_graph_to_file_queues_a_fresh_output_name(tmp_path):
+    seen = {}
+
+    class C:
+        def queue_prompt(self, w):
+            seen["prefix"] = w["9"]["inputs"]["filename_prefix"]
+            return "pid"
+
+        def wait(self, pid, max_wait=None):
+            return {"pid": {"outputs": {"9": {"images": [{"filename": "a.png", "subfolder": ""}]}}}}
+
+        def output_files_by_node(self, pid, history=None):
+            return [("9", "a.png", "", "output")]
+    wf = {"9": {"class_type": "SaveImage", "_meta": {"title": "brand:save"}, "inputs": {"filename_prefix": "agent"}}}
+    outputs.run_graph_to_file(C(), wf, tmp_path)
+    assert seen["prefix"].startswith("agent_") and seen["prefix"] != "agent"
+
+
+def test_route_output_says_clearly_when_the_reported_file_is_missing(tmp_path):
+    with pytest.raises(NoOutputError, match="isn't in its output folder"):
+        route_output(tmp_path, "b", tmp_path / "gone.png", "txt2img", 1)

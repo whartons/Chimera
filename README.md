@@ -18,7 +18,7 @@ Run it two ways: as a **`chimera`** CLI you drive yourself (editable install fro
 security-audited **MCP bridges** that let an AI assistant drive the tools for you. Image, video, audio, 3D,
 Blender-render, and FreeCAD-CAD all run headless from one core — no brand and no assistant required
 (`chimera image --subject "…"` just works). The judge/codegen backend is provider-agnostic (any
-OpenAI-compatible LLM; the judge defaults to a local Qwen3-VL-8B served via Ollama). Public and reusable —
+OpenAI-compatible LLM; unconfigured, it runs local Ollama models sized to your GPU). Public and reusable —
 built end-to-end on an RTX 5090, written to help anyone on ComfyUI, especially **Blackwell (RTX 50-series)**.
 
 ![The Chimera of Greek myth breathing fire: a lion with a goat's head rising from its back and a serpent-headed tail, before an erupting volcano, generated with this repo's Qwen-Image workflow](docs/images/chimera-hero.jpg)
@@ -96,10 +96,11 @@ judges *subject + quality*); `--pipeline mesh3d|cad` extends the loop to 3D and 
 python scripts/agent/auto_generate.py --subject "an armored rover" --comfy-output-dir <dir>
 ```
 
-With no flags or `CHIMERA_*` variables set, the judge is Qwen3-VL-8B-Instruct on a local Ollama
-(`ollama pull qwen3-vl:8b-instruct`). Pointing it at any OpenAI-compatible LLM, the optional ComfyUI Qwen3-VL
-judge node (`--backend local`), and per-role codegen/judge/rewriter endpoints are in
-[`modules/agent/self-correction.md`](modules/agent/self-correction.md).
+With no flags or `CHIMERA_*` variables set, the loop runs on local Ollama models sized to your GPU: Qwen 3.8
+27B on 24 GB+, a Qwen3-VL 8B or 4B judge on smaller cards (`--llm-tier` to choose; `chimera doctor` prints the
+`ollama pull` commands). The tiers, pointing any role at an OpenAI-compatible LLM, the optional ComfyUI
+Qwen3-VL judge node (`--backend local`), and per-role codegen/judge/rewriter endpoints are in
+[`modules/agent/self-correction.md`](modules/agent/self-correction.md#local-models-by-gpu-tier).
 **Driving Chimera from an AI agent in your IDE supersedes all endpoint config** — the agent fills those
 roles itself, and no `CHIMERA_*` keys are read.
 
@@ -114,7 +115,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **790 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **815 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -254,8 +255,24 @@ and re-scan on a cadence. Reporting a vuln? See [`SECURITY.md`](SECURITY.md). Co
 
 ## 🖥️ Hardware
 
-Developed on an RTX 5090 (32 GB), **cu130 / torch 2.10** reference build. Most things run on far less via
-quantized (GGUF / NVFP4 / fp8) weights — see each module's `models.md`.
+Chimera's defaults were chosen on an RTX 5090 (32 GB; **cu130 / torch 2.10** reference build), so they aim
+high: on a smaller card, take the route in the last column (the agent loop picks its own).
+
+| Modality | Default | GPU memory | On a smaller card |
+|---|---|---|---|
+| image | Qwen-Image-2.1 (int8) | ~16 GB of weights | Z-Image turbo, ~8–12 GB (`--model z_image_turbo_nvfp4.safetensors`), or ComfyUI's offloading |
+| `--upscale` | SeedVR2 7B (int8) | ~8 GB of weights, tiled VAE | ESRGAN, which auto-tiles (`--upscale-model 4x-UltraSharp.pth`) |
+| video | Wan 2.2 14B (fp8) | two ~13–14 GB experts run in turn + a ~6 GB text encoder; ~84–89% of a 24 GB card at 640² (official template) | ComfyUI's offloading and a smaller `--width`/`--height`; not `--model ltx23` (~28–32 GB) |
+| music / sfx | Stable Audio 3 Medium | ~14 GB of weights | ComfyUI's offloading |
+| foley | HunyuanVideo-Foley (fp8) | ~12–16 GB peak | it already offloads between passes (`force_offload`, on by default) |
+| 3D | TRELLIS.2 (int8) | ~8 GB of weights, 12–15 GB at its busiest: a 16–24 GB card is enough | `--model hunyuan21` (shape only, ~8–10 GB peak) with a lower `--octree`, or ComfyUI's offloading |
+| agent loop | Qwen 3.8 27B for every role (24 GB+) | 16.5 GB as the judge | automatic: a Qwen3-VL 8B judge on 12–24 GB (6.6 GB), 4B under 12 GB (4.4 GB); CAD code-gen stays the 27B, partly on the CPU (`--llm-tier` to choose) |
+
+A lighter quantized file of the same model can be named with `--model <file>` or pinned in a brand; GGUF files
+need the `ComfyUI-GGUF` pack's loader nodes (see each module's `models.md`). NVFP4's speed-up needs an RTX
+50-series card on cu130; on CUDA 12.x it upcasts and runs slower
+([setup notes](docs/SETUP.md#performance-tuning-rtx-50-series--blackwell)). `chimera doctor` shows how much of
+your card is free and which agent tier it gets.
 
 ## 🔐 Privacy model
 

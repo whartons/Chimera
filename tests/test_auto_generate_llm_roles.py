@@ -197,11 +197,37 @@ def test_run_seeds_are_fresh_per_run_unless_given(capsys):
 
 
 
-def test_the_default_backend_is_the_api_judge_on_local_ollama(monkeypatch):
+@pytest.mark.parametrize("gpu_gb, tier", [(31.8, "large"), (23.99, "large"), (16.0, "medium"), (11.99, "medium"),
+                                          (8.0, "small"), (None, "medium")])
+def test_the_default_judge_is_a_local_ollama_model_sized_to_the_gpu(monkeypatch, capsys, gpu_gb, tier):
+    # chosen on a 32 GB card, but forks have less: the local models come in tiers picked from the GPU's memory
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.delenv("CHIMERA_LLM_TIER", raising=False)
+    monkeypatch.setattr(AG.gpu, "total_memory_gb", lambda client: gpu_gb)
     calls, _ = _capture(["--subject", "a knight", "--comfy-output-dir", "/tmp/o"], monkeypatch)
     judge = _role(calls, "judge")
-    assert judge["default_base"] == "http://127.0.0.1:11434/v1" and judge["default_model"] == "qwen3-vl:8b-instruct"
+    assert judge["default_base"] == "http://127.0.0.1:11434/v1"
+    assert (judge["default_model"], judge["default_reasoning"]) == LLM.LOCAL_TIERS[tier]["judge"]
+
+
+def test_an_explicit_tier_skips_the_gpu_probe(monkeypatch):
+    monkeypatch.setattr(AG.gpu, "total_memory_gb", lambda client: (_ for _ in ()).throw(AssertionError("probed")))
+    calls, _ = _capture(["--subject", "a knight", "--comfy-output-dir", "/tmp/o", "--llm-tier", "large"], monkeypatch)
+    assert _role(calls, "judge")["default_model"] == LLM.LOCAL_TIERS["large"]["judge"][0]
+
+
+def test_the_run_says_which_local_models_it_fell_back_to(monkeypatch, capsys):
+    import types
+    monkeypatch.setattr(AG.gpu, "total_memory_gb", lambda client: 31.8)
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: types.SimpleNamespace(
+        model=kw["default_model"], from_default=True, release=lambda: None, make_room=None))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+    monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "a knight", "--comfy-output-dir", "/tmp/o"])
+    with pytest.raises(_Stop):
+        AG.main()
+    assert "local models, large tier (32 GB GPU): judge qwen3.8:27b" in capsys.readouterr().err
 
 
 

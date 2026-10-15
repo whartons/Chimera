@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -31,6 +32,44 @@ def ollama_root(base_url=None):
     if host:
         return (host if host.startswith(("http://", "https://")) else "http://" + host).rstrip("/")
     return DEFAULT_OLLAMA
+
+
+def _nvidia_smi_gb():
+    """The largest NVIDIA GPU's total memory in GiB from nvidia-smi, or None. Time-limited: nvidia-smi hangs
+    when the driver is wedged (seen 2026-10-15)."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    mib = []
+    for v in (out.stdout or "").split():
+        try:
+            mib.append(float(v))
+        except ValueError:
+            pass
+    return max(mib) / 1024 if mib else None
+
+
+def total_memory_gb(comfy_client=None):
+    """The GPU's total memory in GiB: what ComfyUI reports when it answers, else nvidia-smi, else None."""
+    if comfy_client is not None:
+        try:
+            dev = (comfy_client.system_stats().get("devices") or [{}])[0]
+            if dev.get("vram_total"):
+                return dev["vram_total"] / _GB
+        except Exception:
+            pass
+    return _nvidia_smi_gb()
+
+
+def pulled_models(root, _opener=urllib.request.urlopen):
+    """The model names Ollama has on disk (from /api/tags); [] when it isn't running."""
+    try:
+        models = _call(root + "/api/tags", _opener=_opener).get("models") or []
+    except Exception:
+        return []
+    return [m.get("name") or m.get("model") for m in models if m.get("name") or m.get("model")]
 
 
 def keep_llms_loaded():

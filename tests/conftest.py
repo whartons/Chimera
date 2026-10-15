@@ -21,3 +21,26 @@ def _no_live_ollama(monkeypatch):
             raise urllib.error.URLError("tests don't reach a live Ollama")
         return real(url, body, timeout, _opener)
     monkeypatch.setattr(gpu, "_call", guarded)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_nvidia_smi(monkeypatch):
+    """The local-model tier reads the GPU size; tests never run the real nvidia-smi (CI has none, and a dev
+    box's card would make results machine-dependent). Tests that need a size patch it in."""
+    from scripts.brandkit import gpu
+    monkeypatch.setattr(gpu, "_nvidia_smi_gb", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_llm(monkeypatch):
+    """Tests never reach a real LLM server either. With nothing configured the loops now default to a local
+    Ollama model, so a test that runs a loop for real would generate CAD code against the developer's Ollama
+    (one hung the suite for minutes). A request on the real opener fails fast; fake openers are unaffected."""
+    from scripts.agent import llm
+    real = llm.LLMClient._chat_once
+
+    def guarded(self, messages, max_tokens, temperature, reasoning_effort, _opener):
+        if _opener is urllib.request.urlopen:
+            raise llm.LLMError("tests don't reach a live LLM")
+        return real(self, messages, max_tokens, temperature, reasoning_effort, _opener)
+    monkeypatch.setattr(llm.LLMClient, "_chat_once", guarded)

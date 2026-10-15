@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Headless self-correction loop: generate -> VLM-judge -> refine, until PASS.
 
-Wires the model-free agent core (expander + run_loop) to a real generator and a Qwen3-VL judge — the
-OpenAI-compatible LLMJudge (`--backend api`, default: with nothing configured it calls a local Ollama
-serving qwen3-vl:8b-instruct) or the optional ComfyUI Qwen3-VL node (`--backend local`). Each iteration
-the expander folds the previous verdict's unmet-criterion issues back into the prompt, so candidates
-converge on the rubric.
+Wires the model-free agent core (expander + run_loop) to a real generator and a vision judge — the
+OpenAI-compatible LLMJudge (`--backend api`, default: with nothing configured it calls a local Ollama model
+sized to the GPU, see --llm-tier and llm.LOCAL_TIERS) or the optional ComfyUI Qwen3-VL node (`--backend
+local`). Each iteration the expander folds the previous verdict's unmet-criterion issues back into the
+prompt, so candidates converge on the rubric.
 
 Pipelines (--pipeline):
   * image (default) — ComfyUI txt2img; the rubric scores the 2D render.
@@ -28,10 +28,11 @@ A third pipeline, `cad`, is fully autonomous generative CAD: a provider-agnostic
 FreeCAD script -> `cad --mode script` -> Blender contact-sheet render -> form judge -> revise.
 
 Judge backends (--backend): `api` (default — a provider-agnostic, OpenAI-compatible LLM judge; with no
---judge-*/--llm-* flags or CHIMERA_* env it uses local Ollama's qwen3-vl:8b-instruct, else point it at
-OpenAI, Anthropic's OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible server — use a
-NON-thinking '-instruct' VLM judge (a thinking model returns empty content); see .env.example /
-scripts/agent/llm.py) or `local` (the optional ComfyUI-QwenVL judge node). --comfy-output-dir routes
+--judge-*/--llm-* flags or CHIMERA_* env it uses Chimera's local Ollama model for the GPU's tier (Qwen 3.8
+27B on 24 GB+, Qwen3-VL 8B on 12-24 GB, Qwen3-VL 4B below), else point it at OpenAI, Anthropic's
+OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible server — a thinking model must run with
+thinking off, or it returns empty content; see .env.example / scripts/agent/llm.py) or `local` (the
+optional ComfyUI-QwenVL judge node). --comfy-output-dir routes
 ComfyUI renders and is where the local judge drops verdicts; required except for `--pipeline cad
 --backend api` (no ComfyUI).
 """
@@ -40,7 +41,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.agent.expander import TemplatedExpander
-from scripts.agent.llm import DEFAULT_JUDGE_MODEL
 from scripts.agent.judge import LocalVLMJudge, GeometryAwareJudge
 from scripts.agent.loop import run_loop
 from scripts.agent.rubric import build_rubric
@@ -204,8 +204,8 @@ def main():
     ap.add_argument("--max-iters", dest="max_iters", type=int, default=None)
     ap.add_argument("--seeds", default=None, help="comma-separated seeds, one per iteration")
     ap.add_argument("--backend", choices=["api", "local", "assistant"], default="api",
-                    help="api = OpenAI-compatible LLM judge (default; unconfigured, it uses local Ollama's "
-                         f"{DEFAULT_JUDGE_MODEL} [non-thinking]; --judge-*/--llm-* or CHIMERA_* point it anywhere, "
+                    help="api = OpenAI-compatible LLM judge (default; unconfigured, it uses a local Ollama model "
+                         "sized to your GPU, see --llm-tier; --judge-*/--llm-* or CHIMERA_* point it anywhere, "
                          "see .env.example); local = the optional ComfyUI-QwenVL judge node; assistant = "
                          "agent-driven vision consensus (requires the agent in the loop)")
     ap.add_argument("--pipeline", choices=["image", "mesh3d", "cad"], default="image",
@@ -278,6 +278,11 @@ def main():
     ap.add_argument("--rewrite-prompts", dest="rewrite_prompts", action="store_true",
                     help="(image/mesh3d) use an LLM to rewrite prompts from the judge's FIX feedback instead "
                          "of the templated expander; falls back to templated on any LLM error")
+    ap.add_argument("--llm-tier", dest="llm_tier", choices=["auto", "large", "medium", "small"], default=None,
+                    help="Chimera's local Ollama models for roles you haven't configured. large (24 GB+ GPU): Qwen 3.8 "
+                         "27B for every role; medium (12-24 GB): Qwen3-VL 8B judge and rewriter; small (under 12 GB): "
+                         "Qwen3-VL 4B judge and rewriter. Code-gen is Qwen 3.8 27B in every tier (partly on the CPU "
+                         "below 24 GB). Default auto, from the GPU's memory (else $CHIMERA_LLM_TIER)")
     ap.add_argument("--judge-passes", dest="judge_passes", type=int, default=1,
                     help="(--backend api) number of LLM vision passes to consensus-judge (default 1)")
     ap.add_argument("--variant", choices=["base", "turbo"], default=None,
@@ -323,23 +328,36 @@ def main():
     # Per-role LLM clients (codegen / judge / rewriter), each independently configurable and falling
     # back to the shared --llm-* / CHIMERA_LLM_*. Built only for the roles a run uses. An AI agent
     # driving interactively supersedes all of this (see the role-tagged LLMConfigError hint).
-    from scripts.agent.llm import LLMConfigError, client_for_role, default_judge_base
+    from scripts.agent.llm import LOCAL_TIERS, LLMConfigError, client_for_role, default_local_base, local_tier
     codegen_llm = judge_llm = rewriter_llm = None
     try:
+        # with nothing configured, a role falls back to Chimera's local Ollama model for this GPU's tier
+        gpu_gb = None if args.llm_tier not in (None, "auto") else gpu.total_memory_gb(client)
+        tier = local_tier(gpu_gb, args.llm_tier)
+        spec = LOCAL_TIERS[tier]
         shared = dict(shared_cli_base=args.llm_base_url, shared_cli_model=args.llm_model,
-                      shared_cli_reasoning=args.llm_reasoning)
+                      shared_cli_reasoning=args.llm_reasoning, default_base=default_local_base())
+
+        def role_defaults(role):
+            return dict(default_model=spec[role][0], default_reasoning=spec[role][1])
         if args.pipeline == "cad":
             codegen_llm = client_for_role("codegen", cli_base=args.codegen_base_url, cli_model=args.codegen_model,
-                                          cli_reasoning=args.codegen_reasoning, **shared)
+                                          cli_reasoning=args.codegen_reasoning, **role_defaults("codegen"), **shared)
         if args.backend == "api":
             judge_llm = client_for_role("judge", cli_base=args.judge_base_url, cli_model=args.judge_model,
-                                        cli_reasoning=args.judge_reasoning, default_base=default_judge_base(),
-                                        default_model=DEFAULT_JUDGE_MODEL, **shared)
+                                        cli_reasoning=args.judge_reasoning, **role_defaults("judge"), **shared)
         if args.rewrite_prompts:
             rewriter_llm = client_for_role("rewriter", cli_base=args.rewriter_base_url, cli_model=args.rewriter_model,
-                                           cli_reasoning=args.rewriter_reasoning, **shared)
+                                           cli_reasoning=args.rewriter_reasoning, **role_defaults("rewriter"), **shared)
     except LLMConfigError as e:
         ap.error(str(e))
+    fallen_back = [f"{role} {llm.model}" for role, llm in (("judge", judge_llm), ("code-gen", codegen_llm),
+                                                         ("rewriter", rewriter_llm))
+                   if llm is not None and getattr(llm, "from_default", False)]
+    if fallen_back:
+        size = f"{gpu_gb:.0f} GB GPU" if gpu_gb else ("chosen" if args.llm_tier not in (None, "auto") else "GPU size unknown")
+        print(f"[agent] local models, {tier} tier ({size}): {', '.join(fallen_back)} (--llm-tier to change)",
+              file=sys.stderr)
     _share_gpu(client, [codegen_llm, judge_llm, rewriter_llm])
     _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm])
 

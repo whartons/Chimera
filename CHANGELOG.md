@@ -251,12 +251,32 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
 - **Restricted CAD scripts couldn't define classes** (`__build_class__` was missing from their builtins).
 - **Agent runs reused seeds `1000+i`**, so a second run replaced the first run's winner. Each run now draws
   a random base, printed so `--seeds` can repeat it.
+- **Repeating an identical job failed with "cannot find the file".** ComfyUI serves a job identical to an
+  earlier one (same seed, prompt and model) from its cache and reports the earlier output file, which Chimera
+  had already moved into its own output folder. Each queued job's save node now gets a unique file-name
+  suffix, so the cached render is written to a fresh file; a reported file that is still missing is a
+  one-line error.
 
 ### Changed
-- **`auto_generate.py` judges with `--backend api` by default**, and with nothing configured that judge is
-  local Ollama's `qwen3-vl:8b-instruct` (`http://127.0.0.1:11434/v1`, or `$OLLAMA_HOST`). The previous
-  default, `--backend local`, needs the optional, unpinned ComfyUI-QwenVL pack; pass it to keep using it.
-  `--judge-*` / `--llm-*` flags and `CHIMERA_*` variables still win.
+- **The agent loops run on local Ollama models sized to your GPU, with nothing to configure.**
+  `auto_generate.py` judges with `--backend api` by default, and each role you haven't configured (judge,
+  prompt rewriter, CAD code-gen) falls back to a local Ollama model from a tier picked by the GPU's memory:
+
+  | Tier | GPU | Judge and rewriter | CAD code-gen |
+  |---|---|---|---|
+  | large | 24 GB+ | Qwen 3.8 27B | Qwen 3.8 27B |
+  | medium | 12–24 GB | Qwen3-VL 8B Instruct | Qwen 3.8 27B, partly on the CPU |
+  | small | under 12 GB | Qwen3-VL 4B Instruct | Qwen 3.8 27B, mostly on the CPU |
+
+  The defaults were chosen on an RTX 5090, and smaller cards get lighter judges automatically. `--llm-tier` /
+  `CHIMERA_LLM_TIER` overrides the tier; per-role flags and `CHIMERA_*` variables still win; `chimera doctor`
+  reports the tier and any `ollama pull` it needs. The CAD loop no longer refuses to start without a
+  configured LLM endpoint. Measured on a new 34-case judge benchmark (3 runs each): Qwen 3.8 27B 31.0 correct
+  (balanced accuracy 0.90, 1.5 s per judgment), Qwen3-VL 32B 30.0 (14.6 s), 8B 29.3, Qwen 3.6 27B-coding 29.3,
+  4B 27.7, 30B-A3B 27.3. On a six-part CAD code-gen test Qwen 3.8 27B built 5 (3 on the first try), Qwen 3.6
+  27B-coding 4, and Qwen 3.5 9B none of the three it tried, so every tier keeps the 27B for code-gen. The
+  previous judge default, `--backend local`, needs the optional, unpinned ComfyUI-QwenVL pack; pass it to
+  keep using it.
 - **ComfyUI ≥ 0.40 is required for the new defaults.** Their nodes are core in 0.40, so no extra node packs are
   needed. On an older build (≥ 0.24), set `--model` or a brand pin to keep the earlier models, plus
   `--upscale-model 4x-UltraSharp.pth` for image upscaling and `--mesh-model hunyuan21` for the mesh3d loop;

@@ -22,10 +22,23 @@ def test_cad_local_requires_comfy_output_dir(monkeypatch):
         _run(["--pipeline", "cad", "--subject", "a mug", "--backend", "local"], monkeypatch)
 
 
-def test_cad_api_without_llm_config_errors(monkeypatch):
-    # cad + api needs no comfy-output-dir, but errors without LLM config
-    with pytest.raises(SystemExit):
-        _run(["--pipeline", "cad", "--subject", "a mug", "--backend", "api"], monkeypatch)
+def test_cad_api_with_no_llm_config_uses_chimeras_local_models(monkeypatch):
+    # cad + api needs no comfy-output-dir, and with nothing configured every role falls back to Chimera's local
+    # Ollama model with thinking off (it used to stop with "set CHIMERA_LLM_BASE_URL")
+    import scripts.agent.llm as LLM
+    calls = {}
+
+    class _Stop(Exception):
+        pass
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: calls.setdefault(role, kw) and None or
+                        type("C", (), {"release": lambda self: None, "make_room": None})())
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))
+    monkeypatch.setattr(AG, "make_cad_generate", lambda *a, **k: (lambda *x: "s"), raising=False)
+    with pytest.raises(_Stop):
+        _run(["--pipeline", "cad", "--subject", "a mug", "--backend", "api", "--llm-tier", "small"], monkeypatch)
+    small = LLM.LOCAL_TIERS["small"]
+    assert (calls["codegen"]["default_model"], calls["codegen"]["default_reasoning"]) == small["codegen"]
+    assert (calls["judge"]["default_model"], calls["judge"]["default_reasoning"]) == small["judge"]
 
 
 def test_assistant_backend_still_gated(monkeypatch):

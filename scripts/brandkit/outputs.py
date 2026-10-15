@@ -1,6 +1,6 @@
 """Route a finished render to the per-brand outputs/ folder, organized by media type."""
 from __future__ import annotations
-import itertools, json, shutil, time
+import itertools, json, shutil, time, uuid
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from .nodes import find_node_by_title, NodeNotFound
 
@@ -46,6 +46,9 @@ def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay
     overwrite the very render and sidecar it reproduced, which is permanent for gitignored brand
     outputs. It takes the next free name instead (`<stem>_replay`, `<stem>_replay2`, ...)."""
     src = Path(src)
+    if not src.exists():
+        raise NoOutputError(f"ComfyUI reported {src.name}, but it isn't in its output folder (is --comfy-output-dir "
+                            "ComfyUI's output folder?)")
     base = brand_output_dir(repo_root, brand) if brand else Path(repo_root) / "outputs"
     sub = media_subdir(src.suffix)
     out_dir = base / sub if sub else base
@@ -124,12 +127,28 @@ def comfy_output_path(out_dir, subfolder, fname) -> Path:
     return Path(out_dir) / (subfolder or "") / str(fname)
 
 
+def fresh_output_name(wf, save_title="brand:save"):
+    """Give the graph's save node a unique filename prefix before queueing. ComfyUI serves a job identical to
+    an earlier one from its cache and reports the earlier file, which Chimera had already moved out of
+    ComfyUI's folder, so repeating a run with the same --seeds failed with "cannot find the file" (2026-10).
+    With a new prefix only the save node re-runs and writes a fresh file; the render itself still comes from
+    the cache. Replay's checks ignore the prefix. Returns `wf`, changed in place."""
+    try:
+        _, node = find_node_by_title(wf, save_title)
+    except NodeNotFound:
+        return wf
+    prefix = node.get("inputs", {}).get("filename_prefix")
+    if isinstance(prefix, str):
+        node["inputs"]["filename_prefix"] = f"{prefix}_{uuid.uuid4().hex[:8]}"
+    return wf
+
+
 def run_graph_to_file(client, wf, out_dir, *, timeout=900):
     """Queue a built graph, wait for it, and return the produced file's LOCAL path under
     `out_dir` (the host's ComfyUI output dir). Anchors on the graph's brand:save node via
     select_output and reuses wait()'s history record (no /history re-fetch) — the
     queue -> wait -> select -> local-path dance every generator was hand-rolling."""
-    pid = client.queue_prompt(wf)
+    pid = client.queue_prompt(fresh_output_name(wf))
     hist = client.wait(pid, max_wait=timeout)
     fname, subfolder, _ = select_output(client, pid, wf, history=hist)
     return comfy_output_path(out_dir, subfolder, fname)

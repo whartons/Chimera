@@ -353,22 +353,30 @@ for the texturing routes (Blender/Substance, or a cu126 env) and the re-visit pa
 ---
 
 ## 🧠 LLM / agent layer
-- **Local (via Ollama):** Qwen 3.6, Gemma, Llama, GLM — for prompt expansion,
+- **Local (via Ollama):** Qwen 3.8, Qwen3-VL, Gemma, Llama, GLM — for prompt expansion,
   JSON workflow parameterization, and VLM critique loops.
 - **API node:** Gemini (e.g. 3.1 Flash-Lite) is supported by the built-in LLM node.
 - **Quantized loading:** `ComfyUI-GGUF` to fit large models in VRAM.
 
-**Agent / VLM judge (self-correction loop): Qwen3-VL-8B-Instruct (via Ollama; cloud OpenAI-compatible also works)**
+**Agent loop models (self-correction): local Ollama models by GPU tier — Qwen 3.8 27B on 24 GB+ (cloud OpenAI-compatible also works)**
 
-The vision judge for the self-correction backend (generate → judge → refine). **Default:** served by
-**Ollama** over its OpenAI-compatible `/v1` endpoint (the `LLMJudge`, `--backend api`, `auto_generate.py`'s
-default, which with nothing configured calls `http://127.0.0.1:11434/v1` or `$OLLAMA_HOST`) —
-`ollama pull qwen3-vl:8b-instruct` (the **non-thinking** Instruct tag — a *thinking* tag like
-`qwen3-vl:8b` spends its token budget on reasoning and returns empty content, silently scoring every
-render 0.0; the loop now also errors loudly on empty judge output), no API key, zero Blackwell/torch coupling (Ollama runs its own bundled
-runtime). The **same** `--backend api` path also targets any cloud OpenAI-compatible provider
-(OpenAI/Anthropic/Gemini/OpenRouter), so a GPU-poor reuser can judge on the cloud. See
-[`../modules/agent/self-correction.md`](../modules/agent/self-correction.md).
+The judge, prompt rewriter and CAD code-gen for the self-correction loop (generate → judge → refine).
+**Default:** served by **Ollama** over its OpenAI-compatible `/v1` endpoint (`--backend api`,
+`auto_generate.py`'s default, which with nothing configured calls `http://127.0.0.1:11434/v1` or
+`$OLLAMA_HOST`), with the models picked from the GPU's memory. The defaults were chosen on a 32 GB card, so
+smaller cards get lighter judges automatically (`--llm-tier` / `CHIMERA_LLM_TIER` to choose; `chimera doctor`
+prints the `ollama pull` commands). No API key, zero Blackwell/torch coupling (Ollama runs its own bundled
+runtime). A judge you configure must be a **non-thinking** `-instruct` VLM or a hybrid model with thinking off
+(a *thinking* tag like `qwen3-vl:8b` spends its token budget on reasoning and returns empty content; the loop
+errors loudly on empty judge output). The **same** `--backend api` path also targets any cloud
+OpenAI-compatible provider (OpenAI/Anthropic/Gemini/OpenRouter), so a GPU-poor reuser can judge on the cloud.
+See [`../modules/agent/self-correction.md`](../modules/agent/self-correction.md#local-models-by-gpu-tier).
+
+| Tier (GPU memory) | Judge | Rewriter | CAD code-gen |
+|---|---|---|---|
+| large (24 GB+) | `qwen3.8:27b`, thinking off | `qwen3.8:27b` | `qwen3.8:27b` |
+| medium (12–24 GB) | `qwen3-vl:8b-instruct` | `qwen3-vl:8b-instruct` | `qwen3.8:27b`, partly on the CPU |
+| small (under 12 GB) | `qwen3-vl:4b-instruct` | `qwen3-vl:4b-instruct` | `qwen3.8:27b`, mostly on the CPU |
 
 **Optional ComfyUI path (`--backend local`):** the judge can instead run as a ComfyUI graph via the
 [`1038lab/ComfyUI-QwenVL`](https://github.com/1038lab/ComfyUI-QwenVL) node pack (re-pin to a
@@ -378,13 +386,18 @@ writes the verdict text with the **core** ComfyUI node `SaveImageTextDataSetToFo
 
 | File / repo | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
-| Qwen3-VL-8B-Instruct | `Qwen/Qwen3-VL-8B-Instruct` (or `ollama pull qwen3-vl:8b-instruct`) | `LLM/Qwen-VL/` (ComfyUI path) | ~6–9 GB (Q4/q8) | ✅ Apache-2.0 |
+| Qwen 3.8 27B (large tier; code-gen in every tier) | `ollama pull qwen3.8:27b` | Ollama (not ComfyUI) | 16.5 GB GPU as the judge (measured) | ✅ Apache-2.0 |
+| Qwen3-VL-8B-Instruct (medium tier) | `Qwen/Qwen3-VL-8B-Instruct` (or `ollama pull qwen3-vl:8b-instruct`) | `LLM/Qwen-VL/` (ComfyUI node path) | ~6–9 GB (Q4/q8); 6.6 GB measured | ✅ Apache-2.0 |
+| Qwen3-VL-4B-Instruct (small tier) | `Qwen/Qwen3-VL-4B-Instruct` (or `ollama pull qwen3-vl:4b-instruct`) | Ollama | 4.4 GB GPU (measured) | ✅ Apache-2.0 |
 
-- 8B ≈ **6–9 GB VRAM** (Ollama Q4/q8) — co-resides with an image model on a 32 GB card. Size ladder
-  (pure config swap via `CHIMERA_JUDGE_MODEL` + `ollama pull`): **8B** (default) · **30B-A3B** MoE
-  (≈32B capability at ≈3B speed) · **32B** (sharpest, slower, VRAM-tight) · **2B/4B** for small cards.
+- Measured as the judge on the RTX 5090 (2026-10-15; 34 cases with labels checked by eye, 3 runs each;
+  correct of 34 · balanced accuracy · time per judgment): **Qwen 3.8 27B 31.0 · 0.900 · 1.5 s**, Qwen3-VL 32B
+  30.0 · 0.888 · 14.6 s, 8B 29.3 · 0.865 · 0.8 s, Qwen 3.6 27B-coding 29.3 · 0.849 · 1.5 s, 4B 27.7 · 0.817 ·
+  0.6 s, 30B-A3B MoE 27.3 · 0.801 · 0.7 s. On six CAD test parts, Qwen 3.8 27B built 5, Qwen 3.6 27B-coding 4,
+  and Qwen 3.5 9B none of the 3 it tried, so every tier keeps the 27B for code-gen. Any other model is a
+  config swap (`CHIMERA_JUDGE_MODEL` / `CHIMERA_CODEGEN_MODEL` / `CHIMERA_REWRITER_MODEL` + `ollama pull`).
 - The **assistant Workflow** backend needs no model — it judges with the assistant's
-  own vision (multi-judge consensus); this VLM is for unattended `auto_generate.py` runs.
+  own vision (multi-judge consensus); these models are for unattended `auto_generate.py` runs.
 
 ---
 

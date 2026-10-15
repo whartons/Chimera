@@ -447,3 +447,13 @@ def test_free_before_unloads_comfyui_just_before_queueing(monkeypatch, tmp_path)
     monkeypatch.setattr(generate, "ComfyClient", _Ordered)
     generate.run(_img_args(seed=2, free_before=True), repo, _StubAp())
     assert order == ["free", "queue"]
+
+
+
+def test_a_missing_reported_file_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    repo = _tmp_repo(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()          # FakeComfy reports out.png; it isn't there
+    with pytest.raises(SystemExit) as e:
+        generate.run(_img_args(seed=4, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    assert e.value.code == 1 and "isn't in its output folder" in capsys.readouterr().err

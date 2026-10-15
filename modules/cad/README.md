@@ -133,27 +133,32 @@ repeat. It runs two ways:
   iteration.
 - **Fully autonomous** — **`auto_generate.py --pipeline cad --subject "..."`**: a **provider-agnostic
   LLM** (`scripts/agent/llm.py` — any OpenAI-compatible endpoint: **Gemini / OpenAI / Anthropic /
-  OpenRouter / local Ollama**, env-configured via `CHIMERA_LLM_*`) writes + revises the script across
-  iterations. The judge is `--backend api`, the default: unconfigured, it is Qwen3-VL-8B-Instruct on a
-  local Ollama. `--backend local` uses the optional ComfyUI Qwen3-VL judge node instead. With
-  `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
-  [`../agent/self-correction.md`](../agent/self-correction.md#bring-your-own-llm---backend-api----pipeline-cad)
-  for the provider table. (Built + **live-validated** against a local Ollama endpoint; the agent layer now
-  targets **Qwen3.6-27B** for codegen and **Qwen3-VL-8B** for the vision judge.)
+  OpenRouter / local Ollama**, configurable via `CHIMERA_LLM_*`) writes + revises the script across
+  iterations. It runs with **no configuration**: code-gen is **Qwen 3.8 27B** on a local Ollama in every GPU
+  tier, and the judge is `--backend api`, the default, on the tier's local model (Qwen 3.8 27B on 24 GB+, a
+  Qwen3-VL 8B or 4B on smaller cards; `--llm-tier` to choose). `--backend local` uses the optional ComfyUI
+  Qwen3-VL judge node instead. With `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
+  [`../agent/self-correction.md`](../agent/self-correction.md#local-models-by-gpu-tier) for the tiers and
+  the code-gen measurements, and
+  [its provider table](../agent/self-correction.md#bring-your-own-llm---backend-api----pipeline-cad).
+  (Built + **live-validated** against a local Ollama endpoint.)
 
 **Per-role endpoints (autonomous runs only; an interactive AI agent needs none of this).** Codegen
 (`--codegen-*` / `CHIMERA_CODEGEN_*`) and the judge (`--judge-*` / `CHIMERA_JUDGE_*`) each take their own
-OpenAI-compatible endpoint, falling back to the shared `--llm-*` / `CHIMERA_LLM_*`. Model & hardware tiers:
+OpenAI-compatible endpoint, falling back to the shared `--llm-*` / `CHIMERA_LLM_*`, then to the GPU tier's
+local model. Model & hardware setups:
 
 | Setup | Codegen | Judge | GPU |
 |-------|---------|-------|-----|
 | Interactive (IDE agent) | the agent | the agent | none (FreeCAD/Blender local) |
 | No GPU, hosted API | `--backend api` hosted multimodal (Gemini free tier / GPT-4o / Claude) | same model | none |
-| Mixed | `--codegen-model` strong hosted coder | `--backend api` Ollama Qwen3-VL-8B (~6–9 GB) | judge GPU only |
-| Fully local | `--codegen-model qwen3.6-27b` (Ollama) | `--backend api` Ollama Qwen3-VL-8B (the default) or `--backend local` ComfyUI Qwen3-VL node | per model |
+| Mixed | `--codegen-model` strong hosted coder | `--backend api` the tier's local judge (4.4–16.5 GB) | judge GPU only |
+| Fully local (the default, nothing to set) | Qwen 3.8 27B on Ollama, in every tier (partly on the CPU below 24 GB) | `--backend api` the tier's local judge, or `--backend local` ComfyUI Qwen3-VL node | per tier |
 
-Codegen quality drives success: a 7B *coder* works, a 7B *vision* model does not. The loop self-corrects
-from the FreeCAD error it feeds back, so a decent coder recovers in a couple of iterations.
+Codegen quality drives success. The first live run (2026-06) found a 7B *coder* gets a mounting bracket to a
+pass where a 7B *vision* model does not; on the 2026-10 six-part test, Qwen 3.8 27B built 5, a 27B coding
+model 4, and a 9B none of the 3 it tried. The loop self-corrects from the FreeCAD error it feeds back, so a
+strong coder recovers in a couple of iterations.
 
 > ⚠️ **`--mode script` `exec()`s the script unsandboxed** in the `FreeCADCmd` process (no network,
 > isolated process, but full Python — same trust as running a FreeCAD macro you wrote). **Run only

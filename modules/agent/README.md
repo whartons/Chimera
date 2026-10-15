@@ -11,8 +11,9 @@ custom nodes. Per the repo philosophy ([../../CLAUDE.md](../../CLAUDE.md)) we
 - **The self-correction loop** — the **orchestration** layer on top: a
   `generate → judge → refine` loop that iterates to a candidate passing a brand/brief
   rubric, with an assistant multi-judge-consensus backend and a headless VLM backend
-  (Qwen3-VL-8B-Instruct — by default on a local Ollama via `--backend api`, with an optional
-  ComfyUI judge node) sharing one model-free core (`scripts/agent/`). See
+  (by default a local Ollama model sized to the GPU via `--backend api`: Qwen 3.8 27B on 24 GB+, a
+  Qwen3-VL 8B or 4B on smaller cards; with an optional ComfyUI judge node) sharing one model-free core
+  (`scripts/agent/`). See
   [`self-correction.md`](self-correction.md) (and the assistant recipe in
   [`../../workflows/agent/README.md`](../../workflows/agent/README.md)).
 

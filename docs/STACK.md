@@ -41,7 +41,7 @@ The `chimera` package (**v0.6.0**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (790 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (815 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -67,8 +67,8 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > Core-native (no pack needed): **Z-Image**, **ACE-Step 1.5**, **Hunyuan3D 2.1**, and the agent
 > verdict-capture node all ship in ComfyUI core — only the three packs above are third-party.
 >
-> **Optional (agent judge):** the judge runs on **Ollama Qwen3-VL** by default (see §5 + `modules/agent/`);
-> the `1038lab/ComfyUI-QwenVL` node can host it inside ComfyUI instead — re-pin to a Qwen3-VL-capable
+> **Optional (agent judge):** the judge runs on a local **Ollama** model picked for the GPU by default (see §5 +
+> `modules/agent/`); the `1038lab/ComfyUI-QwenVL` node can host a Qwen3-VL judge inside ComfyUI instead — re-pin to a Qwen3-VL-capable
 > commit + re-scan before use. It is no longer a default/auto-checked pin.
 
 ## 4 · MCP bridges (assistant → ComfyUI · Blender · FreeCAD)
@@ -101,7 +101,8 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
 > script`) and **fully autonomous** (`auto_generate.py --pipeline cad` — a provider-agnostic LLM writes +
 > revises the script; `scripts/agent/llm.py`, built + **live-validated** against a local Ollama endpoint.
-> The agent layer now targets **Qwen3.6-27B** (codegen/rewriter) + **Qwen3-VL-8B** (vision judge)).
+> Its local models come in GPU tiers: **Qwen 3.8 27B** for every role on 24 GB+, a **Qwen3-VL 8B / 4B** judge
+> and rewriter on smaller cards, and the 27B code-gen in every tier).
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
@@ -112,7 +113,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 | Audio — music + sfx | **Stable Audio 3 Medium** (+ Qwen3.5-2B prompt enhancer) | Comfy-Org · core-native · Stability Community License · ACE-Step 1.5 XL Turbo via `--model acestep` |
 | Audio — foley | **HunyuanVideo-Foley** | phazei · 48 kHz synced |
 | 3D | **TRELLIS.2** (`trellis_2_int8_convrot`, textured PBR GLB) | Comfy-Org · MIT · core in ComfyUI 0.40 · Pixal3D and Hunyuan3D 2.1 (shape only) via `--model` |
-| Agent judge | **Qwen3-VL-8B-Instruct** (Ollama) | official Qwen · Apache-2.0 · ~6–9 GB (Q4/q8) · swap via `CHIMERA_JUDGE_MODEL` |
+| Agent loop (judge · rewriter · CAD code-gen) | **Qwen 3.8 27B** (Ollama `qwen3.8:27b`) on 24 GB+; Qwen3-VL 8B / 4B Instruct judge + rewriter on 12–24 GB / under 12 GB | Qwen via Ollama · tier picked from the GPU's memory (`--llm-tier`) · swap a role via `CHIMERA_<ROLE>_MODEL` |
 
 Weights are **never committed** — referenced by name + source; see CATALOG for files, destinations, sizes, and licenses.
 
@@ -132,7 +133,7 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (790 tests local; 783 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (815 tests local; 808 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 
@@ -146,7 +147,9 @@ makes the patch status informational. **Dependabot** watches `pip` and `github-a
 | Quantization | comfy-kitchen FP4 (NVFP4) path — the headline ~2.7× win |
 
 Minimum to drive Blackwell at all: **CUDA 12.8+**. Per-module VRAM needs and quantized (GGUF /
-NVFP4 / fp8) options are noted in each [`modules/<name>/`](../modules/) README. Don't assume a 5090.
+NVFP4 / fp8) options are noted in each [`modules/<name>/`](../modules/) README and summarized in the
+Hardware table of the [README](../README.md); the agent loop sizes its local models to the GPU itself. Don't
+assume a 5090.
 
 ---
 

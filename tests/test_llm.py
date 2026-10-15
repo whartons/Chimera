@@ -377,3 +377,60 @@ def test_client_for_role_falls_back_to_the_callers_default_endpoint(monkeypatch)
     assert (c.base_url, c.model) == ("http://127.0.0.1:11434/v1", "qwen3-vl:8b-instruct")
     c = client_for_role("judge", shared_cli_base="https://api.openai.com/v1", shared_cli_model="gpt-4o", **kw)
     assert (c.base_url, c.model) == ("https://api.openai.com/v1", "gpt-4o")
+
+
+
+# --- local models come in GPU tiers (2026-10: chosen on a 32 GB card; forks have less) -----------------------
+from scripts.agent.llm import LOCAL_TIERS, local_tier, local_model_checks  # noqa: E402
+
+
+@pytest.mark.parametrize("gb, tier", [(31.8, "large"), (22.0, "large"), (21.9, "medium"), (11.0, "medium"),
+                                      (10.9, "small"), (4.0, "small"), (None, "medium")])
+def test_local_tier_follows_the_gpu_size(monkeypatch, gb, tier):
+    monkeypatch.delenv("CHIMERA_LLM_TIER", raising=False)
+    assert local_tier(gb) == tier
+
+
+def test_local_tier_override_wins_and_rejects_typos(monkeypatch):
+    monkeypatch.setenv("CHIMERA_LLM_TIER", "small")
+    assert local_tier(31.8) == "small"
+    assert local_tier(31.8, "medium") == "medium"            # the CLI flag beats the env
+    assert local_tier(8.0, "auto") == "small"                # auto still means "pick from the GPU"
+    monkeypatch.setenv("CHIMERA_LLM_TIER", "huge")
+    with pytest.raises(LLMConfigError, match="unknown LLM tier 'huge'"):
+        local_tier(31.8)
+
+
+def test_every_tier_names_all_three_roles():
+    for spec in LOCAL_TIERS.values():
+        assert {"judge", "codegen", "rewriter"} <= set(spec)
+
+
+def test_a_default_model_is_flagged_and_gets_the_default_effort_but_a_chosen_one_does_not(monkeypatch):
+    _clear_env(monkeypatch)
+    kw = dict(default_base="http://127.0.0.1:11434/v1", default_model="qwen3.8:27b", default_reasoning="none")
+    c = client_for_role("judge", **kw)
+    assert c.from_default and c.reasoning_effort == "none"
+    c = client_for_role("judge", cli_model="qwen3-vl:8b-instruct", **kw)
+    assert not c.from_default and c.reasoning_effort is None
+
+
+def test_doctor_reports_the_tier_and_missing_pulls(monkeypatch):
+    from scripts.brandkit import gpu as G
+    monkeypatch.delenv("CHIMERA_LLM_TIER", raising=False)
+    monkeypatch.setattr(G, "total_memory_gb", lambda client: 16.0)
+
+    def opener(have):
+        def open_(req, timeout=None):
+            url = req.full_url if hasattr(req, "full_url") else req
+            payload = {"version": "0.40.4"} if url.endswith("/api/version") else {"models": [{"name": n} for n in have]}
+            return _Resp(payload)
+        return open_
+    lines = local_model_checks(object(), "http://127.0.0.1:11434", _opener=opener(["qwen3-vl:8b-instruct"]))
+    assert lines[0][0] == "info" and "medium tier (16 GB GPU)" in lines[0][1]
+    assert lines[1][0] == "warn" and "ollama pull qwen3.8:27b" in lines[1][1]
+    lines = local_model_checks(object(), "http://127.0.0.1:11434",
+                               _opener=opener(["qwen3-vl:8b-instruct", "qwen3.8:27b"]))
+    assert lines[1][0] == "ok"
+    monkeypatch.setenv("CHIMERA_LLM_TIER", "giant")
+    assert local_model_checks(object())[0][0] == "warn"

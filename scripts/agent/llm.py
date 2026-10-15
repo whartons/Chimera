@@ -11,9 +11,10 @@ Config (env, with CLI overrides; no hardcoded vendor default):
                         https://openrouter.ai/api/v1 | http://localhost:11434/v1 (Ollama)
   CHIMERA_LLM_API_KEY   sent only to CHIMERA_LLM_BASE_URL's host (else OPENAI_API_KEY / ANTHROPIC_API_KEY,
                         but only to https://api.openai.com / https://api.anthropic.com; omit for keyless local)
-  CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen3.6-27b | qwen3-vl:8b-instruct | ...
-                        (use a NON-thinking '-instruct' VLM as the judge: a thinking model spends the
-                        token budget on reasoning and returns empty content — see chat() empty guard)
+  CHIMERA_LLM_MODEL     gemini-2.5-pro | gpt-4o | claude-opus-4-8 | qwen3.8:27b | qwen3-vl:8b-instruct | ...
+                        (unset: Chimera's local model for the GPU's tier, see LOCAL_TIERS. A thinking model
+                        must run with thinking off as the judge, or it spends the token budget on reasoning
+                        and returns empty content — see chat() empty guard and reasoning_effort)
   CHIMERA_LLM_REASONING_EFFORT  optional `reasoning_effort` sent with every request (none | low | medium |
                         high; per role: CHIMERA_<ROLE>_REASONING_EFFORT). Unset = not sent. When a reply is
                         all reasoning and no content, chat() retries once with "none" and keeps it — the
@@ -32,13 +33,68 @@ class LLMConfigError(RuntimeError):
     pass
 
 
-# The judge's out-of-the-box endpoint: the recommended local setup, Ollama serving Qwen3-VL-8B-Instruct
-# (non-thinking). Used only when no judge or shared endpoint/model is configured.
-DEFAULT_JUDGE_MODEL = "qwen3-vl:8b-instruct"
+# Chimera's own local models on Ollama, used for a role only when nothing is configured for it. They were
+# chosen on an RTX 5090 (32 GB), and most cards have less, so they come in tiers picked from the GPU's memory
+# (--llm-tier / CHIMERA_LLM_TIER overrides). Each role is (model, reasoning_effort): the hybrid thinking
+# models run with thinking off, as benchmarked; the -instruct models don't think. Code-gen is Qwen 3.8 27B in
+# every tier: the lighter Qwen 3.5 9B built none of the CAD test parts, so a smaller card runs the 27B partly
+# on the CPU instead (slower, still right). The 2026-10 measurements (34-case judge set, CAD parts) are in
+# modules/agent/self-correction.md.
+LOCAL_TIERS = {
+    "large": {"min_gb": 22, "judge": ("qwen3.8:27b", "none"), "codegen": ("qwen3.8:27b", "none"),
+              "rewriter": ("qwen3.8:27b", "none")},
+    "medium": {"min_gb": 11, "judge": ("qwen3-vl:8b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
+               "rewriter": ("qwen3-vl:8b-instruct", None)},
+    "small": {"min_gb": 0, "judge": ("qwen3-vl:4b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
+              "rewriter": ("qwen3-vl:4b-instruct", None)},
+}
+UNKNOWN_GPU_TIER = "medium"   # no GPU size readable (no ComfyUI, no nvidia-smi): a middle guess, said aloud
 
 
-def default_judge_base():
+def local_tier(gpu_gb=None, override=None):
+    """The local-model tier: an explicit choice (--llm-tier, else $CHIMERA_LLM_TIER; 'auto' means pick), else
+    the largest tier whose minimum the GPU meets, else UNKNOWN_GPU_TIER. Thresholds sit just under the nominal
+    sizes, since a 24 GB card reports 23.99 GiB."""
+    name = (override or os.environ.get("CHIMERA_LLM_TIER") or "").strip().lower()
+    if name and name != "auto":
+        if name not in LOCAL_TIERS:
+            raise LLMConfigError(f"unknown LLM tier {name!r}; expected auto, {', '.join(LOCAL_TIERS)}")
+        return name
+    if gpu_gb is None:
+        return UNKNOWN_GPU_TIER
+    return next(t for t, spec in LOCAL_TIERS.items() if gpu_gb >= spec["min_gb"])
+
+
+def tier_models(tier):
+    """The distinct models a tier uses, for doctor's pull check."""
+    return sorted({LOCAL_TIERS[tier][role][0] for role in ("judge", "codegen", "rewriter")})
+
+
+def default_local_base():
     return gpu.ollama_root() + "/v1"
+
+
+def local_model_checks(comfy_client, ollama_url=None, _opener=urllib.request.urlopen):
+    """Doctor lines for the agent loops' local models: the tier this GPU gets and whether Ollama has them."""
+    gb = gpu.total_memory_gb(comfy_client)
+    try:
+        tier = local_tier(gb)
+    except LLMConfigError as e:
+        return [("warn", str(e))]
+    spec = LOCAL_TIERS[tier]
+    size = f"{gb:.0f} GB GPU" if gb else "GPU size unknown"
+    out = [("info", f"agent loop local models: {tier} tier ({size}): judge {spec['judge'][0]}, code-gen "
+                    f"{spec['codegen'][0]}, rewriter {spec['rewriter'][0]} (--llm-tier / CHIMERA_LLM_TIER to change)")]
+    root = gpu.ollama_root(ollama_url)
+    if not gpu.is_ollama(root, _opener=_opener):
+        return out   # gpu_checks already reports a stopped Ollama
+    missing = [m for m in tier_models(tier) if m not in set(gpu.pulled_models(root, _opener=_opener))]
+    if missing:
+        out.append(("warn", f"not pulled yet: {', '.join(missing)} (run: "
+                            + " && ".join(f"ollama pull {m}" for m in missing) + ")"))
+    else:
+        out.append(("ok", f"the {tier} tier's models are pulled"))
+    return out
 
 
 # A vendor's own env key only ever goes to that vendor. Before 2026-10, with no CHIMERA_* key set, an
@@ -218,24 +274,27 @@ class LLMClient:
 
 def client_for_role(role, *, cli_base=None, cli_model=None, cli_reasoning=None,
                     shared_cli_base=None, shared_cli_model=None, shared_cli_reasoning=None,
-                    default_base=None, default_model=None, timeout=180) -> LLMClient:
+                    default_base=None, default_model=None, default_reasoning=None, timeout=180) -> LLMClient:
     """Build an LLMClient for `role` in {'codegen','judge','rewriter'}. SPECIFIC-WINS precedence for each
     of base_url/model/reasoning_effort:  role CLI > role env (CHIMERA_<ROLE>_*) > shared CLI (--llm-*) >
-    shared env (CHIMERA_LLM_*) > the caller's default_base/default_model (the judge's local Ollama).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY (only on the shared
+    shared env (CHIMERA_LLM_*) > the caller's default_base/default_model (Chimera's local Ollama model);
+    default_reasoning applies only when the model itself is that default (a configured model is never sent it).  api_key: CHIMERA_<ROLE>_API_KEY > CHIMERA_LLM_API_KEY (only on the shared
     endpoint's host) > the vendor's own OPENAI_API_KEY / ANTHROPIC_API_KEY for its own host (`resolve_key`).
     Raises a role-tagged LLMConfigError (with an 'or run interactively' hint) when base_url/model can't be
     resolved, so the user knows which endpoint is missing and that an interactive agent is the alternative."""
     pre = "CHIMERA_" + role.upper()
     base = (cli_base or os.environ.get(pre + "_BASE_URL") or shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL")
             or default_base)
-    model = (cli_model or os.environ.get(pre + "_MODEL") or shared_cli_model or os.environ.get("CHIMERA_LLM_MODEL")
-             or default_model)
+    chosen = cli_model or os.environ.get(pre + "_MODEL") or shared_cli_model or os.environ.get("CHIMERA_LLM_MODEL")
+    model = chosen or default_model
     key = resolve_key(base, role_key=os.environ.get(pre + "_API_KEY"),
                       shared_base=shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL"))
     effort = (cli_reasoning or os.environ.get(pre + "_REASONING_EFFORT") or shared_cli_reasoning
-              or os.environ.get("CHIMERA_LLM_REASONING_EFFORT"))
+              or os.environ.get("CHIMERA_LLM_REASONING_EFFORT") or (None if chosen else default_reasoning))
     try:
-        return LLMClient(base_url=base, api_key=key or "", model=model, timeout=timeout, reasoning_effort=effort)
+        client = LLMClient(base_url=base, api_key=key or "", model=model, timeout=timeout, reasoning_effort=effort)
+        client.from_default = not chosen   # the run says which models it fell back to
+        return client
     except LLMConfigError as e:
         raise LLMConfigError("[" + role + "] " + str(e)
                              + "  (or drive the loop interactively with an AI agent, which supersedes this)") from e

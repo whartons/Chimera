@@ -34,8 +34,8 @@ from scripts.brandkit import video as video_filler
 from scripts.brandkit import audio as audio_filler
 from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
-from scripts.brandkit.outputs import (NoOutputError, comfy_output_path, route_output, select_output,
-                                      write_sidecar)
+from scripts.brandkit.outputs import (NoOutputError, comfy_output_path, fresh_output_name, route_output,
+                                      select_output, write_sidecar)
 from scripts.brandkit.provenance import git_provenance  # re-exported; historical home was here
 from scripts.brandkit.sidecar import build_meta
 
@@ -335,7 +335,7 @@ def run(args, repo_root, ap):
     if free_before:
         client.free()
     try:
-        pid = client.queue_prompt(wf)
+        pid = client.queue_prompt(fresh_output_name(wf))   # a repeated identical job still writes a new file
     except RuntimeError as e:   # ComfyUI's validation (HTTP 400): a model file it doesn't have, a value out of range
         print(f"{e}\n(`chimera doctor` checks models and node packs)", file=sys.stderr)
         sys.exit(1)
@@ -355,7 +355,10 @@ def run(args, repo_root, ap):
 
     if src is not None:
         # a replay keeps the recorded seed, so it must not land on (and replace) the render it reproduces
-        dest = route_output(repo_root, args.brand, src, args.mode, seed, keep_existing=expect is not None)
+        try:
+            dest = route_output(repo_root, args.brand, src, args.mode, seed, keep_existing=expect is not None)
+        except NoOutputError as e:
+            print(str(e), file=sys.stderr); sys.exit(1)
         fmt = None  # only set for 3d; passed to build_meta (None -> omitted from sidecar)
         if args.modality == "3d":
             # ComfyUI only saves GLB; convert to the requested export format host-side
@@ -608,7 +611,9 @@ def main():
         from scripts.brandkit.doctor import run_checks, print_doctor
         from scripts.brandkit.gpu import gpu_checks
         client = ComfyClient(args.comfy_url)
-        results = run_checks(client, repo_root, args.brand) + gpu_checks(client, args.ollama_url)
+        from scripts.agent.llm import local_model_checks   # the CLI may import the agent layer, not the reverse
+        results = (run_checks(client, repo_root, args.brand) + gpu_checks(client, args.ollama_url)
+                   + local_model_checks(client, args.ollama_url))
         fails = print_doctor(args.brand, results)
         sys.exit(1 if fails else 0)
     if args.modality == "free":

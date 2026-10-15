@@ -6,8 +6,9 @@ loop using its **Workflow/subagent tooling and its own vision**, scoring each
 candidate against a brand/brief **rubric** until one passes (or a cap is hit).
 
 This is **not** a headless CLI — it needs the assistant runtime in the loop. For an
-unattended/offline equivalent, see `auto_generate.py`, whose default judge is Qwen3-VL-8B-Instruct on a
-local Ollama ([`../../modules/agent/self-correction.md`](../../modules/agent/self-correction.md)).
+unattended/offline equivalent, see `auto_generate.py`, whose default judge is a local Ollama model sized to
+the GPU: Qwen 3.8 27B on 24 GB+, a Qwen3-VL 8B or 4B on smaller cards
+([`../../modules/agent/self-correction.md`](../../modules/agent/self-correction.md#local-models-by-gpu-tier)).
 Both share the same model-free core in `scripts/agent/`.
 
 ## Why multi-judge consensus
@@ -106,7 +107,7 @@ return best.img                          # cap reached: best-scoring candidate
 `assistant_vision_judge` is the assistant looking at the image and producing a
 free-text verdict that `parse_verdict()` normalizes — there is **no API key and no
 local VLM** in this backend; the "judge" is the Claude Code runtime itself. Swapping
-that single call for a Qwen3-VL judge — the default Ollama path (`--backend api`)
+that single call for a VLM judge — the default Ollama path (`--backend api`, a model sized to the GPU)
 or a `LocalVLMJudge` over the optional ComfyUI Qwen3-VL graph (`--backend local`) — is
 exactly the headless `auto_generate.py`, which is **built and live-validated**
 (`python scripts/agent/auto_generate.py …`), with the same rubric, expander, and loop shape.
@@ -143,7 +144,7 @@ expander, and loop are unchanged.
    folds the unmet issues into the next **concept** prompt (the lever on an image-conditioned mesh).
    Re-generate with a fresh seed (which also rerolls the mesh lift) and repeat to the cap.
 
-The autonomous equivalent wraps its judge (by default the Ollama Qwen3-VL judge; `--backend local` for the
+The autonomous equivalent wraps its judge (by default the GPU tier's local Ollama judge; `--backend local` for the
 optional ComfyUI node) in `GeometryAwareJudge`, so the same checks-file merge happens with no assistant in
 the loop — `auto_generate.py --pipeline mesh3d`.
 
@@ -154,4 +155,4 @@ the loop — `auto_generate.py --pipeline mesh3d`.
 - You want the **best result** and are willing to keep the assistant in the loop.
 
 For unattended batches, scheduled jobs, or fully offline runs with no assistant, use
-`auto_generate.py` instead (its default judge is Qwen3-VL on a local Ollama).
+`auto_generate.py` instead (its default judge is a local Ollama model sized to your GPU).
