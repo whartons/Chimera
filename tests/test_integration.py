@@ -429,3 +429,21 @@ def test_tracked_sidecars_hold_no_local_paths():
     for p in sorted((ROOT / "brands" / "example-brand" / "outputs").rglob("*.json")):
         walk(json.loads(p.read_text(encoding="utf-8")), p.name)
     assert hits == []
+
+
+
+def test_free_before_unloads_comfyui_just_before_queueing(monkeypatch, tmp_path):
+    # after the drift and flag checks, so a stopped replay or a bad flag frees nothing
+    repo = _tmp_repo(tmp_path)
+    order = []
+
+    class _Ordered(FakeComfy):
+        def free(self, **k):
+            order.append("free")
+
+        def queue_prompt(self, wf):
+            order.append("queue")
+            return super().queue_prompt(wf)
+    monkeypatch.setattr(generate, "ComfyClient", _Ordered)
+    generate.run(_img_args(seed=2, free_before=True), repo, _StubAp())
+    assert order == ["free", "queue"]

@@ -191,3 +191,11 @@ def test_palette_criterion_names_colors_a_small_judge_can_check():
     assert "near-black (#1c1f22), red (#c8442e)" in crit and "only some of these colors is on-palette" in crit
     tex = " ".join(build_rubric(_m(), "rover", modality="3d", textured=True).criteria)
     assert "coloring stays within the brand palette: near-black (#1c1f22)" in tex
+
+
+
+def test_color_words_names_dark_yellows_cyans_and_tinted_blacks():
+    from scripts.agent.rubric import color_words
+    assert color_words("#4d4d00") == "olive (#4d4d00)"
+    assert color_words("#006666") == "teal (#006666)"
+    assert color_words("#1a0000") == "near-black (#1a0000)"   # tinted, but too dark to read as red

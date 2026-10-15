@@ -183,3 +183,11 @@ def test_doctor_reports_each_modalitys_default_model_files():
     out = doctor.run_checks(FakeClient(stats={"system": {}}, object_info=_oi(types, sorted(every - {one}))), ROOT)
     warns = [msg for lvl, msg in out if lvl == "warn" and " default (" in msg]
     assert len(warns) == 1 and warns[0].startswith("3d default (TRELLIS.2)") and one in warns[0]
+
+
+
+def test_available_models_skips_inputs_that_are_not_dropdowns():
+    from scripts.brandkit.doctor import _available_models
+    info = {"N": {"input": {"required": {"steps": "INT", "empty": [], "ckpt": [["a.safetensors"], {}]},
+                            "optional": {"vae": ["COMBO", {"options": ["v.safetensors"]}]}}}}
+    assert _available_models(info) == {"a.safetensors", "v.safetensors"}

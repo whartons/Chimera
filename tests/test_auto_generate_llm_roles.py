@@ -250,3 +250,14 @@ def test_the_loop_unloads_other_ollama_models_before_its_first_render(monkeypatc
     unloaded.clear()
     AG._clear_other_ollama_models([judge])
     assert unloaded == []
+
+
+
+def test_a_remote_default_ollama_is_left_alone(monkeypatch):
+    # another machine's Ollama doesn't share this GPU: never unload its models
+    monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
+    monkeypatch.setenv("OLLAMA_HOST", "10.0.0.5:11434")
+    called = []
+    monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: called.append(root) or [])
+    AG._clear_other_ollama_models([None])
+    assert called == []

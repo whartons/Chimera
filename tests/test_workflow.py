@@ -159,3 +159,14 @@ def test_splice_injector_refuses_reserved_id_collision(monkeypatch):
     monkeypatch.setattr(W, "_load_template", poisoned)
     with pytest.raises(ValueError, match="reserved node id"):
         build_workflow(ROOT, m, mode="txt2img", positive="p", negative="n", seed=1)
+
+
+
+def test_an_unknown_image_mode_is_a_value_error():
+    import pytest as _pytest
+    from pathlib import Path as _Path
+    from scripts.brandkit import workflow
+    from scripts.brandkit.manifest import default_manifest
+    with _pytest.raises(ValueError, match="unknown mode 'sketch'"):
+        workflow.build(_Path(__file__).resolve().parents[1], default_manifest(), positive="p", negative="",
+                       seed=1, mode="sketch")
