@@ -8,6 +8,11 @@ behind **CUDA 13.0 (cu130)** — a standard CUDA 12.x build drives a 5090 correc
 leaves the FP4 tensor-core path disabled (you'll see a `You need pytorch with cu130 or
 higher` warning at startup). See [Performance tuning](#performance-tuning-rtx-50-series--blackwell).
 
+**Version:** Chimera's default models run on **core nodes from ComfyUI 0.40**: Qwen-Image-2.1, the SeedVR2
+upscaler, Wan 2.2 (incl. Fun Camera), Stable Audio 3, and TRELLIS.2 / Pixal3D. On an older build (≥ 0.24),
+pass `--model` to use the earlier models (Z-Image / FLUX.2, LTX-2.3, ACE-Step, Hunyuan3D 2.1). On 0.40,
+LTX-2.3 needs the bundled LTXVideo patch (see [`../modules/video/README.md`](../modules/video/README.md)).
+
 ## This repo
 ```bash
 git clone <your-fork-url> chimera
@@ -20,6 +25,20 @@ mkdir -p workflows/personal outputs
 Each `modules/<name>/models.md` lists the model files, their Hugging Face /
 Civitai URLs, target paths under `ComfyUI/models/...`, and license. Download what
 a module needs before importing its `workflow.template.json`.
+
+The **defaults** come from ungated Comfy-Org repos (no Hugging Face login): about 125 GB in all, or about
+94 GB without the camera-move models.
+
+| Modality | Default | Download |
+|---|---|---|
+| image | Qwen-Image-2.1 | ~17 GB |
+| `--upscale` | SeedVR2 7B | ~9 GB |
+| video | Wan 2.2 | ~38 GB (+ ~31 GB for `--camera` moves) |
+| music / sfx | Stable Audio 3 | ~15 GB |
+| 3D | TRELLIS.2 (its graph also needs the Pixal3D files) | ~15 GB |
+
+Skip any modality you don't use; each module's `models.md` lists its exact files. Comfy-Org's "repackaged" repos
+nest files under `split_files/<type>/`: place them in `models/<type>/`, without the `split_files` level.
 
 ## VRAM
 Baseline dev hardware: RTX 5090, 32 GB. Most modules run on 8–16 GB via
@@ -51,8 +70,8 @@ optimized FP4/FP8 CUDA kernels are gated off). Levers, lowest-risk first:
 4. **NVFP4 model variants** (e.g. `FLUX.2-dev-NVFP4`) — ~2.5× speed / less VRAM, but
    **only after cu130** (on CUDA 12.x they upcast and run *slower*). Keep an fp8 copy
    as an instant fallback.
-5. **Distilled / few-step LoRAs** (e.g. the LTX-2 distilled LoRA) — cutting step count
-   beats any kernel change for video, and needs no install.
+5. **Distilled / few-step LoRAs** (e.g. Wan 2.2's lightx2v 4-step LoRAs, Chimera's default `--quality fast`,
+   or the LTX-2 distilled LoRA). Cutting the step count beats any kernel change for video, and needs no install.
 
 Don't bother on Blackwell + Windows: **nunchaku** (no FLUX.2/LTX-2 support as of 2026),
 **xformers / FlashAttention-3** (no win over SDPA/SageAttention here), or **NVFP4 before

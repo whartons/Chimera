@@ -28,12 +28,16 @@ covers the whole core offline.
 ## The three on-brand mechanisms
 
 **① Prompt injection — always on.** `build_prompt()` composes
-`prefix → subject → style → palette → suffix` into the positive prompt and uses the
-manifest `negative` **on the FLUX.2 graphs**. The Z-Image templates hard-wire
-`ConditioningZeroOut` as their negative (the validated recipe for that family), so a
-brand's `negative` text only takes effect on FLUX.2 (`--model flux2_*`). Zero downloads;
+`prefix → subject → style → palette → suffix` into the positive prompt. Zero downloads;
 works for every brand immediately. This is the backbone — even brands with no logo/LoRA
 get consistent look from style + palette words.
+
+The manifest `negative` is filled into every graph with a negative slot and recorded in
+the sidecar, but no image recipe uses it. Qwen-Image-2.1 and FLUX.2 sample at CFG 1,
+where ComfyUI skips the negative pass entirely, and Z-Image zeroes its negative with
+`ConditioningZeroOut` (even the CFG-4 `base` variant). It changes the output only for video
+sampled **above CFG 1**: LTX-2.3 and Wan 2.2 `--quality full`. To keep something out of an
+image, word the positive instead.
 
 **② IP-Adapter style/subject reference — V2, opt-in (deferred).** The manifest already
 carries an `ip_adapter{}` block (parsed, `enabled: false` by default). FLUX.2 IP-Adapter
@@ -51,20 +55,22 @@ toggle and lands in a separate V2 plan — adding it doesn't disturb V1.
 ## Modes → templates
 
 `--mode` selects one of three generic, API-format graphs in `workflows/templates/`. The
-**default backend is Z-Image** — the filler dispatches to the `brand-zimage-*` templates when the
-model name starts with `z_image`; passing a `flux2*` model name routes to the parallel FLUX.2 graphs
-instead. The filler addresses nodes by a stable `_meta.title` (see `brandkit/nodes.py`), so re-saving
+**default backend is Qwen-Image-2.1**. The filler picks the graph family from the model name:
+`qwen_image*` → the `brand-qwen-image-*` graphs, `z_image*` → `brand-zimage-*`, and `flux2*` → the
+FLUX.2 graphs. It addresses nodes by a stable `_meta.title` (see `brandkit/nodes.py`), so re-saving
 a graph in ComfyUI can't silently misroute an edit.
 
-| Mode | Template (default · Z-Image) | What it does |
+| Mode | Template (default · Qwen-Image-2.1) | What it does |
 |---|---|---|
-| `txt2img` | `brand-zimage-txt2img.json` | on-brand text-to-image (the verified Z-Image graph) |
-| `logo` | `brand-zimage-logo-overlay.json` | txt2img → composite `logos/<png>` (alpha-correct) at a corner |
-| `product` | `brand-zimage-product.json` | img2img: re-render `products/<png>` into a new scene |
+| `txt2img` | `brand-qwen-image-txt2img.json` | on-brand text-to-image |
+| `logo` | `brand-qwen-image-logo-overlay.json` | txt2img → composite `logos/<png>` (alpha-correct) at a corner |
+| `product` | `brand-qwen-image-product.json` | reference edit: the encoder sees `products/<png>` and places that product in a new scene at the brand's size |
 
-The **FLUX.2 fallback** uses the parallel `brand-txt2img.json` / `brand-logo-overlay.json` /
-`brand-product-mockup.json` graphs, selected by setting a `flux2*` model in `brand.yaml` or via
-`--model` (see [`../../docs/CATALOG.md`](../../docs/CATALOG.md)).
+The earlier backends stay one setting away: set the model in `brand.yaml` or pass `--model`
+(see [`../../docs/CATALOG.md`](../../docs/CATALOG.md)). **Z-Image** (`z_image_turbo_*`, the
+default before v0.6.0) uses the `brand-zimage-*` graphs; its `product` mode is an img2img
+re-render at the product photo's size. **FLUX.2** (`flux2*`) uses `brand-txt2img.json` /
+`brand-logo-overlay.json` / `brand-product-mockup.json`, and is also what `--mode relight` runs on.
 
 The logo overlay uses `LoadImage`'s mask output as the composite alpha and computes
 x/y from `logo.position` + `logo.margin` against the canvas, so the logo stays

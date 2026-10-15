@@ -6,6 +6,13 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-15
+
+The model-refresh release. The 2026-10 quarterly review's winners are the new defaults: Qwen-Image-2.1
+(image), SeedVR2 (upscale), Wan 2.2 (video, with camera moves), Stable Audio 3 (music, plus a new sound-effects
+mode) and TRELLIS.2 (textured 3D). Replay now protects old renders from those changes. Also: ComfyUI 0.40 and
+Ollama 0.40 compatibility, a GPU-memory hand-off between them, and a freecad-mcp security fix.
+
 ### Security
 - **`freecad-mcp` `3745ff9 → 78bf023` (v0.1.22 → v0.1.27), fixing
   [GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q)**
@@ -105,9 +112,15 @@ All notable changes to Chimera are documented here. The format follows
   turntables spin in place. Affects `render --mode mesh`, the mesh3d/CAD loop stills, and finalize renders.
 
 ### Changed
+- **ComfyUI ≥ 0.40 is required for the new defaults.** Their nodes are core in 0.40, so no extra node packs are
+  needed. On an older build (≥ 0.24), set `--model` or a brand pin to keep the earlier models. `docs/SETUP.md`
+  lists the default downloads (about 125 GB in all, no Hugging Face login).
 - **Reference build: ComfyUI 0.40.0** (Comfy Desktop 1.1.7), smoke-validated 2026-10-14 with every output
   checked as created by the run: txt2img, relight, upscale, video, foley, music, 3D, finalize-texture, render,
-  cad, and the image/mesh3d/cad agent loops on local Ollama models.
+  cad, and the image/mesh3d/cad agent loops on local Ollama models. Re-validated 2026-10-15 on the new
+  defaults: Qwen-Image txt2img, product edit + SeedVR2 upscale, relight, Wan 2.2 image-to-video and a camera
+  move, foley on a Wan clip, Stable Audio 3 music and sound effects, TRELLIS.2 3D + render, cad, the three agent
+  loops, replay, and doctor.
 - **Video on ComfyUI ≥ 0.40 needs the bundled LTXVideo patch**
   ([`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)).
   ComfyUI 0.40 passes attention inputs as `AttentionTensorContainer`s, and the pack's STG guidance returned
@@ -147,6 +160,19 @@ All notable changes to Chimera are documented here. The format follows
     Blender color bakes.
   - **mesh3d loop:** it now judges the textured model, with the textured rubric. `--texture` / `--finalize`
     require `--mesh-model hunyuan21`; on a textured mesh they would overwrite its textures.
+  - **Geometry gate:** the fragmentation check counts only significant parts (islands with at least 1% of the
+    mesh). TRELLIS.2 models small details such as eyes and antenna tips as separate shells, so a clean toy
+    robot the judge scored 1.0 failed on 12 raw parts (3 significant). Checks files from older runs fall back
+    to the raw count.
+
+### Docs
+- README media regenerated on the new defaults: the Qwen-Image-2.1 hero, and the image → video → 3D strip
+  (a Qwen robot, its Wan 2.2 clip, and its TRELLIS.2 mesh rendered in Blender).
+- `docs/SETUP.md` lists what the defaults download and where Comfy-Org's `split_files/` files go.
+- The Brand Kits guide said a brand's `negative` shaped FLUX.2 images. No image recipe uses it: Qwen-Image-2.1
+  and FLUX.2 sample at CFG 1, where ComfyUI skips the negative pass, and Z-Image zeroes its negative. It only
+  changes video sampled above CFG 1 (LTX-2.3, Wan 2.2 `--quality full`). Word the positive to keep things out
+  of an image.
 
 ### Erratum
 - The **v0.5.0** notes overstated its validation ("smoke-validated live across image, video, 3D … and the full
@@ -732,7 +758,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/whartons/Chimera/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/whartons/Chimera/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/whartons/Chimera/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/whartons/Chimera/compare/v0.3.0...v0.4.0

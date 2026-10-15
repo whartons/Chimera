@@ -311,6 +311,8 @@ takes ~25–35 s, shape only.
 | `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT |
 | `moge_2_vitl_normal_fp16.safetensors` *(Pixal3D)* | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT |
 
+- Both models share one graph, and ComfyUI validates all of it: download all seven files even for TRELLIS.2
+  alone, or the run fails with `Value not in list`.
 - `chimera 3d --model trellis2|pixal3d|hunyuan21` (or a brand's `threed.model`); `--octree` is Hunyuan3D-only.
 - The mesh3d agent loop judges the textured render. `--texture` / `--finalize` (Blender bakes for a
   shape-only mesh) need `--mesh-model hunyuan21`.

@@ -13,7 +13,7 @@ nodes (`Trellis2*`, `Pixal3DConditioning`, `MoGe*`, `RemoveBackground`, `UnwrapM
 `ApplyTextureToMesh`, `Save3DAdvanced`, …) are core in ComfyUI 0.40. The weights are the Comfy-Org int8
 "convrot" builds; nothing is gated (the old `facebook/dinov3` login is not needed).
 
-| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License | Needed by |
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License | Loaded by |
 |------|-----------------|----------------------------------|------|---------|-----------|
 | `trellis_2_int8_convrot.safetensors` | `Comfy-Org/TRELLIS.2` | `diffusion_models/` | ~4.9 GB | ✅ MIT | TRELLIS.2 |
 | `pixal3d_int8_convrot.safetensors` | `Comfy-Org/Pixal3D` | `diffusion_models/` | ~5.2 GB | ✅ MIT | Pixal3D |
@@ -22,6 +22,9 @@ nodes (`Trellis2*`, `Pixal3DConditioning`, `MoGe*`, `RemoveBackground`, `UnwrapM
 | `dino_v3_L_naf_fp32.safetensors` | `Comfy-Org/Pixal3D` | `clip_vision/` | ~1.1 GB | ⚠️ repo lists MIT; upstream DINOv3 is under Meta's DINOv3 license | both |
 | `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT | both |
 | `moge_2_vitl_normal_fp16.safetensors` | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT | Pixal3D |
+
+**Download all seven, whichever model you use.** ComfyUI validates the whole shared graph, so a missing
+file fails the run with `Value not in list`, even one only the other model loads.
 
 ---
 

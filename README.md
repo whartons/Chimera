@@ -4,7 +4,7 @@
 [![lint · test · audit](https://github.com/whartons/Chimera/actions/workflows/ci.yml/badge.svg)](https://github.com/whartons/Chimera/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![codecov](https://codecov.io/gh/whartons/Chimera/branch/main/graph/badge.svg)](https://codecov.io/gh/whartons/Chimera)
-![ComfyUI](https://img.shields.io/badge/ComfyUI-%E2%89%A50.24-orange)
+![ComfyUI](https://img.shields.io/badge/ComfyUI-%E2%89%A50.40-orange)
 ![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 ![Built on RTX 5090 · cu130](https://img.shields.io/badge/built%20on-RTX%205090%20%C2%B7%20cu130-76B900?logo=nvidia&logoColor=white)
 
@@ -21,9 +21,9 @@ Blender-render, and FreeCAD-CAD all run headless from one core — no brand and 
 OpenAI-compatible LLM, or a local Qwen3-VL-8B served via Ollama). Public and reusable — built end-to-end on an RTX 5090,
 written to help anyone on ComfyUI, especially **Blackwell (RTX 50-series)**.
 
-![An ember-winged chimera — lion body, goat head, serpent-headed tail — over an erupting volcano, generated with this repo's Z-Image workflow](docs/images/chimera-zimage-sample.png)
+![An ember-winged chimera — lion body, goat head, serpent-headed tail — over an erupting volcano, generated with this repo's Qwen-Image workflow](docs/images/chimera-qwen-sample.png)
 
-<sub>Generated with the included [Z-Image workflow](workflows/templates/brand-zimage-txt2img.json) (`--variant base`) on an RTX 5090, straight out of ComfyUI.</sub>
+<sub>Generated with the included [Qwen-Image-2.1 workflow](workflows/templates/brand-qwen-image-txt2img.json), the default image model, on an RTX 5090 in about 6 s, straight out of ComfyUI.</sub>
 
 **The headline — the loop correcting itself:**
 
@@ -38,11 +38,13 @@ written to help anyone on ComfyUI, especially **Blackwell (RTX 50-series)**.
 | ![image](docs/images/chimera-sample-image.png) | ![video](docs/images/chimera-sample-video.gif) | ![3D](docs/images/chimera-sample-3d-single.png) | ![Blender turntable](docs/images/chimera-sample-blender.gif) | ![CAD](docs/images/chimera-sample-cad.png) |
 | `chimera image` | `chimera video` | `chimera 3d` | `chimera render` | `chimera cad` |
 
-<sub>The 3D panel is the textured result of one concept image → Hunyuan3D mesh → all-around auto-repaint bake; see the full concept→mesh→texture strip in [`modules/threed/`](modules/threed/).</sub>
+<sub>The image, video and 3D panels are one robot on the default models: Qwen-Image-2.1 drew it, Wan 2.2 animated it, and TRELLIS.2 turned it into a textured mesh, rendered headless in Blender. More in [`modules/threed/`](modules/threed/).</sub>
 
 ## ⚡ Quickstart
 
-**Prereqs:** ComfyUI **≥ 0.24** ([`docs/SETUP.md`](docs/SETUP.md)); RTX 50-series owners should run the
+**Prereqs:** ComfyUI **≥ 0.40**: the default models (Qwen-Image-2.1, SeedVR2, Wan 2.2, Stable Audio 3,
+TRELLIS.2) run on its core nodes. Older builds (≥ 0.24) still run the earlier models via `--model`. See
+[`docs/SETUP.md`](docs/SETUP.md) for what to download. RTX 50-series owners should run the
 [Blackwell tuning guide](docs/BLACKWELL-TUNING.md) first. Then:
 
 ```bash
@@ -70,7 +72,7 @@ LoRA, and per-brand output routing (`brands/<brand>/outputs/…`, each with a si
 
 ```bash
 chimera image --brand <brand> --mode txt2img --subject "an armored rover" --watermark   # --watermark is opt-in
-chimera image --brand <brand> --mode product --asset rover.png   # img2img restyle into a scene
+chimera image --brand <brand> --mode product --asset rover.png   # the real product, placed into a new scene
 chimera audio --brand <brand> --mode foley --from-video clip.mp4 --subject "tires on gravel"
 ```
 
@@ -113,7 +115,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 ## 🧩 Modules
 | Module | What it does | Status |
 |--------|--------------|--------|
-| [`agent`](modules/agent/self-correction.md) | Self-correction loop (generate → VLM judge → refine) — 2D image and 3D mesh (`--pipeline mesh3d`; `--finalize` textures the winner) | ✅ |
+| [`agent`](modules/agent/self-correction.md) | Self-correction loop (generate → VLM judge → refine) — 2D image, textured 3D mesh (`--pipeline mesh3d`), and parametric CAD (`--pipeline cad`, an LLM writes the FreeCAD script) | ✅ |
 | [`agent`](modules/agent/) | MCP bridge + security model — drive ComfyUI from an assistant | ✅ |
 | [`image`](modules/image/) | Qwen-Image-2.1 (default) · Z-Image · FLUX.2 — txt2img / logo / product edit / relight · `--upscale` | ✅ |
 | [`video`](modules/video/) | Wan 2.2 image-to-video (default) + Fun Camera moves (`--camera`) · LTX-2.3 with native synced audio (`--model ltx23`) | ✅ |
@@ -190,7 +192,7 @@ by the commands above:
 |:---:|:---:|:---:|
 | ![txt2img](brands/example-brand/outputs/images/example-brand_txt2img_7.png) | ![product](brands/example-brand/outputs/images/example-brand_product_7.png) | ![logo](brands/example-brand/outputs/images/example-brand_logo_7.png) |
 
-…plus a [video clip](brands/example-brand/outputs/video/example-brand_i2v_42.mp4) (LTX-2.3, synced audio),
+…plus a [video clip](brands/example-brand/outputs/video/example-brand_i2v_42.mp4) (LTX-2.3 via `--model ltx23`, synced audio),
 the same clip [re-foleyed](brands/example-brand/outputs/video/example-brand_foley_42.mp4), a
 [music stinger](brands/example-brand/outputs/audio/example-brand_music_42.mp3), and a
 [3D mesh](brands/example-brand/outputs/3d/example-brand_image_42.glb). The **same brand brain drives a whole

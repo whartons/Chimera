@@ -1,8 +1,10 @@
 # `video` — brand-aware image-to-video (Wan 2.2 default · camera moves · LTX-2.3 with synced audio)
 
-![A short looping clip of a sci-fi utility robot with subtle idle motion](../../docs/images/chimera-sample-video.gif)
+![A short clip of a sci-fi utility robot waving hello](../../docs/images/chimera-sample-video.gif)
 
-*LTX-2.3 image-to-video — `chimera video --model ltx23 --from-image robot.png`. Brand-neutral sample (silent GIF; LTX also emits synced audio).*
+*Wan 2.2 image-to-video, the default (`--quality fast`, about 30 s on an RTX 5090):
+`chimera video --from-image robot.png --subject "the robot raises its right hand and waves hello…"`.
+Brand-neutral sample.*
 
 Two families, both run end-to-end on an RTX 5090:
 

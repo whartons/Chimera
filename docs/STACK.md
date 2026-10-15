@@ -35,7 +35,7 @@ flowchart TD
 ---
 
 ## 1 · Language & Python packages
-The `chimera` package (**v0.5.1**, MIT) is pure Python with one required runtime dependency.
+The `chimera` package (**v0.6.0**, MIT) is pure Python with one required runtime dependency.
 
 | Package | Version | Scope | Used for |
 |---------|---------|-------|----------|
@@ -52,7 +52,7 @@ The `chimera` package (**v0.5.1**, MIT) is pure Python with one required runtime
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **ComfyUI** (Desktop) | **0.40.0** (reference, Comfy Desktop 1.1.7; smoke-validated 2026-10-14 with every output checked as created by the run: txt2img · relight · upscale · video · foley · music · 3d · finalize-texture · render · cad · image/mesh3d/cad agent loops on local Ollama models) · **≥0.24.x** required · **video needs the LTXVideo patch on ≥0.40** (see §3) | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is required because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
+| **ComfyUI** (Desktop) | **0.40.0** (reference, Comfy Desktop 1.1.7; smoke-validated 2026-10-14, then re-validated 2026-10-15 on the v0.6.0 defaults, every output checked as created by the run: Qwen-Image txt2img · product edit + SeedVR2 upscale · relight · Wan 2.2 i2v + camera move · foley · Stable Audio 3 music + sfx · TRELLIS.2 3D · render · cad · finalize-texture · image/mesh3d/cad agent loops on local Ollama models · replay) · **≥0.40** for the default models (their nodes are core in 0.40) · **≥0.24.x** runs the earlier models via `--model` · **LTX-2.3 needs the LTXVideo patch on ≥0.40** (see §3) | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is the floor because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
 
 ## 3 · Third-party ComfyUI node packs (pinned + security-audited)
 Every pack is **pinned by commit** (never `@latest`) and read-through audited before adoption; a
