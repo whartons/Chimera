@@ -464,6 +464,26 @@ interactively supersedes all of this** — when Claude Code (or any IDE agent) i
 codegen/judge/rewriter, and none of these endpoint settings or keys are read (Tier 0). These settings only
 affect unattended `auto_generate.py` runs.
 
+**Thinking models.** Hybrid-thinking models can spend the whole token budget on reasoning and return empty
+content; Ollama ≥ 0.40 serves Qwen3.x this way by default (the 2026-10-14 smoke: Qwen3.6-27B codegen returned
+nothing at all). When a reply is all reasoning and no content, `LLMClient` **retries once with
+`reasoning_effort: "none"`** and keeps that setting for the rest of the run. To skip the wasted first pass,
+or to choose a level, set it per role (same precedence as above): `--llm-reasoning-effort` /
+`CHIMERA_LLM_REASONING_EFFORT`, or `--codegen-` / `--judge-` / `--rewriter-reasoning-effort` /
+`CHIMERA_<ROLE>_REASONING_EFFORT` (`none` | `low` | `medium` | `high`). It is never sent unless configured or
+retried, because some providers reject the field. An explicit value is respected and never overridden. A run
+in which nothing passes now exits with status 1.
+
+**Sharing one GPU with ComfyUI.** Ollama keeps a model resident for about 5 minutes after its last request.
+On a single 32 GB card a 27B codegen or rewriter model (plus its context cache) then starves ComfyUI, and
+ComfyUI 0.40 can even run out of CUDA memory inside its own `/free` and hang (seen 2026-10-14). So when an
+endpoint is a local Ollama (detected via `/api/version`), the loops unload their own resident models
+**before every ComfyUI render** and **when the run ends**, even on failure (`LLMClient.release`, Ollama's
+`keep_alive: 0`). Hosted endpoints are untouched. Reloading the 8B judge costs a few seconds per iteration;
+set `CHIMERA_KEEP_LLM_LOADED=1` if Ollama runs on a second GPU. By hand, `chimera free` unloads every Ollama
+model and then asks ComfyUI to free its VRAM, in that order, and `chimera doctor` reports both apps' GPU
+memory and warns when Ollama holds 8 GB or more.
+
 ```
 python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" --backend api \
     --llm-base-url https://api.anthropic.com/v1 --llm-model claude-opus-4-8   # + CHIMERA_LLM_API_KEY in env

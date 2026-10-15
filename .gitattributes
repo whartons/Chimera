@@ -1,0 +1,2 @@
+# Patches must stay byte-exact (LF) on every platform so `git apply` works on Windows checkouts too.
+*.patch text eol=lf

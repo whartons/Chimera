@@ -212,6 +212,14 @@ PREPARE = {"image": _prepare_image, "video": _prepare_video, "audio": _prepare_a
            "3d": _prepare_3d}
 
 
+def _default_free_before(args, m):
+    """--free-before when neither flag is given: per modality, except that image jobs loading FLUX.2
+    also free first (see workflow.needs_free_before). Mirrors the filler's `model or brand default`."""
+    if args.modality == "image":
+        return image_filler.needs_free_before(args.mode, args.variant, args.model or m.defaults.model)
+    return FREE_BEFORE_DEFAULT[args.modality]
+
+
 def run(args, repo_root, ap):
     if args.brand:
         brand_dir = repo_root / "brands" / args.brand
@@ -231,7 +239,7 @@ def run(args, repo_root, ap):
         ap.error("--watermark needs a --brand (the logo comes from brands/<brand>/logos/)")
     client = ComfyClient(args.comfy_url)
 
-    free_before = args.free_before if args.free_before is not None else FREE_BEFORE_DEFAULT[args.modality]
+    free_before = args.free_before if args.free_before is not None else _default_free_before(args, m)
     if free_before:
         client.free()
 
@@ -442,9 +450,15 @@ def main():
     nb.add_argument("name", help="brand folder name (used as --brand later)")
     lt = sub.add_parser("lint", help="validate a brand.yaml + check referenced assets")
     lt.add_argument("--brand", required=True)
-    dr = sub.add_parser("doctor", help="preflight: check ComfyUI, node packs, models, and a brand")
+    dr = sub.add_parser("doctor", help="preflight: check ComfyUI, node packs, models, a brand, and GPU memory")
     dr.add_argument("--brand", default=None, help="also check this brand's manifest/assets/model")
     dr.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
+    dr.add_argument("--ollama-url", default=None,
+                    help="local Ollama to report on (default: $OLLAMA_HOST, else http://127.0.0.1:11434)")
+    fr = sub.add_parser("free", help="free GPU memory: unload every Ollama model, then ComfyUI's models")
+    fr.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
+    fr.add_argument("--ollama-url", default=None,
+                    help="local Ollama (default: $OLLAMA_HOST, else http://127.0.0.1:11434)")
     uc = sub.add_parser("update-check",
                         help="report available updates (chimera repo, ComfyUI, pip deps, node packs)")
     uc.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
@@ -469,9 +483,15 @@ def main():
         sys.exit(1 if fails else 0)
     if args.modality == "doctor":
         from scripts.brandkit.doctor import run_checks, print_doctor
+        from scripts.brandkit.gpu import gpu_checks
         client = ComfyClient(args.comfy_url)
-        fails = print_doctor(args.brand, run_checks(client, repo_root, args.brand))
+        results = run_checks(client, repo_root, args.brand) + gpu_checks(client, args.ollama_url)
+        fails = print_doctor(args.brand, results)
         sys.exit(1 if fails else 0)
+    if args.modality == "free":
+        from scripts.brandkit.gpu import free_all, print_free
+        print_free(free_all(ComfyClient(args.comfy_url), args.ollama_url))
+        return
     if args.modality == "update-check":
         from scripts.brandkit.updates import check_updates, latest_comfyui_release, print_updates
         client = ComfyClient(args.comfy_url)

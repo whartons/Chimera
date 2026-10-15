@@ -23,6 +23,48 @@ All notable changes to Chimera are documented here. The format follows
 - **Docs now require FreeCAD 1.1.4+.** Earlier releases have HIGH advisories triggered by opening a
   crafted `.FCStd` file ([FreeCAD advisories](https://github.com/FreeCAD/FreeCAD/security/advisories)).
 
+### Added
+- **GPU-memory hand-off between ComfyUI and a local Ollama** (`scripts/brandkit/gpu.py`). The agent loops
+  unload their own resident Ollama models before every ComfyUI render and when the run ends, even on failure
+  (`LLMClient.release`, Ollama's `keep_alive: 0`; local Ollama only, opt out with `CHIMERA_KEEP_LLM_LOADED=1`).
+  Without it, a finished CAD run left its 27B codegen model holding ~26 GB, and the next ComfyUI job ran out of
+  CUDA memory inside ComfyUI's own `/free` and hung.
+- **`chimera free`** unloads every Ollama model, then asks ComfyUI to free its VRAM (in that order).
+  **`chimera doctor`** now reports both apps' GPU memory and warns when Ollama holds 8 GB or more.
+- **Thinking control for local/hosted LLMs:** `--llm-` / `--codegen-` / `--judge-` / `--rewriter-reasoning-effort`
+  and `CHIMERA_[ROLE]_REASONING_EFFORT` (see Fixed).
+
+### Fixed
+- **Local models on Ollama ≥ 0.40 returned nothing.** Ollama 0.40 serves hybrid-thinking models (Qwen3.x) with
+  thinking on, so the CAD codegen model spent its whole token budget reasoning and returned empty content, and
+  every `--pipeline cad` iteration failed. `LLMClient` now retries once with `reasoning_effort: "none"` when a
+  reply is all reasoning, and keeps it for the run. It never sends the field unless configured or retrying.
+- **`auto_generate.py` exits 1 when nothing passed** (it exited 0 even on a total failure).
+- **FLUX.2 jobs failed mid-session on ComfyUI 0.40.** Its new disk-streaming memory manager (comfy-aimdo 0.5.6)
+  fails with Windows error 1450 ("HostBuffer.read_file_slice failed") loading FLUX.2's 33 GB bf16 text encoder
+  while other models are still staged. Image jobs that load FLUX.2 (relight, or a FLUX.2 model) now free
+  ComfyUI's memory first by default; `--no-free-before` overrides.
+- **Blender stills were mis-framed.** `import_mesh` dropped the mesh to the floor without refreshing
+  `matrix_world`, so `frame_object` aimed at the pre-drop position (a Hunyuan robot framed from the knees
+  down), and the fixed-distance camera cropped compact objects such as CAD boxes. The camera distance is now
+  solved from the lens field of view so the whole bounding box fits, and imports centre the origin so
+  turntables spin in place. Affects `render --mode mesh`, the mesh3d/CAD loop stills, and finalize renders.
+
+### Changed
+- **Reference build: ComfyUI 0.40.0** (Comfy Desktop 1.1.7), smoke-validated 2026-10-14 with every output
+  checked as created by the run: txt2img, relight, upscale, video, foley, music, 3D, finalize-texture, render,
+  cad, and the image/mesh3d/cad agent loops on local Ollama models.
+- **Video on ComfyUI ≥ 0.40 needs the bundled LTXVideo patch**
+  ([`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)).
+  ComfyUI 0.40 passes attention inputs as `AttentionTensorContainer`s, and the pack's STG guidance returned
+  one where a tensor belongs, so every STG render failed. Not yet fixed upstream as of `44c8a36`.
+
+### Erratum
+- The **v0.5.0** notes overstated its validation ("smoke-validated live across image, video, 3D … and the full
+  mesh3d self-correction loop"). That 2026-08-20 run routed stale files left in an old ComfyUI output folder for
+  image, video and 3D; only render and cad were clean. The 2026-10-14 smoke above re-ran everything with
+  fresh-output checks.
+
 ## [0.5.1] - 2026-08-20
 
 Patch release: the blender_mcp bridge works again on fresh environments.

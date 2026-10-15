@@ -56,10 +56,11 @@ chimera/
 ├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent, blender, cad
 ├── scripts/
 │   ├── generate.py      # brand-aware CLI (parse + dispatch): image/video/audio/3d + render/cad/
-│   │                    #   finalize-texture + replay/new-brand/lint/doctor/update-check
+│   │                    #   finalize-texture + replay/new-brand/lint/doctor/update-check/free
 │   ├── brandkit/        # shared core: manifest, prompt, fillers, watermark, outputs, sidecar, mesh,
 │   │                    #   comfy, nodes, provenance, replay (sidecar-inputs/replay contract),
-│   │                    #   dcc (runner core) + dcc_cli (render/cad/finalize orchestration)
+│   │                    #   dcc (runner core) + dcc_cli (render/cad/finalize orchestration),
+│   │                    #   gpu (ComfyUI/Ollama GPU-memory hand-off)
 │   └── agent/           # self-correction loop: rubric, expander, judge, loop, llm, geometry,
 │                        #   auto_generate, cad_generate, render_generate, finalize
 ├── brands/              # Brand Kits — pattern public, brand DATA gitignored

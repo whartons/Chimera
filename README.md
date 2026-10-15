@@ -48,7 +48,8 @@ written to help anyone on ComfyUI, especially **Blackwell (RTX 50-series)**.
 ```bash
 git clone https://github.com/whartons/Chimera && cd Chimera
 pip install -e ".[dev]"     # the `chimera` CLI + test/lint tooling (python scripts/generate.py also works)
-chimera doctor              # preflight: ComfyUI reachable? node packs + models installed?
+chimera doctor              # preflight: ComfyUI reachable? node packs + models installed? GPU memory?
+chimera free                # clear GPU memory: unload Ollama's models, then ComfyUI's
 ```
 
 **Generate — no brand, no setup** (output → `outputs/<media>/`):
@@ -104,9 +105,9 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Standalone CLI** | `chimera` over image / video / audio / 3D / render / cad — no assistant, no brand | [Quickstart](#-quickstart) |
 | **Brand Kits** *(opt-in)* | `--brand` → style/palette injection, alpha-exact logo overlay, product re-render, optional LoRA | [brand-kits.md](modules/image/brand-kits.md) |
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it exactly | [below](#-reproducibility--replay) |
-| **Preflight & updates** | `chimera doctor` / `update-check`; a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
+| **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **566 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **597 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
