@@ -101,3 +101,12 @@ def test_the_watermark_stamps_wan_frames_before_create_video():
     wf = _build(watermark=True, watermark_logo="primary.png", logo_px=(100, 100))
     comp_id, _ = find_node_by_title(wf, "brand:watermark_composite")
     assert _in(wf, "brand:create_video")["images"] == [comp_id, 0]
+
+
+def test_bad_inputs_are_rejected_with_the_valid_choices():
+    with pytest.raises(ValueError, match="from_image"):
+        video.build(ROOT, load_manifest(FIX), positive="x", negative="", seed=1)
+    with pytest.raises(ValueError, match="static"):
+        _build(camera="dolly")
+    with pytest.raises(ValueError, match="fast"):
+        _build(quality="ultra")
