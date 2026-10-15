@@ -81,3 +81,8 @@ def test_the_sidecar_records_the_brief_and_a_reseed_is_not_drift():
 def test_the_sfx_prompt_is_the_subject_alone():
     m = load_manifest(FIX)   # has brand music_tags; a sound effect must not inherit them
     assert build_audio_prompt(m, "a sword unsheathing", "sfx") == ("a sword unsheathing", "")
+
+
+def test_an_unknown_audio_mode_is_rejected():
+    with pytest.raises(ValueError, match="music, sfx or foley"):
+        _build(mode="karaoke")
