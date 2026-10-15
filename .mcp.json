@@ -22,7 +22,7 @@
     },
     "freecad": {
       "command": "cmd",
-      "args": ["/c", "uvx", "--from", "git+https://github.com/neka-nat/freecad-mcp@3745ff9", "freecad-mcp", "--host", "127.0.0.1"],
+      "args": ["/c", "uvx", "--from", "git+https://github.com/neka-nat/freecad-mcp@78bf0230a03324b56c9a0b7f55150fb5be2a0d42", "freecad-mcp", "--host", "127.0.0.1"],
       "timeout": 600000
     }
   }

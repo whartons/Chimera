@@ -6,7 +6,22 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+### Security
+- **`freecad-mcp` `3745ff9 → 78bf023` (v0.1.22 → v0.1.27), fixing
+  [GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q)**
+  (HIGH): on ≤ 0.1.24, any web page open in a local browser could make FreeCAD run arbitrary Python
+  while the addon's RPC server was running. v0.1.25+ refuses browser-originated requests (`Origin`
+  header, non-XML content types, and non-localhost `Host` when bound to loopback). Re-audited
+  (83 upstream commits): also confines `insert_part_from_library` to the parts library, runs
+  `execute_code` in its own namespace, and adds an optional shared-secret token
+  (`FREECAD_MCP_TOKEN`) and a server↔addon version handshake. No new network egress.
+  **Update both halves:** the `uvx` pin in `.mcp.json` and the addon in FreeCAD's `Mod/` (copy the
+  whole directory; its `package.xml` is now read at import).
+- **New Tier-1 gate:** v0.1.25 added `execute_code_headless` (model-supplied Python in a
+  `freecadcmd` subprocess). It now requires per-call approval in `.claude/settings.json`, and
+  `tests/test_mcp_gates.py` enforces it. The other new tool, `get_async_status`, is read-only.
+- **Docs now require FreeCAD 1.1.4+.** Earlier releases have HIGH advisories triggered by opening a
+  crafted `.FCStd` file ([FreeCAD advisories](https://github.com/FreeCAD/FreeCAD/security/advisories)).
 
 ## [0.5.1] - 2026-08-20
 

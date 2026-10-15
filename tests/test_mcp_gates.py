@@ -8,6 +8,7 @@ REQUIRED_GATED = {
     "mcp__blender__execute_blender_code_for_cli",
     "mcp__freecad__execute_code",
     "mcp__freecad__execute_code_async",
+    "mcp__freecad__execute_code_headless",   # v0.1.25+: model Python in a freecadcmd subprocess
     "mcp__freecad__create_object",
     "mcp__freecad__edit_object",
     "mcp__freecad__delete_object",

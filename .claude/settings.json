@@ -29,6 +29,7 @@
       "mcp__blender__get_blendfile_summary_usage_guess_for_cli",
       "mcp__freecad__execute_code",
       "mcp__freecad__execute_code_async",
+      "mcp__freecad__execute_code_headless",
       "mcp__freecad__create_object",
       "mcp__freecad__edit_object",
       "mcp__freecad__delete_object",
