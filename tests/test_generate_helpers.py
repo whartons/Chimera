@@ -3,7 +3,7 @@ The orchestrators run()/main() interleave argparse + IO + HTTP and are covered e
 elsewhere; these target the separable logic: the logo size probe, watermark applicability, the
 PyAV-guarded video probe, and the per-modality _prepare_* arg->fkw mapping + validation branches."""
 from __future__ import annotations
-import argparse, builtins, struct, types
+import argparse, builtins, json, struct, types
 from pathlib import Path
 import pytest
 from scripts import generate
@@ -182,10 +182,17 @@ def test_resolve_sidecar_inputs_video_records_resolved_dims_and_audio():
     # fallback chain) so replay reproduces the render even if the brand.yaml changes later
     inp = generate._resolve_sidecar_inputs(
         _args_ns(modality="video", mode="i2v", from_image="r.png", length=None, fps=None,
-                 width=None, height=None, audio=None), M)
-    assert inp["length"] == M.video.length and inp["fps"] == M.video.fps
+                 width=None, height=None, audio=None, model="ltx23"), M)
+    assert inp["length"] == M.video.length and inp["fps"] == M.video.fps   # LTX: the brand video: block
     assert inp["width"] == M.video.width and inp["height"] == M.video.height
-    assert inp["audio"] == M.video.audio
+    assert inp["audio"] == M.video.audio and inp["quality"] is None
+
+
+def test_resolve_sidecar_inputs_wan_records_its_native_clip_and_camera():
+    inp = generate._resolve_sidecar_inputs(
+        _args_ns(modality="video", mode="i2v", from_image="r.png", camera="static"), M)
+    assert (inp["length"], inp["fps"], inp["audio"]) == (81, 16, False)       # Wan: native 5 s clip, silent
+    assert (inp["quality"], inp["camera"]) == ("full", "static")
 
 
 def test_resolve_sidecar_inputs_3d_records_resolved_format():
@@ -415,3 +422,26 @@ def test_print_summary_runs(capsys):
     ag._print_summary(result)
     out = capsys.readouterr().out
     assert "winning image" in out and "iter 0" in out
+
+
+def test_foley_reads_a_chimera_clips_timing_from_its_sidecar(tmp_path, monkeypatch):
+    # 2026-10: foley on a Wan clip (16 fps) came out at 25 fps — the host had no PyAV, so the probe
+    # failed and the 25 fps fallback (LTX's rate) re-timed it. A Chimera render's own sidecar records
+    # the exact fps/frames, with no dependencies.
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (None, None, None, None))
+    clip = tmp_path / "i2v_601.mp4"
+    clip.write_bytes(b"x")
+    clip.with_suffix(".json").write_text(json.dumps({"inputs": {"fps": 16, "length": 81, "width": 768,
+                                                                "height": 512}}), encoding="utf-8")
+    fkw = generate._prepare_audio(_args_ns(modality="audio", mode="foley", from_video=str(clip), brand=None),
+                                  M, None, _FakeUploadClient(), _StubAp())
+    assert fkw["frame_rate"] == 16.0 and abs(fkw["duration"] - 81 / 16) < 1e-9
+    assert (fkw["width"], fkw["height"]) == (768, 512)
+
+
+def test_clip_timing_doubles_the_size_of_an_ltx_upscaled_clip(tmp_path):
+    clip = tmp_path / "i2v_7.mp4"
+    clip.write_bytes(b"x")
+    clip.with_suffix(".json").write_text(json.dumps({"inputs": {"fps": 25, "length": 97, "width": 768,
+                                                                "height": 512, "upscale": True}}), encoding="utf-8")
+    assert generate._clip_timing(clip) == (25.0, 97 / 25, 1536, 1024)

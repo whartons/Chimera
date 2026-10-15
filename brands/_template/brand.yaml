@@ -18,6 +18,8 @@ ip_adapter: { enabled: false, weight: 0.5, references: "references/" }
 # --- opt-in watermark (off by default; --watermark turns it on per render) ---
 watermark: { enabled_default: false, position: "bottom-right", scale: 0.16, margin: 0.04, opacity: 1.0 }
 # --- per-modality defaults (used by the video/audio/3D phases) ---
+# video model null = Wan 2.2 (silent; --camera moves); "ltx23" = LTX-2.3 with synced audio.
+# length/fps/audio apply to LTX (Wan renders its native 81 frames at 16 fps).
 video: { model: null, length: 97, fps: 25, audio: true }
 audio: { music_model: null, foley: "ltx-native" }
 threed: { model: null, format: "glb" }

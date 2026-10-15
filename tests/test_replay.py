@@ -259,3 +259,11 @@ def test_replay_drift_on_an_older_sidecar_checks_what_it_recorded():
     meta = _drift_meta(_drift_wf())
     meta.pop("provenance")          # pre-provenance schema-2 sidecar: no structure/settings record
     assert _drift(meta, _drift_wf(width=640, extra=True)) == []
+
+
+def test_a_wan_camera_render_replays_its_move_and_quality():
+    s = _video_sidecar()
+    s["model"] = "wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors"
+    s["inputs"].update(camera="pan-left", quality="full", length=81, fps=16, audio=False)
+    a = _args_from_sidecar(s)
+    assert (a.camera, a.quality, a.model) == ("pan-left", "full", s["model"])

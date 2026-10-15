@@ -131,10 +131,14 @@ def _prepare_image(args, m, brand_dir, client, ap):
 
 def _prepare_video(args, m, brand_dir, client, ap):
     path = _resolve_asset(brand_dir, args.from_image, ("products", "references"), ap, "video --from-image")
+    model, camera = getattr(args, "model", None), getattr(args, "camera", None)
+    if args.audio and video_filler.is_wan(video_filler.resolved_model(m, model, camera)):
+        print("note: Wan 2.2 clips are silent; for built-in synced audio use --model ltx23, or add sound "
+              "afterwards with `audio --mode foley --from-video <clip>`", file=sys.stderr)
     return {"from_image": client.upload_image(path),
             "length": args.length, "fps": args.fps, "audio": args.audio,
             "width": args.width, "height": args.height,
-            "model": getattr(args, "model", None),   # set by replay (pinned) ; else brand/default
+            "model": model, "camera": camera, "quality": getattr(args, "quality", None),
             "upscale": args.upscale,
             "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
 
@@ -165,6 +169,23 @@ def _probe_video(path):
         c.close()
 
 
+def _clip_timing(path):
+    """(fps, duration_s, width, height) of a foley source clip. A Chimera render records the exact values
+    in its own sidecar (no dependencies; and right for Wan's 16 fps clips, which the 25 fps fallback below
+    used to speed up); otherwise probe with PyAV (the [video] extra); (None,)*4 if neither works."""
+    try:
+        inp = json.loads(Path(path).with_suffix(".json").read_text(encoding="utf-8")).get("inputs") or {}
+    except (OSError, ValueError, AttributeError):
+        inp = {}
+    fps, length = inp.get("fps"), inp.get("length")
+    if fps and length:
+        w, h = inp.get("width"), inp.get("height")
+        if inp.get("upscale") and w and h:   # LTX's latent upscaler doubles the decoded frame
+            w, h = w * 2, h * 2
+        return float(fps), length / float(fps), w, h
+    return _probe_video(path)
+
+
 def _prepare_audio(args, m, brand_dir, client, ap):
     model = getattr(args, "model", None)   # set by replay (pinned); else brand/default
     if args.mode == "music":
@@ -174,7 +195,7 @@ def _prepare_audio(args, m, brand_dir, client, ap):
     # outputs/video/ first (media-type-routed location), then legacy flat outputs/, then sources
     path = _resolve_asset(brand_dir, args.from_video,
                           ("outputs/video", "outputs", "references", "products"), ap, "foley --from-video")
-    fr, dur, w, h = _probe_video(path)
+    fr, dur, w, h = _clip_timing(path)
     frame_rate = args.fps or fr or 25.0
     duration = args.duration or dur or 5.0
     if (fr is None or dur is None) and (args.fps is None or args.duration is None):
@@ -265,8 +286,11 @@ def run(args, repo_root, ap):
                   "placement will be approximate (install Pillow or use a PNG logo)",
                   file=sys.stderr)
 
-    wf = FILLERS[args.modality](repo_root, m, positive=pos, negative=neg, seed=seed,
-                               watermark=do_watermark, **fkw)
+    try:
+        wf = FILLERS[args.modality](repo_root, m, positive=pos, negative=neg, seed=seed,
+                                   watermark=do_watermark, **fkw)
+    except ValueError as e:   # a combination the filler can't render (e.g. --camera with --model ltx23)
+        ap.error(str(e))
     expect = getattr(args, "expect", None)   # replay: the sidecar being reproduced
     if expect is not None:
         drift = replay_drift(expect, model=_resolve_model_used(args, m), wf=wf, modality=args.modality,
@@ -345,16 +369,26 @@ def main():
     vid.add_argument("--from-image", dest="from_image", required=True,
                      help="start frame: a file in brands/<brand>/products/ or references/")
     vid.add_argument("--mode", choices=["i2v"], default="i2v")
-    # defaults stay None so the brand.yaml video: block wins; the filler falls back 97/25/768x512/on
-    vid.add_argument("--length", type=int, default=None, help="frames (default: brand video.length, else 97)")
-    vid.add_argument("--fps", type=int, default=None, help="default: brand video.fps, else 25")
+    vid.add_argument("--model", default=None,
+                     help="video model: wan22 (default; steady camera, silent) | ltx23 (built-in synced audio), "
+                          "or a model file name")
+    vid.add_argument("--camera", choices=list(video_filler.CAMERA_POSES), default=None,
+                     help="(Wan) a controlled camera via Wan 2.2 Fun Camera: static keeps it locked while the "
+                          "scene moves; pans/zooms/rotations move it")
+    vid.add_argument("--quality", choices=["fast", "full"], default=None,
+                     help="(Wan) fast = 4-step LoRAs, ~1 min (default without --camera); full = 20 steps, ~3-4 min, "
+                          "more scene motion (default with --camera)")
+    # defaults stay None so the brand.yaml video: block (LTX) / Wan's native clip wins in the filler
+    vid.add_argument("--length", type=int, default=None,
+                     help="frames (default: Wan 81 at 16 fps; LTX brand video.length, else 97)")
+    vid.add_argument("--fps", type=int, default=None, help="default: Wan 16; LTX brand video.fps, else 25")
     vid.add_argument("--width", type=int, default=None, help="default: brand video.width, else 768")
     vid.add_argument("--height", type=int, default=None, help="default: brand video.height, else 512")
     vid.add_argument("--audio", dest="audio", action="store_true", default=None,
-                     help="force synced audio on (default: brand video.audio, else on)")
+                     help="(LTX) force synced audio on (default: brand video.audio, else on); Wan clips are silent")
     vid.add_argument("--no-audio", dest="audio", action="store_false")
     vid.add_argument("--upscale", action="store_true",
-                     help="2x LTX spatial latent upscale (temporally coherent; precedes watermark)")
+                     help="(LTX) 2x spatial latent upscale (temporally coherent; precedes watermark)")
     vid.add_argument("--upscale-model", dest="upscale_model", default=None,
                      help=f"override the latent upscaler (default {video_filler.DEFAULT_VIDEO_UPSCALE_MODEL}; "
                           "must be in ComfyUI models/latent_upscale_models/)")

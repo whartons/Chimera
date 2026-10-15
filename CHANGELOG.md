@@ -51,11 +51,27 @@ All notable changes to Chimera are documented here. The format follows
   rewired out. Short names (`trellis2`, `pixal3d`, `hunyuan21`) work for `--model`, `--mesh-model` and a
   brand's `threed.model`, and resolve to file names in sidecars. **`auto_generate --mesh-model`** picks the
   mesh3d loop's 3D model.
+- **Wan 2.2 video backend + camera moves** (`chimera video [--camera <move>] [--quality fast|full]`). Core
+  ComfyUI nodes; Apache-2.0; high- and low-noise experts.
+  - **`fast`** (lightx2v 4-step LoRAs, ~30–55 s) is the default for plain image-to-video; **`full`** runs
+    20 steps.
+  - **`--camera static|pan-*|zoom-*|rotate-*`** uses Wan 2.2 **Fun Camera**: a locked shot while the scene
+    moves, or a controlled move. It defaults to `full`, because the 4-step mode cut scene motion to about a
+    third.
+  - Wan clips are silent; add sound with `audio --mode foley --from-video`.
+  - Templates are `workflows/templates/brand-video-wan22-{i2v,camera}.json`. Sidecars record the
+    camera/quality and Wan's resolved clip (81 frames at 16 fps), so replay reproduces it.
 - **`replay --model <file>`** re-runs a recorded render on a different model with everything else as
   recorded (subject, seed, settings), e.g. to run old brand work back on a newer model. **`replay
   --accept-drift`** renders even when the brand or a template changed since (see Fixed).
 
 ### Fixed
+- **Foley re-timed a 16 fps clip to 25 fps when PyAV wasn't installed** (it played about 1.6× too fast). The
+  fps probe needs PyAV (an optional extra), so without it foley fell back to 25 fps, LTX's rate. Foley now
+  reads a Chimera clip's exact fps, frame count and size from the clip's own sidecar first. Verified on a
+  Wan clip: 81 frames at 16 fps with a 5.04 s audio track.
+- **A filler's "can't render this combination" error printed a traceback.** `generate.py` now reports it
+  as a normal CLI error (for example `--camera` with `--model ltx23`, or logo mode without a logo).
 - **`auto_generate --pipeline mesh3d --model X` loaded X as the 3D checkpoint.** `--model` is the concept
   image's model, but it was also passed to the 3D build, so every iteration failed validation and the loop
   had no winner. The 3D model now comes from the new `--mesh-model` only.
@@ -100,6 +116,17 @@ All notable changes to Chimera are documented here. The format follows
   about 10 s on an RTX 5090. `--upscale-model 4x-UltraSharp.pth` (or `defaults.upscale_model`) still selects
   the ESRGAN pass, and older upscaled renders replay on their recorded upscaler. Video `--upscale` is unchanged
   (the LTX latent upscaler).
+- **Default video model: LTX-2.3 → Wan 2.2.**
+  - **Why:** the 2026-10 review measured camera drift on three shots whose prompts asked for a locked
+    camera. LTX-2.3 pushed in 9%, drove a "parked" car off with a 34% pan, and drifted a face's identity.
+    Wan 2.2 held ≤ 0.8% zoom and kept identity.
+  - **Brands:** they follow the default (none pin a video model). `video.model: ltx23` pins LTX for a brand,
+    and `--model ltx23` keeps synced audio for one clip.
+  - **Settings:** the brand `video:` block's `length`/`fps`/`audio` apply to LTX; Wan uses its native
+    81 frames at 16 fps.
+  - **Not supported on Wan:** `--upscale` (LTX's latent upscaler) and `--camera` with `--model ltx23` stop
+    with a clear error.
+  - **Replay:** old renders replay on LTX (their recorded model).
 - **Default 3D model: Hunyuan3D 2.1 (shape only) → TRELLIS.2 (textured).**
   - **Why:** in the 2026-10 review on three photos, TRELLIS.2 and Pixal3D both beat Hunyuan3D 2.1. They
     produce textured meshes, and they cut the subject out of a cluttered photo where Hunyuan3D rebuilt the

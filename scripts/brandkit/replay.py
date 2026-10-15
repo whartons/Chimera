@@ -20,14 +20,14 @@ from .sidecar import graph_prompts, graph_signature, graph_values
 # "format" which is injected separately as the resolved fmt; tests/test_sidecar.py guards this.
 SIDECAR_INPUT_KEYS = ("subject", "asset", "variant", "model", "from_image", "from_video",
                       "length", "fps", "width", "height", "audio", "duration", "bpm",
-                      "keyscale", "octree", "upscale", "upscale_model")
+                      "keyscale", "octree", "upscale", "upscale_model", "camera", "quality")
 
 
 def resolve_model_used(args, m):
     """The model filename the graph ACTUALLY loaded — asked of the filler that decided it, so the
     sidecar can never drift from the built graph (single source of truth, B6). Pure."""
     if args.modality == "video":
-        return video_filler.resolved_model(m, getattr(args, "model", None))
+        return video_filler.resolved_model(m, getattr(args, "model", None), getattr(args, "camera", None))
     if args.modality == "audio":
         return audio_filler.resolved_model(m, args.mode, getattr(args, "model", None))
     if args.modality == "3d":
@@ -48,14 +48,15 @@ def resolve_sidecar_inputs(args, m, fmt=None):
         inputs["upscale"] = True if args.upscale else None
         inputs["upscale_model"] = resolver(m, args.upscale_model) if args.upscale else None
     if args.modality == "video":
-        # record RESOLVED dims/audio (CLI flag, else brand video: block, else filler default) so
-        # replay reproduces the render even if the brand.yaml changes later
-        v = m.video
-        inputs["length"] = args.length or v.length
-        inputs["fps"] = args.fps or v.fps
-        inputs["width"] = args.width or v.width
-        inputs["height"] = args.height or v.height
-        inputs["audio"] = v.audio if args.audio is None else args.audio
+        # record the RESOLVED settings (the filler's own resolver: CLI flag, else the family default —
+        # the brand video: block for LTX, Wan's native clip for Wan) so replay reproduces the render
+        # even if the brand.yaml or a default changes later
+        r = video_filler.resolved_settings(
+            m, model=getattr(args, "model", None), camera=getattr(args, "camera", None),
+            quality=getattr(args, "quality", None), length=args.length, fps=args.fps,
+            width=args.width, height=args.height, audio=args.audio)
+        for k in ("length", "fps", "width", "height", "audio", "quality", "camera"):
+            inputs[k] = r[k]
     if args.modality == "3d":
         inputs["format"] = fmt
     return inputs
@@ -113,6 +114,8 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
         duration=inp.get("duration"),
         bpm=inp.get("bpm"),
         keyscale=inp.get("keyscale"),
+        camera=inp.get("camera"),          # video (Wan Fun Camera) move, if any
+        quality=inp.get("quality"),        # video (Wan) fast / full
         octree=inp.get("octree"),
         format=inp.get("format") or data.get("format"),
     )

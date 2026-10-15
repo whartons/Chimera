@@ -1,25 +1,64 @@
-# `video` — brand-aware image-to-video with native synchronized audio (LTX-2.3)
+# `video` — brand-aware image-to-video (Wan 2.2 default · camera moves · LTX-2.3 with synced audio)
 
 ![A short looping clip of a sci-fi utility robot with subtle idle motion](../../docs/images/chimera-sample-video.gif)
 
-*LTX-2.3 image-to-video — `chimera video --from-image robot.png`. Brand-neutral sample (silent GIF; the workflow also emits synced audio).*
+*LTX-2.3 image-to-video — `chimera video --model ltx23 --from-image robot.png`. Brand-neutral sample (silent GIF; LTX also emits synced audio).*
 
-A **tested, importable** LTX-2.3 22B image-to-video workflow that generates
-**video and synchronized audio in a single ComfyUI pass** — no separate
-audio-generation step. Built from the live ComfyUI node schemas, run end-to-end
-on an RTX 5090 (768×512, 97 frames @ 25 fps, 48 kHz PCM audio).
+Two families, both run end-to-end on an RTX 5090:
+
+| | Wan 2.2 14B *(default)* | LTX-2.3 22B (`--model ltx23`) |
+|---|---|---|
+| Camera | holds steady (≤ 0.8% zoom in the 2026-10 review); **`--camera`** gives a locked shot or a controlled pan / zoom / rotation | adds its own push-in or pan; a "parked" car drove off |
+| Subject | keeps a face's identity | drifted a face's identity |
+| Audio | silent: add sound with `audio --mode foley --from-video` | **synced audio in the same pass** |
+| Time per clip (RTX 5090) | ~35 s (`fast`, 768×512, 5 s) · ~3 min (`full` / `--camera`) | ~50–80 s (3.9 s, with audio) |
+
+Wan became the default after the 2026-10 model review measured camera drift on three shots (chained
+feature tracking frame to frame). Use LTX when you want sound baked in.
 
 ## Files
-- [`workflow.template.json`](workflow.template.json) — the ComfyUI **API-format**
+- [`workflow.wan22-i2v.template.json`](workflow.wan22-i2v.template.json) — Wan 2.2 image-to-video (high/low
+  experts with the lightx2v 4-step LoRAs). Copy in
+  [`../../workflows/templates/brand-video-wan22-i2v.json`](../../workflows/templates/brand-video-wan22-i2v.json).
+- [`workflow.wan22-camera.template.json`](workflow.wan22-camera.template.json) — Wan 2.2 Fun Camera
+  (`--camera`). Copy in
+  [`../../workflows/templates/brand-video-wan22-camera.json`](../../workflows/templates/brand-video-wan22-camera.json).
+- [`workflow.template.json`](workflow.template.json) — the LTX-2.3 **API-format**
   workflow (drop-in for `POST /prompt` or any MCP `enqueue_workflow` tool). A copy
   also lives in
   [`../../workflows/templates/brand-video-i2v.json`](../../workflows/templates/brand-video-i2v.json).
 - [`models.md`](models.md) — the model files you need + where to get them.
 
-## Use it — unified CLI
+## Use it — Wan 2.2 (default)
 
 ```
 python scripts/generate.py video \
+  --brand example-brand \
+  --subject "<the motion you want>" \
+  --from-image rover.png \
+  [--camera static|pan-left|pan-right|pan-up|pan-down|zoom-in|zoom-out|rotate-cw|rotate-ccw] \
+  [--quality fast|full] \
+  [--width 768 --height 512] [--length 81] [--fps 16] \
+  [--watermark] \
+  --comfy-output-dir "<ComfyUI output dir>"
+```
+
+- **`--quality`**: `fast` = the lightx2v 4-step LoRAs (~30–55 s), the default for plain image-to-video;
+  `full` = 20 steps without the LoRAs (~3 min), more motion but it drifted the camera more in the review.
+- **`--camera <move>`** uses Wan 2.2 **Fun Camera**: `static` locks the camera while the scene moves (the
+  fix for LTX's unavoidable push-in on looping backgrounds); the others are controlled moves. It defaults
+  to `full` quality, because the 4-step mode kept the camera locked but cut the scene's motion to about a
+  third (measured 2026-10); `--quality fast` (~35 s) is fine when the camera move is the point.
+- Wan's native clip is **81 frames at 16 fps (5 s)**; sizes snap down to multiples of 16. The brand
+  `video:` block's `width`/`height` apply; its `length`/`fps`/`audio` are LTX settings.
+- **Silent.** For sound, run `python scripts/generate.py audio --mode foley --from-video <clip>
+  --subject "<the sounds>"`, or use `--model ltx23`.
+- `--upscale` is LTX-only (its latent upscaler); for a bigger Wan clip ask for it with `--width`/`--height`.
+
+## Use it — LTX-2.3 with synced audio (`--model ltx23`)
+
+```
+python scripts/generate.py video --model ltx23 \
   --brand example-brand \
   --subject "<cinematic action + the sounds you want>" \
   --from-image rover.png \
@@ -45,17 +84,29 @@ The filler reads the active brand's `brand.yaml` `video:` block for defaults:
 
 ```yaml
 video:
-  model: ltx-2.3-22b-dev-nvfp4.safetensors   # checkpoint FILENAME (passed verbatim to the loaders)
+  model: ltx23                        # pin LTX for this brand (null = the Wan 2.2 default); a file name works too
   width: 768
   height: 512
-  length: 97                          # frames
-  fps: 25
-  audio: true                          # false = skip the synced-audio path (like --no-audio)
+  length: 97                          # frames (LTX)
+  fps: 25                             # (LTX)
+  audio: true                          # (LTX) false = skip the synced-audio path (like --no-audio)
   upscale_model: ltx-2.3-spatial-upscaler-x2-1.1.safetensors   # optional --upscale override
 ```
 
 Override any key on the CLI; an explicit CLI flag always wins over `brand.yaml`, and a brand
 without a `video:` block falls back to the values above (768×512 · 97 frames · 25 fps · audio on).
+
+## How it works — Wan 2.2
+
+`LoadImage` + `CLIPTextEncode` (umt5-xxl) → **`WanImageToVideo`** (or, with `--camera`,
+**`WanCameraEmbedding` → `WanCameraImageToVideo`**) → two `KSamplerAdvanced` passes: the **high-noise
+expert** runs the first half of the steps and hands its leftover noise to the **low-noise expert**
+(`ModelSamplingSD3` shift 5, or 8 for Fun Camera) → `VAEDecode` → `CreateVideo` (16 fps) → `SaveVideo`.
+`fast` puts the lightx2v 4-step LoRA on each expert (4 steps, CFG 1, switch at step 2); `full` samples the
+bare experts (20 steps, CFG 3.5, switch at 10). The brand negative is joined to Wan's own recommended
+negative list. Core ComfyUI nodes only — no node pack.
+
+## How it works — LTX-2.3
 
 ## How it works
 
@@ -213,6 +264,14 @@ python scripts/generate.py video --brand example-brand \
 
 ## Performance (RTX 5090 / cu130 / SageAttention)
 
+| Run | Time (warm) |
+|-----|-------------|
+| Wan 2.2 `fast` (768×512, 81 frames) | ~35 s |
+| Wan 2.2 `full` | ~170 s |
+| Wan 2.2 Fun Camera, `full` (default for `--camera`) | ~170 s (768×512) – 250 s (720²) |
+| Wan 2.2 Fun Camera, `--quality fast` | ~35 s |
+| LTX-2.3 768×512, 97 frames, with audio | ~50–80 s |
+
 - `ltx-2.3-22b-dev-nvfp4` @ 768×512 / 97 frames / 25 fps: generation time
   varies with prompt complexity; expect several minutes for a cold start.
 - First render of a session is slower (model load + one-time JIT). Keep the
@@ -220,6 +279,11 @@ python scripts/generate.py video --brand example-brand \
 
 ## VRAM
 
-~28–32 GB for the nvfp4 checkpoint. `--free-before` (default ON) clears other
+**Wan 2.2:** two fp8 experts (~13–14 GB each, sampled one after the other) plus the ~6 GB umt5 text
+encoder. ComfyUI fills most of a 32 GB card while it runs (25–31 GB observed); the official template
+reports about 84% of a 24 GB card at 640² (89% with the 4-step LoRAs). Smaller cards rely on ComfyUI's
+offloading.
+
+**LTX-2.3:** ~28–32 GB for the nvfp4 checkpoint. `--free-before` (default ON) clears other
 resident models before queuing. See [`models.md`](models.md) for quantized and
 distilled options.
