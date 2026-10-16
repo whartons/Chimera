@@ -457,3 +457,122 @@ def test_a_missing_reported_file_is_one_clean_error(monkeypatch, tmp_path, capsy
     with pytest.raises(SystemExit) as e:
         generate.run(_img_args(seed=4, comfy_output_dir=str(comfyout)), repo, _StubAp())
     assert e.value.code == 1 and "isn't in its output folder" in capsys.readouterr().err
+
+
+
+# --- the 2026-10 review: one-line errors, flags a mode ignores, 3D formats ---------------------------------
+class _ErrAp:
+    def error(self, msg):
+        raise SystemExit(f"ap.error: {msg}")
+
+
+def _main(monkeypatch, *argv):
+    monkeypatch.setattr(sys, "argv", ["generate.py", *argv])
+    generate.main()
+
+
+def test_an_unknown_brand_is_one_clean_error(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    with pytest.raises(SystemExit, match="brand 'nope'"):
+        generate.run(_img_args(brand="nope"), repo, _ErrAp())
+
+
+def test_a_missing_watermark_logo_is_caught_before_anything_uploads(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    uploads = []
+
+    class _C(FakeComfy):
+        def upload_image(self, p):
+            uploads.append(p)
+            return "x"
+    monkeypatch.setattr(generate, "ComfyClient", _C)
+    (repo / "brands" / "b" / "products").mkdir()
+    (repo / "brands" / "b" / "products" / "rover.png").write_bytes(b"x")
+    with pytest.raises(SystemExit, match="watermark"):
+        generate.run(_img_args(mode="product", asset="rover.png", watermark=True), repo, _ErrAp())
+    assert uploads == []
+
+
+def test_comfyui_timing_out_is_one_line(monkeypatch, capsys):
+    monkeypatch.setattr(generate, "run", lambda *a: (_ for _ in ()).throw(TimeoutError("timed out")))
+    with pytest.raises(SystemExit) as e:
+        generate._run_comfy(_img_args(), Path("."), _StubAp())
+    assert e.value.code == 1 and "stopped answering" in capsys.readouterr().err
+
+
+def test_flags_the_mode_would_ignore_are_errors(monkeypatch, capsys):
+    monkeypatch.setattr(generate, "_run_comfy", lambda *a: pytest.fail("must not render"))
+    with pytest.raises(SystemExit):
+        _main(monkeypatch, "image", "--subject", "x", "--upscale-model", "4x-UltraSharp.pth")
+    assert "add --upscale" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        _main(monkeypatch, "audio", "--mode", "sfx", "--subject", "whoosh", "--bpm", "120")
+    assert "music settings" in capsys.readouterr().err
+
+
+def test_replaying_a_file_that_is_not_a_sidecar_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    png = tmp_path / "r.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n\x00\xff")
+    lst = tmp_path / "l.json"
+    lst.write_text("[1, 2]", encoding="utf-8")
+    for f in (png, lst, tmp_path / "missing.json"):
+        with pytest.raises(SystemExit):
+            _main(monkeypatch, "replay", str(f))
+        assert "sidecar" in capsys.readouterr().err
+
+
+def _repo_3d(tmp_path):
+    repo = _tmp_repo(tmp_path)
+    shutil.copytree(ROOT / "workflows" / "templates", repo / "workflows" / "templates", dirs_exist_ok=True)
+    (repo / "brands" / "b" / "products").mkdir()
+    (repo / "brands" / "b" / "products" / "rover.png").write_bytes(b"x")
+    return repo
+
+
+class _Comfy3D(FakeComfy):
+    def output_files_by_node(self, pid):
+        return [("999", "out.glb", "", "output")]
+
+
+def _3d_args(**over):
+    return _img_args(modality="3d", mode="image", from_image="rover.png", format="stl", **over)
+
+
+def test_3d_stl_keeps_the_textured_glb_beside_it(monkeypatch, tmp_path):
+    # TRELLIS.2 bakes its textures into the GLB, which converting to STL used to delete
+    import scripts.brandkit.mesh as mesh
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+
+    def fake_convert(p, fmt):
+        out = Path(p).with_suffix("." + fmt)
+        out.write_bytes(b"stl")
+        return out
+    monkeypatch.setattr(mesh, "convert", fake_convert)
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir()
+    (comfyout / "out.glb").write_bytes(b"glb")
+    generate.run(_3d_args(seed=5, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    d = repo / "brands" / "b" / "outputs" / "3d"
+    assert (d / "b_image_5.glb").exists() and (d / "b_image_5.stl").exists() and (d / "b_image_5.json").exists()
+
+
+def test_a_3d_file_that_will_not_convert_is_one_line(monkeypatch, tmp_path, capsys):
+    import scripts.brandkit.mesh as mesh
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    monkeypatch.setattr(mesh, "convert", lambda p, fmt: (_ for _ in ()).throw(ValueError("out.glb has 2 mesh parts")))
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir()
+    (comfyout / "out.glb").write_bytes(b"glb")
+    with pytest.raises(SystemExit) as e:
+        generate.run(_3d_args(seed=5, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    assert e.value.code == 1 and "the GLB is at" in capsys.readouterr().err
+
+
+def test_3d_stl_without_an_output_dir_says_it_stays_a_glb(monkeypatch, tmp_path, capsys):
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    generate.run(_3d_args(seed=5), repo, _StubAp())
+    assert "ComfyUI's GLB only" in capsys.readouterr().err

@@ -106,3 +106,14 @@ def test_finish_keep_rejects_watertight(monkeypatch):
     monkeypatch.setattr(G.blender_runner, "run_template", lambda *x, **k: pytest.fail("must not run"))
     with pytest.raises(SystemExit):
         G.run_render(a, Path("/tmp"), argparse.ArgumentParser())
+
+
+
+def test_finish_formats_ignore_case_and_cannot_be_empty(monkeypatch):
+    # 'STL,GLB' passed the check but mesh_finish compares lowercase, so nothing was exported
+    p = G._render_params(_args(mode="finish", formats="STL, GLB,stl"), "/x/m.glb", Path("/tmp/w"), 1)
+    assert p["formats"] == ["stl", "glb"]
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: Path("/x/m.glb"))
+    monkeypatch.setattr(G.blender_runner, "run_template", lambda *x, **k: pytest.fail("blender must not run"))
+    with pytest.raises(SystemExit):
+        G.run_render(_args(mode="finish", formats=" , "), Path("/tmp"), argparse.ArgumentParser())

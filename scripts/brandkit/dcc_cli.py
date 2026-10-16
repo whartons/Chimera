@@ -16,7 +16,7 @@ from . import blender as blender_runner
 from . import finalize as finalize_core
 from . import freecad as freecad_runner
 from .comfy import ComfyClient
-from .manifest import default_manifest, load_manifest
+from .manifest import ManifestError, default_manifest, load_manifest
 from .outputs import route_output, write_sidecar
 from .provenance import git_provenance
 from .sidecar import build_cad_meta, build_render_meta
@@ -70,11 +70,17 @@ def _render_params(args, asset, tmp, seed):
     else:  # finish
         p.update(mesh=str(asset), target_tris=args.target_tris, watertight=bool(args.watertight),
                  scale_mm=args.scale_mm, color=args.color,
-                 formats=[f.strip() for f in args.formats.split(",") if f.strip()],
+                 formats=_finish_formats(args),
                  render_still=bool(args.render_still))
         if args.color == "project":
             p["asset"] = str(args.project_image)
     return p
+
+
+def _finish_formats(args):
+    # lowercase + de-duplicated like _cad_formats: mesh_finish.py tests "stl" in the list, so STL,GLB exported
+    # nothing
+    return list(dict.fromkeys(f.strip().lower() for f in args.formats.split(",") if f.strip()))
 
 
 def _sidecar_params(args):
@@ -103,10 +109,12 @@ def run_render(args, repo_root, ap):
     if args.mode == "finish":
         # host-side validation like the cad path: mesh_finish.py only exports these — anything
         # else would silently exit 0 with no export
-        bad = [f for f in (x.strip().lower() for x in args.formats.split(",")) if f and f not in ("stl", "glb")]
+        bad = [f for f in _finish_formats(args) if f not in ("stl", "glb")]
         if bad:
             ap.error(f"render --mode finish supports --formats stl,glb (got {','.join(bad)}); "
                      "for step/obj use `generate.py cad --mode convert`")
+        if not _finish_formats(args):
+            ap.error("render --mode finish needs --formats stl, glb or both")
     seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
     if args.mode in ("mesh", "finish"):
         subdirs = ("outputs/3d", "outputs", "products", "references")
@@ -325,8 +333,8 @@ def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
                              ap, "finalize-texture --concept").resolve()
     azimuths = _finalize_azimuths(args, args.views_count)   # honors --azimuths, else even spacing
     client = ComfyClient(args.comfy_url)
-    client.free()
     try:
+        client.free()
         return finalize_core.repaint_views(
             client, mesh=mesh, concept=concept, subject=args.subject, azimuths=azimuths,
             comfy_output_dir=args.comfy_output_dir, repo_root=repo_root,
@@ -336,13 +344,19 @@ def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
     except finalize_core.FinalizeError as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
+    except (RuntimeError, OSError) as e:   # ComfyUI down or timing out (OSError), or rejecting the graph
+        print(f"finalize-texture: ComfyUI at {args.comfy_url}: {e}", file=sys.stderr)   # (HTTP 400, no output)
+        sys.exit(1)
 
 
 def run_finalize_texture(args, repo_root, ap):
     _validate_finalize(args, ap)
     if args.brand:
         brand_dir = repo_root / "brands" / args.brand
-        m = load_manifest(brand_dir / "brand.yaml")
+        try:
+            m = load_manifest(brand_dir / "brand.yaml")
+        except ManifestError as e:
+            ap.error(f"brand {args.brand!r}: {e}")
     else:
         brand_dir, m = None, default_manifest()
     seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)

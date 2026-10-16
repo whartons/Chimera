@@ -323,11 +323,65 @@ def test_cross_family_image_and_3d_overrides_drop_family_only_inputs():
     assert _args_from_sidecar(_threed_sidecar(), model="hunyuan21").octree == 256
 
 
-@pytest.mark.parametrize("brand", ["../..", "a/b", "..", ".hidden", "a b"])
+@pytest.mark.parametrize("brand", ["../..", "a/b", "..", ".hidden", "a\\b", "c:x", "trailing.", " pad"])
 def test_replay_refuses_a_brand_that_is_not_a_folder_name(brand):
     s = _image_sidecar(); s["brand"] = brand
     with pytest.raises(ValueError, match="brand"):
         _args_from_sidecar(s)
+
+
+@pytest.mark.parametrize("brand", ["my brand", "Café & Co", "acme.co"])
+def test_replay_accepts_every_brand_new_brand_can_create(brand, tmp_path):
+    # replay's brand check used to be stricter than new-brand's, so a brand with a space couldn't replay
+    from scripts.brandkit.scaffold import new_brand
+    (tmp_path / "brands" / "_template").mkdir(parents=True)
+    (tmp_path / "brands" / "_template" / "brand.yaml").write_text('name: "x"\n', encoding="utf-8")
+    new_brand(tmp_path, brand)
+    s = _image_sidecar(); s["brand"] = brand
+    assert _args_from_sidecar(s).brand == brand
+
+
+@pytest.mark.parametrize("field, value, match", [
+    ("modality", "cad", "modality"), ("mode", "../../../../evil", "mode"), ("mode", "C:\\evil", "mode"),
+    ("seed", "1/../../evil", "seed"), ("seed", True, "seed"), ("seed", None, "seed")])
+def test_replay_refuses_a_mode_seed_or_modality_that_could_name_a_folder(field, value, match):
+    # the mode and seed name the output file: a crafted '../..' mode wrote a render outside outputs/ (2026-10)
+    s = _image_sidecar(); s[field] = value
+    with pytest.raises(ValueError, match=match):
+        _args_from_sidecar(s)
+    assert _args_from_sidecar({**_image_sidecar(), "seed": "bad"}, seed=5).seed == 5   # an override is fine
+
+
+@pytest.mark.parametrize("key, value", [("asset", ".env"), ("from_image", "notes.txt"), ("from_video", "clip.png"),
+                                        ("from_image", "id_rsa")])
+def test_replay_only_uploads_media_files(key, value):
+    # replay uploads the inputs to ComfyUI: a crafted sidecar naming '.env' would have sent that file
+    s = _image_sidecar(); s.setdefault("inputs", {})[key] = value
+    with pytest.raises(ValueError, match="isn't an? (image|video) file"):
+        _args_from_sidecar(s)
+
+
+def test_replay_modes_match_the_cli():
+    from scripts import generate
+    import argparse
+    seen = {}
+    real = argparse.ArgumentParser.parse_args
+    try:
+        def grab(self, *a, **k):
+            for action in self._actions:
+                if isinstance(action, argparse._SubParsersAction):
+                    for name, sub in action.choices.items():
+                        mode = next((x for x in sub._actions if x.dest == "mode"), None)
+                        if mode is not None and mode.choices:
+                            seen[name] = tuple(mode.choices)
+            raise SystemExit(0)
+        argparse.ArgumentParser.parse_args = grab
+        with pytest.raises(SystemExit):
+            generate.main()
+    finally:
+        argparse.ArgumentParser.parse_args = real
+    from scripts.brandkit.replay import REPLAY_MODES
+    assert {k: tuple(v) for k, v in REPLAY_MODES.items()} == {k: seen[k] for k in REPLAY_MODES}
 
 
 @pytest.mark.parametrize("key, value", [("asset", "C:\\Users\\x\\secret.png"), ("from_image", "/home/x/id_rsa"),
@@ -342,3 +396,11 @@ def test_replay_refuses_an_absolute_or_climbing_input_path(key, value):
 def test_replay_takes_plain_relative_names():
     s = _image_sidecar(); s["inputs"]["asset"] = "sub/primary.png"
     assert _args_from_sidecar(s).asset == "sub/primary.png"
+
+
+
+def test_replay_refuses_an_inputs_block_that_is_not_a_mapping():
+    s = _image_sidecar()
+    s["inputs"] = ["primary.png"]
+    with pytest.raises(ValueError, match="mapping"):
+        _args_from_sidecar(s)

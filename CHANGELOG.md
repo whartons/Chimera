@@ -10,9 +10,10 @@ All notable changes to Chimera are documented here. The format follows
 
 The model-refresh release. The 2026-10 quarterly review's winners are the new defaults: Qwen-Image-2.1
 (image), SeedVR2 (upscale), Wan 2.2 (video, with camera moves), Stable Audio 3 (music, plus a new sound-effects
-mode) and TRELLIS.2 (textured 3D). Replay now protects old renders from those changes. Also: ComfyUI 0.40 and
-Ollama 0.40 compatibility, a GPU-memory hand-off between them, a freecad-mcp security fix, and a security
-review that tightened API-key handling, replay, the CAD loop's FreeCAD process and the MCP approval gates.
+mode) and TRELLIS.2 (textured 3D), and the agent loops run on local Qwen models sized to the GPU. Replay now
+protects old renders from those changes. Also: ComfyUI 0.40 and Ollama 0.40 compatibility, a GPU-memory hand-off
+between them, a freecad-mcp security fix, and a security review that tightened API-key handling, replay, the CAD
+loop's FreeCAD process and the MCP approval gates.
 
 ### Security
 - **`freecad-mcp` `3745ff9 → 78bf023` (v0.1.22 → v0.1.27), fixing
@@ -42,12 +43,18 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
   ComfyUI unless `--comfy-url` is given, and refuses a brand that isn't a folder name or a file input that is
   absolute or climbs with `..`. File names ComfyUI reports for an output get the same check before anything is
   moved into `outputs/`.
+- **Replay also checks the fields that name or upload a file** (a second review). A crafted sidecar's `mode`
+  or seed went into the output file name, so `replay --comfy-output-dir` could write a render and its JSON into
+  another folder, replacing a file of that name, and its inputs could name any file in the current folder
+  (`.env`, say) for upload. Replay now accepts only a mode its modality has, a whole-number seed and media files
+  as inputs, and every output name must be one plain file name (`.` and an empty name included).
 - **Sidecars no longer record local paths.** An absolute `--from-image`, `--from-video` or `--asset` was
   stored as given, folder layout and user name included; sidecars now keep the file name.
 - **The CAD loop's FreeCAD process gets no credentials.** The loop runs LLM-written scripts, and their
   restricted mode is not a sandbox: a probe walked Python object internals back to `os` and read all 104
   environment variables, API keys included. FreeCADCmd now starts without credential-named variables
-  (`*KEY*`, `*TOKEN*`, `*SECRET*`, …), and the pre-filter also rejects dunder-attribute walks (`.__globals__`,
+  (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSW*`, `*PWD*`, `*AUTH*`, `*SESSION*`, `*_PAT`, `DATABASE_URL`, …), and
+  the pre-filter also rejects dunder-attribute walks (`.__globals__`,
   `.__subclasses__`, frame objects). Only point `--pipeline cad` at a codegen model you trust.
 - **18 more comfyui-mcp tools need approval** (`.claude/settings.json`; `tests/test_mcp_gates.py` pins the
   set): ComfyUI-Manager's security settings (`configure_manager`), extra model paths, `scaffold_custom_node`
@@ -107,6 +114,10 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
   - **Briefs:** sound effects use the subject alone (no brand music tags). For music, an explicit
     `--bpm` / `--keyscale` joins the brief, since SA3 has no tempo or key inputs.
   - **Template:** `workflows/templates/brand-audio-sa3.json`.
+- **`audio --model acestep --lyrics "..."`**: words for ACE-Step to sing, with `[verse]` / `[chorus]` tags.
+  ACE-Step was kept as the vocals option, but Chimera sent it empty lyrics, so every render was instrumental.
+  Sidecars record the lyrics, so replay sings them again; `--lyrics` with Stable Audio 3 or a non-music mode is
+  an error.
 - **`replay --model <file>`** re-runs a recorded render on a different model with the same subject and seed,
   e.g. to run old brand work back on a newer model. Only the prompt is compared, and settings that belong to
   the old model family (Wan or LTX clip timing, a Z-Image variant, a Hunyuan3D octree) give way to the new
@@ -133,8 +144,12 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
   MET, but the parser read only the final verdict line, and a small judge often wrote "NOT-MET: the head is
   completely absent" and then "Overall: PASS". That way the loop accepted a headless robot, a two-goat Chimera
   and a portrait missing the requested raincoat. A criterion marked NOT-MET now fails the verdict. On a new
-  32-case judge benchmark (hard cases: wrong counts, misplaced elements, missing attributes, off-brand colors),
-  this took the default judge from 27 to 30 correct.
+  34-case judge benchmark (hard cases: wrong counts, misplaced elements, missing attributes, off-brand colors),
+  this took the default judge from 27 to 30 correct. A second review found forms the first fix missed, and the
+  status is now the first MET / NOT-MET word on a criterion's line (or a table cell holding it): `1. Subject —
+  NOT-MET`, `**Palette**: NOT_MET`, `1. Six-wheeled rover: NOT-MET`, `| 2 | … | NOT-MET |` and `1 NOT-MET` in a
+  summary all fail it, while `NOT MET: none` and a MET reason that says "nothing is unmet" don't. Scores on
+  other scales read right too: `4 out of 5` is 0.8, `7` is 0.7, `85` is 0.85 (each read as 1.0 before).
 - **The self-correction loop inverted its own fixes when a subject's styling fought the brand.** Found with
   the local Qwen3-VL-8B judge while regenerating the README demo. Under a gunmetal brand, a subject such as
   "a glossy candy-red toy rover" made the subject criterion demand the candy colors while the style, palette
@@ -256,6 +271,47 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
   had already moved into its own output folder. Each queued job's save node now gets a unique file-name
   suffix, so the cached render is written to a fresh file; a reported file that is still missing is a
   one-line error.
+- **The GPU hand-off had gaps** (a second review of the freeze fix):
+  - the room check failed open: an error after ComfyUI had shown a full card (its `/free` failing, a poll
+    timing out) read as "ComfyUI isn't running", and the model loaded anyway. It now refuses;
+  - it only trusts a local CUDA card. Apple's mps and the CPU report system RAM, which made every local judge
+    refuse on a Mac, and DirectML reports a placeholder that let everything through;
+  - a model bigger than the card now always empties ComfyUI first (capped to the card, it could "fit" beside
+    ComfyUI's models), and the room asked for covers the models Ollama already holds, which ComfyUI can't see;
+  - unloading a model waits until Ollama has let go of it, and a loop won't render beside one that stays loaded;
+  - the CAD loop unloads the judge and rewriter before its renders too (only code-gen was unloaded), and one
+    failed check of a local Ollama (restarting, starting late) no longer turns the checks off for the run;
+  - model names match the way Ollama resolves them (`Judge:8B`, `registry.ollama.ai/library/…`), and the
+    context-cache estimate counts `OLLAMA_NUM_PARALLEL` and an f16 cache when flash attention is off;
+  - `OLLAMA_HOST=0.0.0.0` (Ollama's own LAN setting) became `http://0.0.0.0` on port 80, which Windows can't
+    connect to, and turned the checks off elsewhere. It now means this machine on port 11434, like Ollama;
+  - an `nvidia-smi` error ("NVML library version: 560.35") read as a 0.5 GB card, which picked the small
+    tier, and a remote ComfyUI's card picked the tier for the local Ollama.
+- **A loop that repeated a seed (`--seeds 7,7,7`) reported a winner whose file held a later pass.** Each pass
+  of a repeated seed now gets its own files (`agent_7`, `agent_7_2`, …); a shorter `--seeds` list is topped up
+  with fresh seeds (it fell back to `1000+i`, which collided across runs).
+- **FIX directives lost their meaning.** `avoid gaps between blades and hub` split into "gaps between blades"
+  and "hub", so "hub" was cut from "a fan rotor with a central hub"; phrases now split at "and" only between
+  short items. Cutting a flagged term from the subject keeps the object's noun. The brand guard now also keeps
+  palette colors the judge asks to avoid by their rubric names ("avoid near-black" for `#1c1f22`), and the
+  rubric names purple, orange, pink and slate colors right (`#800080` read as "dark pink", `#FFA500` as "gold").
+- **The CAD loop rejected harmless scripts and misreported failures.** `socket_depth`, `sockets` or a
+  `# ball-and-socket` comment failed the pre-filter, so a "hex socket organizer" brief failed every iteration;
+  it now rejects only importing or using those modules. A rejected first script's reason now reaches the retry,
+  and an LLM or GPU error is no longer reported to code-gen as a script failure.
+- **Replay refused brands that `new-brand` creates** (a space, `&`, accented letters); both now share one rule.
+  On Windows, a replay whose brand was cased differently could still replace the render it reproduced.
+- **Blender exports carried the startup file's Cube** as a second scene: the factory scene's selected Cube rode
+  along with `use_selection`. Every Blender job now starts from an empty file, and the example brand's GLB was
+  re-exported without it (still 9.6 MB, one scene).
+- **`--format stl|obj` deleted the GLB**, which for TRELLIS.2 and Pixal3D held the only textured copy; it now
+  stays beside the STL/OBJ. A GLB in several parts is refused rather than cut to its first part.
+- **Mistakes that printed a traceback are one line:** an unknown brand or a bad `brand.yaml` value (an unknown
+  `threed.format` is now caught when the brand loads, before the GPU render), replaying a file that isn't a
+  sidecar, ComfyUI timing out, and `finalize-texture --auto-repaint` with ComfyUI down or rejecting the graph.
+- **Flags a mode ignored are errors:** `--upscale-model` without `--upscale`, and `--bpm` / `--keyscale` outside
+  music; a `--watermark` logo is checked before anything uploads; `3d --format stl` without
+  `--comfy-output-dir` says it stays a GLB; `render --mode finish --formats STL,GLB` exported nothing (case).
 
 ### Changed
 - **The agent loops run on local Ollama models sized to your GPU, with nothing to configure.**
@@ -287,8 +343,11 @@ review that tightened API-key handling, replay, the CAD loop's FreeCAD process a
   cad, and the image/mesh3d/cad agent loops on local Ollama models. Re-validated 2026-10-15 on the new
   defaults: Qwen-Image txt2img, product edit + SeedVR2 upscale, relight, Wan 2.2 image-to-video and a camera
   move, foley on a Wan clip, Stable Audio 3 music and sound effects, TRELLIS.2 3D + render, cad, the three agent
-  loops, replay, and doctor.
-- **Video on ComfyUI ≥ 0.40 needs the bundled LTXVideo patch**
+  loops, replay, and doctor. Re-checked on ComfyUI 0.41.1 after the GPU fix (doctor, image, product edit +
+  SeedVR2, sfx, Wan 2.2, TRELLIS.2, each local-model tier on the image loop and the large tier on the CAD loop),
+  and after the second review (the image and CAD loops, image replay, ACE-Step with lyrics, TRELLIS.2 with
+  `--format stl`, and a Blender finish export).
+- **LTX-2.3 on ComfyUI ≥ 0.40 needs the bundled LTXVideo patch** (Wan 2.2, the default, runs on core nodes)
   ([`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)).
   ComfyUI 0.40 passes attention inputs as `AttentionTensorContainer`s, and the pack's STG guidance returned
   one where a tensor belongs, so every STG render failed. Not yet fixed upstream as of `44c8a36`.

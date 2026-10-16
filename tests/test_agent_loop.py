@@ -247,3 +247,11 @@ def test_a_failed_iteration_keeps_the_last_judge_issues():
     assert res.passed and len(res.history) == 3
     want = ["2. NOT-MET: off-style. FIX: add matte armor"]
     assert exp.calls[1]["prior_issues"] == want and exp.calls[2]["prior_issues"] == want
+
+
+
+def test_seed_names_give_a_repeated_seed_its_own_file():
+    # --seeds 7,7,7 re-renders one seed: under one name a later pass replaced the reported winner's file
+    from scripts.agent.loop import SeedNames
+    name = SeedNames()
+    assert [name(7), name(8), name(7), name(7)] == [7, 8, "7_2", "7_3"]

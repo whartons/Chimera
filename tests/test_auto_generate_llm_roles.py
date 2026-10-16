@@ -190,7 +190,9 @@ def test_cad_pipeline_judge_is_geometry_gated(monkeypatch):
 
 def test_run_seeds_are_fresh_per_run_unless_given(capsys):
     # the loop's fixed 1000+i default made a second run overwrite the first run's winner
-    assert AG._run_seeds("7,8", 3) == [7, 8]
+    assert AG._run_seeds("7,8,9", 3) == [7, 8, 9] and AG._run_seeds("7,7,7", 3) == [7, 7, 7]
+    short = AG._run_seeds("7,8", 4)          # topped up: the loop's 1000+i fallback collided across runs
+    assert short[:2] == [7, 8] and len(short) == 4 and short[3] == short[2] + 1
     a, b = AG._run_seeds(None, 3), AG._run_seeds(None, 3)
     assert len(a) == 3 and a[1] == a[0] + 1 and a != b
     assert "repeat this run with --seeds" in capsys.readouterr().err
@@ -287,3 +289,44 @@ def test_a_remote_default_ollama_is_left_alone(monkeypatch):
     monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: called.append(root) or [])
     AG._clear_other_ollama_models([None])
     assert called == []
+
+
+
+def test_hand_gpu_back_will_not_render_beside_a_model_that_stays_loaded(monkeypatch):
+    class _Stuck:
+        model = "judge:8b"
+
+        def release(self):
+            return False
+
+        def resident(self):
+            return True
+    gen = AG._hand_gpu_back(lambda *a: "img", [_Stuck()])
+    with pytest.raises(RuntimeError, match="still loaded in Ollama"):
+        gen("p", "n", 1)
+    monkeypatch.setenv("CHIMERA_KEEP_LLM_LOADED", "1")              # the user said both fit
+    assert gen("p", "n", 1) == "img"
+
+
+def test_the_image_loop_names_a_repeated_seeds_renders_apart(monkeypatch, tmp_path):
+    import argparse
+    seen = []
+    monkeypatch.setattr(AG.image_filler, "build", lambda *a, **k: {})
+    monkeypatch.setattr(AG, "run_graph_to_file", lambda *a, **k: tmp_path / "x.png")
+    monkeypatch.setattr(AG, "route_output", lambda root, brand, src, mode, seed, **kw: seen.append(seed) or src)
+    gen = AG._make_generate(argparse.Namespace(comfy_output_dir=str(tmp_path), variant=None, model=None, timeout=None,
+                                               brand=None), tmp_path, None, None)
+    gen("p", "n", 7)
+    gen("p", "n", 7)
+    assert seen == [7, "7_2"]
+
+
+
+def test_the_loop_will_not_start_beside_a_model_ollama_will_not_unload(monkeypatch):
+    import types
+    judge = types.SimpleNamespace(base_url="http://127.0.0.1:11434/v1", ollama_name="qwen3-vl:8b-instruct")
+    monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: [])
+    monkeypatch.setattr(AG.gpu, "loaded_models",
+                        lambda root: [("other-tool:latest", 18 * 2**30), ("qwen3-vl:8b-instruct", 6 * 2**30)])
+    with pytest.raises(SystemExit, match="other-tool:latest"):
+        AG._clear_other_ollama_models([judge])

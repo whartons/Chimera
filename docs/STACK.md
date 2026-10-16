@@ -41,7 +41,7 @@ The `chimera` package (**v0.6.0**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (815 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (925 tests) |
 | **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
@@ -64,8 +64,10 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 | **ComfyUI-HunyuanVideo-Foley** | `phazei/ComfyUI-HunyuanVideo-Foley` | `afd2960` | audio foley (video→SFX) | safe-with-precautions — only 3 nodes used; never run the bundled `cli.py`/`infer.py`/`gradio_app.py` (pickle-RCE) |
 | **ComfyUI_IPAdapter_plus** | `cubiq/ComfyUI_IPAdapter_plus` | `a0f451a` | Phase-4b auto-repaint (SDXL depth-CN + IPAdapter view generation) | safe-with-precautions — clean deps (torch/comfy/PIL/einops), no net/telemetry/exec; only the niche `IPAdapterEmbeds` loader does `torch.load` (don't feed it untrusted `.ipadpt`) |
 
-> Core-native (no pack needed): **Z-Image**, **ACE-Step 1.5**, **Hunyuan3D 2.1**, and the agent
-> verdict-capture node all ship in ComfyUI core — only the three packs above are third-party.
+> Core-native (no pack needed): the defaults **Qwen-Image-2.1**, **SeedVR2**, **Wan 2.2** (incl. Fun
+> Camera), **Stable Audio 3** and **TRELLIS.2 / Pixal3D**, the earlier **Z-Image**, **ACE-Step 1.5** and
+> **Hunyuan3D 2.1**, and the agent verdict-capture node all ship in ComfyUI core — only the three packs
+> above are third-party.
 >
 > **Optional (agent judge):** the judge runs on a local **Ollama** model picked for the GPU by default (see §5 +
 > `modules/agent/`); the `1038lab/ComfyUI-QwenVL` node can host a Qwen3-VL judge inside ComfyUI instead — re-pin to a Qwen3-VL-capable
@@ -92,10 +94,12 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > from N supplied views OR **auto-generated** (`--auto-repaint`: render_views depth + SDXL depth-ControlNet
 > + IPAdapter via `scripts/brandkit/repaint.py`, with silhouette masking + cross-view consistency).
 >
-> **Headless FreeCAD `cad` (shipped):** `generate.py cad` shells `FreeCADCmd <template> <params.json>`
-> (job runner `scripts/brandkit/freecad.py`, templates in `workflows/templates/freecad/`) to author
-> parametric primitives (box/cylinder/cone/sphere/tube), convert CAD/mesh files, and **`--mode script`**
-> (headless exec of an agent-authored FreeCAD `.py` for generative CAD self-correction) → STEP/STL/OBJ.
+> **Headless FreeCAD `cad` (shipped):** `generate.py cad` runs `FreeCADCmd <template>` with the params file
+> passed in `$CHIMERA_CAD_PARAMS` (FreeCAD 1.1 opens a trailing file argument as a document) and
+> credential-named environment variables stripped (job runner `scripts/brandkit/freecad.py`, templates in
+> `workflows/templates/freecad/`) to author parametric primitives (box/cylinder/cone/sphere/tube), convert
+> CAD/mesh files, and **`--mode script`** (headless exec of an agent-authored FreeCAD `.py` for generative
+> CAD self-correction) → STEP/STL/OBJ.
 > Also a normal CLI subprocess, no per-call approval. Requires FreeCAD ≥ 1.1.4 (`FreeCADCmd`) on PATH,
 > `$FREECAD_BIN`, or the default install; CI mocks the subprocess (GPU-free). glTF export is GUI-only
 > (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
@@ -133,7 +137,7 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (815 tests local; 808 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (925 tests local; 918 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 

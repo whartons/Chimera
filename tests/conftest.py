@@ -24,6 +24,15 @@ def _no_live_ollama(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_ollama_env(monkeypatch):
+    """Ollama's own settings in the developer's shell (OLLAMA_NUM_PARALLEL, OLLAMA_KV_CACHE_TYPE, ...) change
+    how the GPU checks size a model, and Chimera's change which models a loop picks; tests set what they need."""
+    for k in ("OLLAMA_HOST", "OLLAMA_NUM_PARALLEL", "OLLAMA_KV_CACHE_TYPE", "OLLAMA_FLASH_ATTENTION",
+              "OLLAMA_CONTEXT_LENGTH", "CHIMERA_KEEP_LLM_LOADED", "CHIMERA_LLM_TIER"):
+        monkeypatch.delenv(k, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_nvidia_smi(monkeypatch):
     """The local-model tier reads the GPU size; tests never run the real nvidia-smi (CI has none, and a dev
     box's card would make results machine-dependent). Tests that need a size patch it in."""

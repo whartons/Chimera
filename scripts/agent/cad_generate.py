@@ -9,6 +9,8 @@ import json, re, shutil, tempfile
 from pathlib import Path
 
 from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
+from scripts.agent.llm import LLMError
+from scripts.agent.loop import SeedNames
 from scripts.brandkit import montage  # noqa: F401 (seam: tests patch montage.contact_sheet here)
 from scripts.brandkit.outputs import route_output
 from scripts.brandkit.freecad import run_template as fc_run
@@ -25,8 +27,13 @@ _BL_TIMEOUT = 1800
 # NOT a security boundary: only point --pipeline cad at an LLM you trust, on a machine you accept it
 # touching. A rejected script just fails that iteration and the loop retries.
 _FORBIDDEN = re.compile(
-    r"\b(subprocess|socket|importlib|shutil\s*\.\s*rmtree|os\s*\.\s*(system|popen|remove|unlink|rmdir|"
-    r"startfile|environ)|requests|urllib|httpx|http\.client|__import__|eval\s*\(|exec\s*\(|open\s*\(|"
+    # a networking/process module is out when imported or used, not when a name merely contains the word: a
+    # 'hex socket organizer' brief (socket_depth, '# ball-and-socket') failed every iteration. script_exec's
+    # import allowlist stops `import os, socket` regardless.
+    r"\b(?:import|from)\s+(?:subprocess|socket|importlib|requests|urllib|httpx|http)\b"
+    r"|\b(?:subprocess|socket|importlib|requests|urllib|httpx)\s*\."
+    r"|\b(shutil\s*\.\s*rmtree|os\s*\.\s*(system|popen|remove|unlink|rmdir|"
+    r"startfile|environ)|http\.client|__import__|eval\s*\(|exec\s*\(|open\s*\(|"
     r"getattr\s*\(|\.\s*unlink\s*\()"
     # introspection escapes: a function's __globals__ reached the runner's own os/import (2026-10 review),
     # as do __class__/__mro__/__subclasses__ chains and frame objects. Any dunder ATTRIBUTE but .__init__
@@ -50,22 +57,26 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
     fc_timeout = getattr(args, "freecad_timeout", None) or _FC_TIMEOUT
     bl_timeout = getattr(args, "blender_timeout", None) or _BL_TIMEOUT
     state = {"first": True, "last_good": None}   # carry revision state across iterations
+    name = SeedNames()   # a repeated seed's pass gets its own files (the winner's sheet must survive)
 
     def generate(pos, neg, seed):
         # 1. code-gen. Brief = the clean subject; the loop's FIX directives (folded into `pos` by the
         # expander) are passed as explicit revision feedback once we have a prior script to revise. The
         # last run's error rides along: the loop no longer threads failures into the prompt, but the
-        # codegen needs the FreeCAD traceback to fix its script.
+        # codegen needs the FreeCAD traceback to fix its script. Only the script's own failures count: an
+        # LLM or GPU error isn't the script's fault, and telling code-gen otherwise sent it chasing them.
         feedback = None if state["first"] else pos
         if state.get("error"):
             feedback = f"{feedback or ''}\nThe previous script failed: {state.pop('error')}".strip()
         try:
-            return _generate_once(pos, seed, feedback)
+            return _generate_once(pos, seed, feedback, name(seed))
+        except LLMError:
+            raise
         except Exception as exc:
             state["error"] = str(exc)[-1500:]
             raise
 
-    def _generate_once(pos, seed, feedback):
+    def _generate_once(pos, seed, feedback, tag):
         script = generator.generate_script(args.subject, fix_feedback=feedback)
         state["first"] = False
         # off the GPU before Blender renders (and a --backend local judge loads in ComfyUI): neither can see
@@ -81,7 +92,7 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
         state["last_good"] = script
         tmp = Path(tempfile.mkdtemp(prefix="chimera_cad_loop_"))
         try:
-            stem = f"{args.brand or 'cad'}_{seed}"
+            stem = f"{args.brand or 'cad'}_{tag}"
             sp = tmp / "model.py"
             sp.write_text(script, encoding="utf-8")
             # 2. execute it headless -> STL (FreeCAD), with restricted builtins + import allowlist
@@ -98,8 +109,8 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
                 seed=seed, blender_runner=blender_runner, blender_bin=args.blender_bin,
                 timeout=bl_timeout)
             # 4. route the judged sheet + the STL artifact out of tmp before cleanup
-            sheet = route_output(repo_root, args.brand, sheet_tmp, "cad", seed)
-            route_output(repo_root, args.brand, Path(stl), "cad", seed)
+            sheet = route_output(repo_root, args.brand, sheet_tmp, "cad", tag)
+            route_output(repo_root, args.brand, Path(stl), "cad", tag)
             # keep the winning script beside the sheet for reproducibility/inspection
             (Path(sheet).with_name(Path(sheet).stem + ".cad.py")).write_text(script, encoding="utf-8")
             # geometry facts beside the sheet for the loop's GeometryAwareJudge: BREP is manifold, but a

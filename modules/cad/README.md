@@ -151,8 +151,8 @@ local model. Model & hardware setups:
 | Setup | Codegen | Judge | GPU |
 |-------|---------|-------|-----|
 | Interactive (IDE agent) | the agent | the agent | none (FreeCAD/Blender local) |
-| No GPU, hosted API | `--backend api` hosted multimodal (Gemini free tier / GPT-4o / Claude) | same model | none |
-| Mixed | `--codegen-model` strong hosted coder | `--backend api` the tier's local judge (4.4–16.5 GB) | judge GPU only |
+| No GPU, hosted API | `--llm-base-url <host> --llm-model <model>`: a hosted multimodal model (Gemini free tier / GPT-4o / Claude) | same model | none |
+| Mixed | `--codegen-base-url <host> --codegen-model <coder>` strong hosted coder | `--backend api` the tier's local judge (4.4–16.5 GB) | judge GPU only |
 | Fully local (the default, nothing to set) | Qwen 3.8 27B on Ollama, in every tier (partly on the CPU below 24 GB) | `--backend api` the tier's local judge, or `--backend local` ComfyUI Qwen3-VL node | per tier |
 
 Codegen quality drives success. The first live run (2026-06) found a 7B *coder* gets a mounting bracket to a

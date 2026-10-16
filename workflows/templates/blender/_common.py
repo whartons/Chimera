@@ -18,10 +18,16 @@ def emit(manifest: dict):
 
 
 def reset_scene(name="ChimeraRender"):
+    """A fresh, empty scene, and the only one: the factory 'Scene' keeps its selected Cube, which the glTF
+    export (use_selection) wrote into every GLB as a second scene (2026-10 review)."""
     if name in bpy.data.scenes:
         bpy.data.scenes.remove(bpy.data.scenes[name])
     scn = bpy.data.scenes.new(name)
     bpy.context.window.scene = scn
+    for other in [s for s in bpy.data.scenes if s != scn]:
+        bpy.data.scenes.remove(other)
+    for ob in [o for o in bpy.data.objects if not o.users_scene]:   # the factory Cube, Camera and Light
+        bpy.data.objects.remove(ob)
     return scn
 
 

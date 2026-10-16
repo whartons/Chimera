@@ -34,7 +34,7 @@ headless backend:
 - **Rubric** — `scripts/agent/rubric.py` `build_rubric(manifest, subject)` composes
   the scorable checklist from the brand (subject, style, palette, negative); with a
   brandless `default_manifest()` it collapses to just subject + quality, so the same
-  consensus loop works for general briefs too (the live anatomy example below was one).
+  consensus loop works for general briefs too (the live anatomy example above was one).
   `rubric.as_prompt()` renders the numbered MET / NOT-MET + PASS/FAIL + `score: 0-1`
   instructions each judge is handed.
 - **Expander** — `scripts/agent/expander.py` `TemplatedExpander.expand(subject,
@@ -48,8 +48,8 @@ headless backend:
 ### Step by step
 
 1. **Build the rubric** from the brand manifest + the subject/brief:
-   `r = build_rubric(load_manifest(<brand>), "<subject>")`. Keep `r.as_prompt()` — it
-   is the exact text every judge scores against.
+   `r = build_rubric(load_manifest("brands/<brand>/brand.yaml"), "<subject>")`. Keep
+   `r.as_prompt()` — it is the exact text every judge scores against.
 2. **Generate a batch** of N candidates with varied seeds:
    ```
    python scripts/generate.py image --brand <brand> --subject "<subject>" \
@@ -61,8 +61,8 @@ headless backend:
    PASS/FAIL + score. Parse each with `scripts/agent/judge.py` `parse_verdict()`.
 4. **Take the consensus.** A candidate **passes** when a majority of its M judges
    voted PASS. Among passing candidates, keep the highest mean score. If none pass,
-   carry forward the **consensus issues** — the unmet criteria most judges flagged.
-   `scripts/agent/judge.py` `consensus_verdict(texts)` does this in one call (parse each
+   carry forward the **consensus issues** — every unmet criterion any judge flagged,
+   de-duplicated. `scripts/agent/judge.py` `consensus_verdict(texts)` does this in one call (parse each
    pass → strict-majority PASS → mean score → de-duplicated union of issues); `CallableJudge`
    wraps a single vision pass as a `Judge`, so a panel of them drops straight into
    `ConsensusJudge` / `run_loop`.
@@ -78,7 +78,7 @@ Brand-neutral pseudocode for the assistant-driven loop (`<brand>` / `<subject>` 
 placeholders; use the bundled `example-brand` to try it):
 
 ```
-manifest = load_manifest("<brand>")
+manifest = load_manifest("brands/<brand>/brand.yaml")
 rubric   = build_rubric(manifest, "<subject>")
 expander = TemplatedExpander()
 
@@ -88,9 +88,11 @@ for it in range(MAX_ITERS):              # cap, e.g. 4
     pos, neg = expander.expand("<subject>", manifest, prior_issues)
     batch = [generate_image("<brand>", "<subject>", seed) for seed in seeds(it, N)]
 
+    batch_verdicts = []
     for img in batch:
         verdicts = [assistant_vision_judge(img, rubric.as_prompt())  # parse_verdict()
                     for _ in range(M)]                                # M independent passes
+        batch_verdicts += verdicts
         passes   = sum(v.passed for v in verdicts)
         score    = mean(v.score for v in verdicts)
         if best is None or score > best.score:
@@ -98,8 +100,8 @@ for it in range(MAX_ITERS):              # cap, e.g. 4
         if passes > M / 2:               # majority PASS -> consensus accept
             return img
 
-    # no consensus winner this round: refine from what most judges flagged
-    prior_issues = consensus_issues(batch_verdicts)   # union of common NOT-MET
+    # no consensus winner this round: refine from what any judge flagged
+    prior_issues = consensus_issues(batch_verdicts)   # de-duplicated union of every judge's NOT-MET
 
 return best.img                          # cap reached: best-scoring candidate
 ```

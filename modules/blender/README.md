@@ -111,7 +111,8 @@ into the verdict (see [`../agent/self-correction.md`](../agent/self-correction.m
 camera (via `world_to_camera_view` — `bpy.ops.uv.project_from_view` is unusable under `--background`),
 shader-masks front faces vs a flat `back_fill` (`palette` color, or a `mirror` back-projection), and
 EMIT-bakes a `texture_res` albedo atlas; `mesh_eval` then exports a self-contained **textured GLB** and
-emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipeline mesh3d --texture`.
+emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipeline mesh3d --mesh-model
+hunyuan21 --texture` (TRELLIS.2 / Pixal3D meshes come out textured, so the loop refuses `--texture` for them).
 
 **Phase 4b — all-around multi-view bake.** Phase 4a colors a mesh from one front projection (faithful
 front, flat back). `generate.py finalize-texture --from <glb> --views front,right,back,left` finalizes a
@@ -127,8 +128,9 @@ concept. Runs through the same headless job runner; routes the GLB + a contact s
 `kind:"render" mode:"finalize-texture"` sidecar.
 
 Phase 3 (self-correction over renders), Phase 4a (front albedo texturing), and Phase 4b (the multi-view
-**bake** + **auto-repaint**) are all **shipped** (`auto_generate.py --pipeline mesh3d [--texture|--finalize]`;
-`generate.py finalize-texture [--auto-repaint]`); see [`../agent/self-correction.md`](../agent/self-correction.md).
+**bake** + **auto-repaint**) are all **shipped** (`auto_generate.py --pipeline mesh3d --mesh-model hunyuan21
+[--texture|--finalize]`; `generate.py finalize-texture [--auto-repaint]`); see
+[`../agent/self-correction.md`](../agent/self-correction.md).
 `--finalize` is the in-loop driver: it auto-runs this `finalize-texture --auto-repaint` bake on the
 self-correction loop's winning mesh and re-judges the textured result.
 

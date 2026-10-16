@@ -153,3 +153,26 @@ def test_correct_subject_drops_flagged_styling_but_keeps_the_object():
     assert correct_subject(s, ["candy-red", "toy", "pastel colors"]) == "a six-wheeled rover, knobby tires"
     assert correct_subject("a glossy candy-red toy rover", ["glossy", "candy-red", "toy"]) == "a rover"
     assert correct_subject("a rover", ["rover"]) == "a rover"          # never strips the object away
+
+
+
+def test_an_avoid_phrase_with_and_inside_it_stays_whole():
+    # split at ' and ', 'avoid gaps between blades and hub' cut 'hub' out of '... with a central hub'
+    from scripts.agent.expander import parse_fixes
+    assert parse_fixes(["2. Form: NOT-MET FIX: add solid hub connection; avoid gaps between blades and hub"]) == (
+        ["solid hub connection"], ["gaps between blades and hub"])
+    assert parse_fixes(["FIX: add a central hub and avoid floating blades"]) == (["central hub"], ["floating blades"])
+    assert parse_fixes(["FIX: avoid wings and horns"]) == ([], ["wings", "horns"])
+
+
+def test_brand_guard_keeps_palette_colors_avoided_by_their_rubric_names():
+    # the rubric names #1c1f22 'near-black' for the judge, so that is how the judge asks to avoid it
+    from scripts.agent.expander import brand_guard
+    add, avoid = brand_guard([], ["near-black", "red", "candy-red", "glossy plastic"], _m())
+    assert avoid == ["candy-red", "glossy plastic"]
+
+
+def test_the_templated_expander_never_cuts_the_objects_noun():
+    pos, neg = TemplatedExpander().expand("a 12-blade fan rotor with a central hub", _m(),
+                                          ["1. Form: NOT-MET FIX: avoid hub"])
+    assert "central hub" in pos and "hub" in neg

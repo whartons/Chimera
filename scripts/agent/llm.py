@@ -136,6 +136,9 @@ class _ThinkingExhausted(LLMError):
     """Empty content because a thinking model spent the whole budget on reasoning (triggers the retry)."""
 
 
+_UNLOAD_WAIT = 10.0   # seconds release() waits for Ollama to let go of a model before a ComfyUI render
+
+
 class LLMClient:
     """OpenAI-compatible chat client over stdlib HTTP. `_opener` is the test seam (urlopen)."""
 
@@ -219,9 +222,11 @@ class LLMClient:
         return content
 
     def _ollama_root(self, _opener):
-        """The Ollama root when base_url is an Ollama server (probed once), else None."""
+        """The Ollama root when base_url is an Ollama server, else None. A remote endpoint is probed once; a
+        local one until it answers, since one failed probe (Ollama restarting or starting late) used to turn
+        the GPU checks off for the whole run."""
         root = gpu.ollama_root(self.base_url)
-        if self._ollama is None:
+        if self._ollama is None or (self._ollama is False and gpu.is_local(self.base_url)):
             self._ollama = gpu.is_ollama(root, _opener=_opener)
         return root if self._ollama else None
 
@@ -241,25 +246,39 @@ class LLMClient:
         if self.make_room is None or not gpu.is_local(self.base_url):
             return
         root = self._ollama_root(_opener)
-        if root is None or self._ollama_name() in {n for n, _ in gpu.loaded_models(root, _opener=_opener)}:
+        if root is None:
+            return
+        loaded = gpu.loaded_models(root, _opener=_opener)
+        if any(gpu.same_model(n, self._ollama_name()) for n, _ in loaded):
             return
         need = gpu.vram_need(root, self._ollama_name(), _opener=_opener)
-        if need and self.make_room(need) is False:
-            raise LLMError(f"not loading {self.model}: the GPU has no room for it (about {need / 2**30:.0f} GB) "
-                           "even after asking ComfyUI to unload its models. Close other GPU apps or run "
-                           "`python scripts/generate.py free`, then retry.")
+        if not need:
+            return   # Ollama doesn't have the model, so the request fails without loading anything
+        # ComfyUI can't see the models already resident in Ollama either (another role's, say), so the room
+        # it reports must cover them too
+        need += sum(v for _, v in loaded)
+        if self.make_room(need) is False:
+            raise LLMError(f"not loading {self.model}: the GPU has no room for it (about {need / 2**30:.0f} GB "
+                           "with the models Ollama already holds) even after asking ComfyUI to unload its "
+                           "models. Close other GPU apps or run `python scripts/generate.py free`, then retry.")
+
+    def resident(self, _opener=urllib.request.urlopen) -> bool:
+        """True when this client's model is loaded in a local Ollama."""
+        root = self._ollama_root(_opener) if gpu.is_local(self.base_url) else None
+        return root is not None and gpu.is_resident(root, self._ollama_name(), _opener=_opener)
 
     def release(self, _opener=urllib.request.urlopen) -> bool:
         """Hand the GPU back: if base_url is a local Ollama and this client's model is resident, unload
-        it now (keep_alive 0) instead of letting it sit for Ollama's ~5-minute keep-alive. The loops call
-        this before each ComfyUI render. Only a RESIDENT model is unloaded (Ollama may load a missing one
-        to unload it). No-op for hosted APIs or with CHIMERA_KEEP_LLM_LOADED=1; never raises."""
+        it now (keep_alive 0) instead of letting it sit for Ollama's ~5-minute keep-alive, and wait until
+        Ollama no longer lists it. The loops call this before each ComfyUI render. Only a RESIDENT model is
+        unloaded (Ollama may load a missing one to unload it). No-op for hosted APIs or with
+        CHIMERA_KEEP_LLM_LOADED=1; never raises. True when it unloaded the model."""
         if gpu.keep_llms_loaded():
             return False
         root = self._ollama_root(_opener)
-        if root is None or self._ollama_name() not in {n for n, _ in gpu.loaded_models(root, _opener=_opener)}:
+        if root is None or not gpu.is_resident(root, self._ollama_name(), _opener=_opener):
             return False
-        return gpu.unload(root, self._ollama_name(), _opener=_opener)
+        return gpu.unload(root, self._ollama_name(), wait=_UNLOAD_WAIT, _opener=_opener)
 
     @staticmethod
     def _image_part(image_path):
@@ -360,6 +379,8 @@ class LLMCadGenerator:
                     f"\n\nPREVIOUS SCRIPT:\n{self.prev}\n\nReturn the full revised script.")
         else:
             user = f"Create a parametric FreeCAD script for: {brief}."
+            if fix_feedback:   # a first script was rejected: say why, or the retry repeats it
+                user += f"\nFeedback on an earlier attempt: {fix_feedback}"
         code = _extract_code(self.client.chat(
             [{"role": "system", "content": _CAD_SYSTEM}, {"role": "user", "content": user}],
             max_tokens=2048, temperature=self.temperature))

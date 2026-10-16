@@ -31,10 +31,25 @@ def media_subdir(suffix: str) -> str:
 
 def _unused_stem(out_dir: Path, stem: str) -> str:
     """The first of stem, stem_replay, stem_replay2, ... that no file in out_dir uses (render, sidecar or
-    checks file). The sidecar counts: a 3D render converted to STL leaves no GLB under its stem."""
-    names = [p.name for p in out_dir.iterdir()]
+    checks file). The sidecar counts: a 3D render converted to STL leaves no GLB under its stem. Compared
+    without case, as Windows names are: a differently-cased brand replaced the render it reproduced."""
+    names = [p.name.casefold() for p in out_dir.iterdir()]
     cands = itertools.chain((stem, f"{stem}_replay"), (f"{stem}_replay{n}" for n in itertools.count(2)))
-    return next(c for c in cands if not any(n.startswith(c + ".") for n in names))
+    return next(c for c in cands if not any(n.startswith(c.casefold() + ".") for n in names))
+
+
+def plain_name(value) -> bool:
+    """True for one plain file or folder name: no separator, drive, root or '..' in either OS's spelling, not
+    '.', no control characters, no trailing space or dot (Windows drops those). Names that arrive from
+    outside (a sidecar's brand and mode, ComfyUI's file names) must stay a single name."""
+    v = str(value)
+    return (v not in ("", ".", "..") and v == PureWindowsPath(v).name == PurePosixPath(v).name and ":" not in v
+            and v.strip() == v and not v.endswith(".") and not any(ord(ch) < 32 for ch in v))
+
+
+def brand_name_ok(name) -> bool:
+    """A brand folder name new-brand creates and replay accepts: one plain name, not hidden."""
+    return plain_name(name) and not str(name).startswith(".")
 
 
 def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4, *,
@@ -46,14 +61,17 @@ def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay
     overwrite the very render and sidecar it reproduced, which is permanent for gitignored brand
     outputs. It takes the next free name instead (`<stem>_replay`, `<stem>_replay2`, ...)."""
     src = Path(src)
-    if not src.exists():
+    if not src.is_file():
         raise NoOutputError(f"ComfyUI reported {src.name}, but it isn't in its output folder (is --comfy-output-dir "
                             "ComfyUI's output folder?)")
+    stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"
+    if not plain_name(stem) or (brand and not brand_name_ok(brand)):
+        # mode and brand can come from a shared sidecar: never let them name a folder (2026-10 review)
+        raise NoOutputError(f"refusing to name an output {stem!r}: brand and mode must be plain names")
     base = brand_output_dir(repo_root, brand) if brand else Path(repo_root) / "outputs"
     sub = media_subdir(src.suffix)
     out_dir = base / sub if sub else base
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"
     if keep_existing:
         stem = _unused_stem(out_dir, stem)
     dest = out_dir / f"{stem}{src.suffix}"
@@ -122,7 +140,7 @@ def comfy_output_path(out_dir, subfolder, fname) -> Path:
     """The local path of a file ComfyUI reports in /history, under the host's output dir. The names come
     from the server, so an absolute or '..' one (which a hostile server could send to make the CLI move
     any local file into outputs/) is refused."""
-    if unsafe_path(subfolder or "") or unsafe_path(fname):
+    if unsafe_path(subfolder or "") or not plain_name(fname):
         raise NoOutputError(f"ComfyUI reported an output outside its output folder: {subfolder}/{fname}")
     return Path(out_dir) / (subfolder or "") / str(fname)
 

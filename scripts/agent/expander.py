@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 
+from scripts.agent.rubric import color_words
 from scripts.brandkit.prompt import build_prompt
 
 _FIX = re.compile(r"\bfix\b\s*[:\-]\s*(.+)", re.IGNORECASE)
@@ -62,10 +63,13 @@ def brand_guard(add, avoid, manifest):
     'avoid matte black' for a matte-black brand; applying both sides inverted the correction (2026-10).
     Drops `avoid` terms that overlap the brand's own style or palette (either way round), then `add` terms
     that CONTAIN a remaining `avoid` term or a brand negative trait ('add handle' survives 'avoid plastic
-    handle'). Brand phrases of any length count: a 60-char cap had let a long style phrase through."""
+    handle'). Brand phrases of any length count: a 60-char cap had let a long style phrase through. A palette
+    color avoided by the name the rubric gave the judge ('avoid near-black' for #1c1f22) is dropped too."""
     whole = dict(cap=10**6, maxlen=10**6)
-    brand_keep = [t.lower() for t in _dedup(manifest.style, **whole)] + [str(c).lower() for c in (manifest.palette or [])]
-    avoid = [t for t in avoid if not _overlaps(t, brand_keep)]
+    palette = [str(c) for c in (manifest.palette or [])]
+    brand_keep = [t.lower() for t in _dedup(manifest.style, **whole)] + [c.lower() for c in palette]
+    palette_names = {color_words(c).split(" (")[0].lower() for c in palette}
+    avoid = [t for t in avoid if not _overlaps(t, brand_keep) and t.lower() not in palette_names]
     clash = [t.lower() for t in _dedup(manifest.negative, **whole)] + [t.lower() for t in avoid]
     return [t for t in add if not _contains(t, clash)], avoid
 
@@ -74,8 +78,30 @@ _AVOID_VERB = re.compile(r"^(?:avoid|remove|eliminate|exclude|without|get rid of
 _ADD_VERB = re.compile(r"^(?:add|include|use|apply|ensure)\b\s*[:\-]?\s*", re.IGNORECASE)
 _SKIP_VERB = re.compile(r"^(?:none|nothing|n/a|no change|change|make|keep)\b", re.IGNORECASE)
 _CLAUSE = re.compile(r";|\.(?:\s+|$)")                       # ';' or a sentence end ('2.5 mm' stays whole)
-_PIECE = re.compile(r",|\s+(?:and|or)\s+", re.IGNORECASE)
+_JOIN = re.compile(r"\s+(and|or)\s+", re.IGNORECASE)
 _ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.IGNORECASE)
+
+
+def _pieces(clause):
+    """A clause's terms: split at commas, and at 'and' / 'or' between short items ('wings and horns') or
+    before a verb ('add X and avoid Y'), but not inside a longer phrase: 'gaps between blades and hub' is one
+    term (split, its 'hub' was cut from the subject, 2026-10 review)."""
+    out = []
+    for chunk in clause.split(","):
+        parts = _JOIN.split(chunk)                          # [text, conj, text, conj, text, ...]
+        texts = parts[0::2]
+        if len(texts) == 1 or all(len(t.split()) <= 2 for t in texts):
+            out.extend(texts)
+            continue
+        cur = texts[0]
+        for conj, t in zip(parts[1::2], texts[1:], strict=True):
+            if _AVOID_VERB.match(t.strip()) or _ADD_VERB.match(t.strip()):
+                out.append(cur)
+                cur = t
+            else:
+                cur = f"{cur} {conj} {t}"
+        out.append(cur)
+    return out
 
 
 def parse_fixes(issues):
@@ -92,7 +118,7 @@ def parse_fixes(issues):
             continue
         mode = "add"                                        # the documented format leads with add
         for clause in _CLAUSE.split(m.group(1)):
-            for raw in _PIECE.split(clause):
+            for raw in _pieces(clause):
                 t = raw.strip().strip(".").strip()
                 v = _AVOID_VERB.match(t)
                 if v:
@@ -156,7 +182,9 @@ class TemplatedExpander(PromptExpander):
 
         raw_add, raw_avoid = parse_fixes(prior_issues)
         add, avoid = brand_guard(raw_add, raw_avoid, manifest)
-        eff_subject = _strip_terms(subject, avoid) if avoid else subject
+        # correct_subject keeps the object's noun: cutting 'hub' from '... rotor with a central hub' left
+        # '... with a central'
+        eff_subject = correct_subject(subject, avoid) if avoid else subject
         pos, neg = build_prompt(manifest, eff_subject)
 
         # Lead with a forceful brand re-assertion so the brand dominates the (corrected) prompt.

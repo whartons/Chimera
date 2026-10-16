@@ -21,5 +21,4 @@ audio:
   music_bpm: 90
   music_keyscale: "D minor"
   music_duration: 8.0
-  foley: "hunyuan"
 threed: { model: null, format: "glb" }

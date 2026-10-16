@@ -7,14 +7,13 @@ graph), and how a schema-2 sidecar reconstructs the argparse.Namespace `run()` e
 Lives beside sidecar.py, which owns the sidecar's on-disk shape (build_meta et al.)."""
 from __future__ import annotations
 import argparse
-import re
 
 from . import audio as audio_filler
 from . import threed as threed_filler
 from . import video as video_filler
 from . import workflow as image_filler
 from .comfy import DEFAULT_URL as DEFAULT_COMFY_URL
-from .outputs import unsafe_path as _unsafe_path
+from .outputs import _MEDIA_DIRS, brand_name_ok, unsafe_path as _unsafe_path
 from .sidecar import graph_prompts, graph_signature, graph_values
 
 # CLI args harvested into the sidecar `inputs` dict (sidecar.relevant_inputs then keeps the
@@ -22,9 +21,13 @@ from .sidecar import graph_prompts, graph_signature, graph_values
 # "format" which is injected separately as the resolved fmt; tests/test_sidecar.py guards this.
 SIDECAR_INPUT_KEYS = ("subject", "asset", "variant", "model", "from_image", "from_video",
                       "length", "fps", "width", "height", "audio", "duration", "bpm",
-                      "keyscale", "octree", "upscale", "upscale_model", "camera", "quality")
+                      "keyscale", "lyrics", "octree", "upscale", "upscale_model", "camera", "quality")
 _FILE_INPUTS = ("asset", "from_image", "from_video")
-_BRAND = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+# What a replayable sidecar may name (generate.py's subcommands and --mode choices; a test keeps them in
+# step). The mode becomes part of the output file name, and the inputs are uploaded to ComfyUI.
+REPLAY_MODES = {"image": ("txt2img", "logo", "product", "relight"), "video": ("i2v",),
+                "audio": ("music", "sfx", "foley"), "3d": ("image",)}
+_INPUT_KIND = {"asset": "images", "from_image": "images", "from_video": "video"}
 
 
 def _file_name(value) -> str:
@@ -105,14 +108,29 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
         raise ValueError("cad sidecars aren't replayable (headless FreeCAD geometry, not a "
                          "ComfyUI render)")
     modality = data["modality"]
-    inp = data.get("inputs", {})
+    inp = data.get("inputs") or {}
     brand = data["brand"]
-    if brand is not None and not _BRAND.fullmatch(str(brand)):
+    if modality not in REPLAY_MODES:
+        raise ValueError(f"modality {modality!r} isn't one replay renders ({', '.join(REPLAY_MODES)})")
+    if data.get("mode") not in REPLAY_MODES[modality]:
+        # the mode names the output file: a crafted '../..' mode wrote outside outputs/ (2026-10 review)
+        raise ValueError(f"mode {data.get('mode')!r} isn't a {modality} mode ({', '.join(REPLAY_MODES[modality])})")
+    if seed is None and (not isinstance(data.get("seed"), int) or isinstance(data.get("seed"), bool)):
+        raise ValueError(f"seed {data.get('seed')!r} isn't a whole number (pass --seed to choose one)")
+    if brand is not None and not brand_name_ok(brand):
         raise ValueError(f"brand {brand!r} is not a brand folder name")
+    if not isinstance(inp, dict):
+        raise ValueError("the sidecar's inputs block isn't a mapping")
     for k in _FILE_INPUTS:
-        if inp.get(k) is not None and _unsafe_path(inp[k]):
+        if inp.get(k) is None:
+            continue
+        if _unsafe_path(inp[k]):
             raise ValueError(f"inputs.{k} {inp[k]!r} is not a plain relative file name; put the file in the "
                              "brand folder (or the current folder, brandless) and name it in the sidecar")
+        if "." + str(inp[k]).rsplit(".", 1)[-1].lower() not in _MEDIA_DIRS[_INPUT_KIND[k]]:
+            # replay uploads it to ComfyUI: a sidecar naming '.env' would have sent that file
+            kind = "an image" if _INPUT_KIND[k] == "images" else "a video"
+            raise ValueError(f"inputs.{k} {inp[k]!r} isn't {kind} file")
     ns = argparse.Namespace(
         modality=modality,
         mode=data.get("mode"),
@@ -141,6 +159,7 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
         duration=inp.get("duration"),
         bpm=inp.get("bpm"),
         keyscale=inp.get("keyscale"),
+        lyrics=inp.get("lyrics"),
         camera=inp.get("camera"),          # video (Wan Fun Camera) move, if any
         quality=inp.get("quality"),        # video (Wan) fast / full
         octree=inp.get("octree"),

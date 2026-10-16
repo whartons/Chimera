@@ -4,7 +4,7 @@ Three modes of audio generation in a single unified CLI entry point:
 
 - **`--mode music`**: text → on-brand instrumental stinger, loop or track, output as an `.mp3` (V0).
   - **Default: Stable Audio 3 Medium**, which won the 2026-10 listening comparison by a wide margin.
-  - **`--model acestep`:** ACE-Step 1.5 XL Turbo (e.g. for songs with lyrics/vocals).
+  - **`--model acestep`:** ACE-Step 1.5 XL Turbo, which sings `--lyrics` (Stable Audio 3 makes instrumentals).
   - Both take the brand's `audio.music_tags` from `brand.yaml`.
 - **`--mode sfx`** — Stable Audio 3's **sound-effects** mode: text → a short sound effect (stinger
   whooshes, sword rings, UI and alert sounds) → `.mp3`.
@@ -44,7 +44,10 @@ The brief is the brand's `audio.music_tags` plus `--subject`.
 - **Stable Audio 3** has no tempo or key inputs, so an explicit `--bpm` / `--keyscale` joins the brief
   (e.g. "…, 128 BPM, in A minor"). The brand's ACE-tuned `music_bpm` / `music_keyscale` defaults don't.
 - **ACE-Step** (`--model acestep`) takes the brief as `TextEncodeAceStepAudio1.5` tags, and uses BPM / key
-  directly.
+  directly. **`--lyrics`** gives it words to sing, with section tags such as `[verse]` and `[chorus]` on their
+  own lines; without it ACE-Step makes an instrumental. From a file: `--lyrics "$(cat song.txt)"` (PowerShell:
+  `--lyrics (Get-Content song.txt -Raw)`). The sidecar records the lyrics, so a replay sings them again.
+  `--lyrics` with Stable Audio 3, sfx or foley is an error.
 - **Stable Audio 3 renders at least 1 s** (ComfyUI's minimum); a shorter `--duration` is an error before
   anything is queued. Render 1 s and trim it.
 
@@ -98,7 +101,6 @@ audio:
   music_bpm: 120
   music_keyscale: "C minor"
   music_duration: 8.0
-  foley: "hunyuan"            # backend selector
   foley_negative: "music, speech, voice, singing, noisy, harsh"
 ```
 
@@ -135,9 +137,9 @@ The graph uses:
    `qwen_4b_ace15.safetensors` with `type: ace` (both are required; the loader
    will fail if either is missing).
 4. **`VAELoader`** — `ace_1.5_vae.safetensors`.
-5. **`TextEncodeAceStepAudio1.5`** — encodes the genre/style tags plus optional
-   lyrics. CFG scale 2.0 (note: this is the text-encode CFG, separate from the
-   KSampler CFG).
+5. **`TextEncodeAceStepAudio1.5`** — encodes the genre/style tags plus the
+   `--lyrics` (empty for an instrumental). CFG scale 2.0 (note: this is the
+   text-encode CFG, separate from the KSampler CFG).
 6. **`ConditioningZeroOut`** — serves as the negative conditioning (no explicit
    negative text prompt needed for the turbo path).
 7. **`EmptyAceStep1.5LatentAudio`** — allocates the latent buffer.
@@ -175,6 +177,10 @@ The graph uses:
 
 `--free-before` (default ON for the `audio` modality) asks ComfyUI to unload its models (`POST /free`) just
 before queueing, so resident image or video models don't crowd the audio graph.
+
+**Smaller cards:** these figures were measured on a 32 GB card. With less memory ComfyUI loads the pieces in
+turn and offloads what doesn't fit to system RAM, so the graphs still run, more slowly (not measured here).
+ACE-Step needs about the same as Stable Audio 3, and no lighter music model is wired into Chimera yet.
 
 ## Watermark
 

@@ -40,7 +40,7 @@ palette: ["#1c1f22", "#c8442e"]     # optional; described to the model
 prompt_prefix: ""                    # prepended to every subject
 prompt_suffix: ", studio product render"
 negative: "low quality, blurry, watermark"
-defaults: { model: "flux2_dev_fp8mixed.safetensors", width: 1024, height: 1024, steps: 20, guidance: 3.5 }
+defaults: { model: "qwen_image_2.1_int8_convrot.safetensors", width: 1024, height: 1024, steps: 20, guidance: 3.5 }
 logo:  { default: "logos/primary.png", position: "bottom-right", scale: 0.18, margin: 0.04 }
 lora:  { file: null, strength: 0.8 }          # set file to a .safetensors to auto-load it
 ip_adapter: { enabled: false, weight: 0.5, references: "references/" }   # V2, off by default

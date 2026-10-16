@@ -44,3 +44,39 @@ def test_cad_api_with_no_llm_config_uses_chimeras_local_models(monkeypatch):
 def test_assistant_backend_still_gated(monkeypatch):
     with pytest.raises(SystemExit):
         _run(["--subject", "x", "--backend", "assistant", "--comfy-output-dir", "/tmp/o"], monkeypatch)
+
+
+
+def test_the_cad_loop_also_unloads_the_judge_and_rewriter_before_rendering(monkeypatch):
+    # code-gen released itself before Blender, but a resident judge sat beside the next iteration's renders
+    import scripts.agent.llm as LLM
+
+    class _C:
+        def __init__(self, role):
+            self.role, self.make_room = role, None
+
+        def release(self):
+            return None
+    made, wrapped = {}, {}
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: made.setdefault(role, _C(role)))
+    monkeypatch.setattr(AG, "_hand_gpu_back",
+                        lambda gen, clients: wrapped.setdefault("roles", [c.role for c in clients if c]) and gen)
+
+    class _Stop(Exception):
+        pass
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))
+    monkeypatch.setattr(AG, "make_cad_generate", lambda *a, **k: (lambda *x: "s"), raising=False)
+    with pytest.raises(_Stop):
+        _run(["--pipeline", "cad", "--subject", "a mug", "--backend", "api", "--rewrite-prompts",
+              "--llm-tier", "small"], monkeypatch)
+    assert wrapped["roles"] == ["judge", "rewriter"]
+
+
+def test_a_judge_on_the_codegen_model_is_left_to_codegen():
+    # the large tier runs one model for every role: unloading the judge only made code-gen reload it
+    from types import SimpleNamespace as NS
+    gen = NS(model="qwen3.8:27b", base_url="http://127.0.0.1:11434/v1")
+    assert AG._same_llm(NS(model="Qwen3.8:27b", base_url="http://127.0.0.1:11434/v1"), gen)
+    assert not AG._same_llm(NS(model="qwen3-vl:8b-instruct", base_url="http://127.0.0.1:11434/v1"), gen)
+    assert not AG._same_llm(NS(model="qwen3.8:27b", base_url="https://api.example.com/v1"), gen)
+    assert not AG._same_llm(None, gen) and not AG._same_llm(gen, None)

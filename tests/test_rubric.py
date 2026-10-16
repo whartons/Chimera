@@ -199,3 +199,11 @@ def test_color_words_names_dark_yellows_cyans_and_tinted_blacks():
     assert color_words("#4d4d00") == "olive (#4d4d00)"
     assert color_words("#006666") == "teal (#006666)"
     assert color_words("#1a0000") == "near-black (#1a0000)"   # tinted, but too dark to read as red
+
+
+
+def test_color_words_names_purples_oranges_pinks_and_slate():
+    # #800080 read as 'dark pink', #FFA500 as 'gold', #FFC0CB as 'light red', #708090 as 'blue' (2026-10)
+    from scripts.agent.rubric import color_words
+    assert [color_words(c).split(" (")[0] for c in ("#800080", "#FFA500", "#FFC0CB", "#708090", "#FFD700")] == [
+        "dark purple", "orange", "pink", "blue-grey", "gold"]

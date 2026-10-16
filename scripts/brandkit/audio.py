@@ -67,7 +67,7 @@ def _build_sa3(repo_root, manifest, *, positive, seed, mode="music", duration=No
 
 
 def _build_music(repo_root, manifest, *, positive, seed, duration=None, bpm=None,
-                 keyscale=None, model=None, **opts) -> dict:
+                 keyscale=None, model=None, lyrics=None, **opts) -> dict:
     a = manifest.audio
     model = resolved_model(manifest, "music", model)
     duration = duration if duration is not None else a.music_duration
@@ -81,6 +81,7 @@ def _build_music(repo_root, manifest, *, positive, seed, duration=None, bpm=None
     enc["duration"] = duration
     enc["bpm"] = bpm
     enc["keyscale"] = keyscale
+    enc["lyrics"] = lyrics or ""   # empty = an instrumental
     _n(wf, "brand:sampler")["inputs"]["seed"] = seed
     _n(wf, "brand:latent")["inputs"]["seconds"] = duration
     return wf
@@ -115,9 +116,11 @@ def _build_foley(repo_root, manifest, *, positive, negative, seed, watermark=Fal
     return wf
 
 
-def check_options(manifest, mode, *, model=None, duration=None):
+def check_options(manifest, mode, *, model=None, duration=None, lyrics=None):
     """Raise ValueError for a request the mode can't render. generate.py calls it before it frees the GPU
     or uploads a foley clip; build() runs it too."""
+    if lyrics and mode != "music":
+        raise ValueError(f"--lyrics are sung by ACE-Step in music mode; audio --mode {mode} has no vocals")
     if mode == "foley":
         if model and _is_music_model(model):
             raise ValueError(f"--model {model} makes music; foley runs HunyuanVideo-Foley (drop --model)")
@@ -128,6 +131,9 @@ def check_options(manifest, mode, *, model=None, duration=None):
     if mode == "sfx" and not is_sa3(file):
         raise ValueError("audio --mode sfx is Stable Audio 3's sound-effects mode: drop --model "
                          f"({file} makes music)")
+    if lyrics and is_sa3(file):
+        raise ValueError("--lyrics need ACE-Step, which sings them: add --model acestep (Stable Audio 3 makes "
+                         "instrumentals)")
     if is_sa3(file) and duration is not None and duration < SA3_MIN_SECONDS:
         raise ValueError(f"Stable Audio 3 renders at least {SA3_MIN_SECONDS:g} s (got --duration {duration:g}); "
                          "render 1 s and trim it")
@@ -135,7 +141,7 @@ def check_options(manifest, mode, *, model=None, duration=None):
 
 def build(repo_root, manifest, *, positive, negative="", seed, watermark=False,
           mode="music", **opts) -> dict:
-    check_options(manifest, mode, model=opts.get("model"), duration=opts.get("duration"))
+    check_options(manifest, mode, model=opts.get("model"), duration=opts.get("duration"), lyrics=opts.get("lyrics"))
     if mode == "foley":
         return _build_foley(repo_root, manifest, positive=positive, negative=negative,
                             seed=seed, watermark=watermark, **opts)

@@ -84,8 +84,8 @@ sidecar doesn't record it.
 
 ### Watermark
 
-- `--watermark` composites the brand logo over the decoded image for `txt2img`
-  and `product` modes.
+- `--watermark` composites the brand logo over the decoded image for `txt2img`,
+  `product`, and `relight` modes.
 - `logo` mode self-watermarks (the logo composite is the output itself) — passing
   `--watermark` there is a no-op.
 
@@ -102,7 +102,7 @@ sidecar doesn't record it.
 - **Pipeline order:** `decode → [watermark] → upscale → save`. When `--watermark`
   is also on, the upscale takes over the watermark composite's edge into save, so
   **the logo upscales with the image** (it stays pixel-aligned, just larger).
-- Works for `txt2img`, `product`, and `logo` modes (all three templates route the
+- Works for `txt2img`, `product`, `logo`, and `relight` modes (every mode's template routes the
   final image through `brand:save`, which the upscale splices before).
 - **VRAM:** 4× of 1024² is 4096². SeedVR2's VAE runs tiled (512 px tiles) and its weights are ~8 GB
   (int8), so it fits the 32 GB card next to the image model; ESRGAN auto-tiles. The large upscaled PNGs

@@ -27,7 +27,7 @@ upgrade them.
 import argparse, json, random, struct, sys, datetime, urllib.error
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.brandkit.manifest import load_manifest, default_manifest
+from scripts.brandkit.manifest import ManifestError, load_manifest, default_manifest
 from scripts.brandkit.prompt import build_prompt, build_audio_prompt
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit import video as video_filler
@@ -209,12 +209,13 @@ def _clip_timing(path):
 def _prepare_audio(args, m, brand_dir, client, ap):
     model = getattr(args, "model", None)   # --model, or pinned by replay; else brand/default
     try:   # before the foley upload: a request the mode can't render is a CLI error
-        audio_filler.check_options(m, args.mode, model=model, duration=args.duration)
+        audio_filler.check_options(m, args.mode, model=model, duration=args.duration,
+                                   lyrics=getattr(args, "lyrics", None))
     except ValueError as e:
         ap.error(str(e))
     if args.mode == "music":
         return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
-                "keyscale": args.keyscale, "model": model}
+                "keyscale": args.keyscale, "model": model, "lyrics": getattr(args, "lyrics", None)}
     if args.mode == "sfx":
         return {"mode": "sfx", "duration": args.duration, "model": model}
     # foley: locate + upload the source video, probe its fps/duration/size
@@ -276,7 +277,10 @@ def _default_free_before(args, m):
 def run(args, repo_root, ap):
     if args.brand:
         brand_dir = repo_root / "brands" / args.brand
-        m = load_manifest(brand_dir / "brand.yaml")
+        try:
+            m = load_manifest(brand_dir / "brand.yaml")
+        except ManifestError as e:   # a brand you don't have, or a brand.yaml mistake
+            ap.error(f"brand {args.brand!r}: {e}")
     else:
         brand_dir, m = None, default_manifest()   # brandless: neutral manifest, output -> outputs/
     seed = args.seed if args.seed is not None else random.randint(1, 2_000_000_000)
@@ -294,9 +298,7 @@ def run(args, repo_root, ap):
     if do_watermark and not args.brand:
         ap.error("--watermark needs a --brand (the logo comes from brands/<brand>/logos/)")
     client = ComfyClient(args.comfy_url)
-
-    fkw = PREPARE[args.modality](args, m, brand_dir, client, ap)
-    if do_watermark:
+    if do_watermark:   # checked before anything is uploaded
         logo_rel = (m.logo.default or "").split("/")[-1]
         logo_path = brand_dir / "logos" / logo_rel
         # is_file(), not exists(): with logo.default unset logo_rel is "" and pathlib's empty
@@ -304,6 +306,9 @@ def run(args, repo_root, ap):
         if not logo_rel or not logo_path.is_file():
             ap.error(f"--watermark needs logo.default set in brand.yaml and the file present at "
                      f"brands/{args.brand}/logos/ (logo.default is {m.logo.default!r})")
+
+    fkw = PREPARE[args.modality](args, m, brand_dir, client, ap)
+    if do_watermark:
         fkw["watermark_logo"] = client.upload_image(logo_path)
         sz = _image_size(logo_path)
         if sz:
@@ -361,14 +366,15 @@ def run(args, repo_root, ap):
             print(str(e), file=sys.stderr); sys.exit(1)
         fmt = None  # only set for 3d; passed to build_meta (None -> omitted from sidecar)
         if args.modality == "3d":
-            # ComfyUI only saves GLB; convert to the requested export format host-side
-            # (geometry-only — fine for STL/OBJ printing/CAD). Drop the intermediate GLB.
+            # ComfyUI only saves GLB; convert to the requested export format host-side (geometry only, for
+            # printing or CAD). The GLB stays beside it: TRELLIS.2 and Pixal3D bake their textures into it.
             fmt = (args.format or m.threed.format or "glb").lower()
             if fmt != "glb":
                 from scripts.brandkit.mesh import convert
-                converted = convert(dest, fmt)
-                dest.unlink()
-                dest = converted
+                try:
+                    dest = convert(dest, fmt)
+                except ValueError as e:
+                    print(f"{e} (the GLB is at {dest})", file=sys.stderr); sys.exit(1)
         model_used = _resolve_model_used(args, m)
         inputs = _resolve_sidecar_inputs(args, m, fmt)
         meta = build_meta(modality=args.modality, mode=args.mode, brand=args.brand, seed=seed,
@@ -381,6 +387,9 @@ def run(args, repo_root, ap):
         print(f"output -> {dest}")
     else:
         print(f"output filename: {fname} (pass --comfy-output-dir to relocate into the brand folder)")
+        if args.modality == "3d" and (args.format or m.threed.format or "glb").lower() != "glb":
+            print("note: the STL/OBJ conversion runs on the routed file, so without --comfy-output-dir you get "
+                  "ComfyUI's GLB only", file=sys.stderr)
 
 
 def _run_comfy(args, repo_root, ap):
@@ -392,6 +401,10 @@ def _run_comfy(args, repo_root, ap):
         sys.exit(1)
     except (urllib.error.URLError, ConnectionError) as e:
         print(f"can't reach ComfyUI at {args.comfy_url} ({getattr(e, 'reason', e)}). Is it running? "
+              "`chimera doctor` checks.", file=sys.stderr)
+        sys.exit(1)
+    except TimeoutError:   # a request ComfyUI accepted but didn't answer in time (busy, or wedged)
+        print(f"ComfyUI at {args.comfy_url} stopped answering (timed out). Is it busy or stuck? "
               "`chimera doctor` checks.", file=sys.stderr)
         sys.exit(1)
 
@@ -453,7 +466,7 @@ def main():
     aud.add_argument("--subject", required=True,
                      help="music: the sonic brief (e.g. 'logo sting'); sfx / foley: the sound to generate")
     aud.add_argument("--model", default=None,
-                     help="(music) sa3 (default) | acestep (ACE-Step 1.5, e.g. for vocals), or a model file name")
+                     help="(music) sa3 (default) | acestep (ACE-Step 1.5, sings --lyrics), or a model file name")
     aud.add_argument("--from-video", dest="from_video", default=None,
                      help="foley source: a file in brands/<brand>/outputs|references|products/")
     aud.add_argument("--duration", type=float, default=None,
@@ -461,6 +474,9 @@ def main():
                           "the clip)")
     aud.add_argument("--bpm", type=int, default=None, help="(music)")
     aud.add_argument("--keyscale", default=None, help="(music)")
+    aud.add_argument("--lyrics", default=None,
+                     help="(music, --model acestep) words for ACE-Step to sing; section tags like [verse] and "
+                          "[chorus] on their own lines. From a file: --lyrics \"$(cat song.txt)\"")
     aud.add_argument("--fps", type=float, default=None, help="(foley; default = source fps)")
     td = sub.add_parser("3d"); _add_common(td)
     td.add_argument("--mode", choices=["image"], default="image")
@@ -472,7 +488,8 @@ def main():
                     help="3D model: trellis2 (default; textured PBR GLB) | pixal3d (textured, matches the "
                          "photo's viewpoint) | hunyuan21 (shape only, ~4x faster), or a model file name")
     td.add_argument("--format", choices=["glb", "stl", "obj"], default=None,
-                    help="3D export format (default glb; stl/obj converted host-side, geometry only)")
+                    help="3D export format (default glb; stl/obj are converted host-side, geometry only, and the GLB "
+                         "stays beside them)")
     rn = sub.add_parser("render", help="headless Blender: render a mesh / ComfyUI asset, or finish a mesh")
     rn.add_argument("--brand", default=None)
     rn.add_argument("--seed", type=int, default=None)
@@ -627,7 +644,12 @@ def main():
         print_updates(check_updates(client, repo_root, latest_comfyui=latest))
         return
     if args.modality == "replay":
-        data = json.loads(Path(args.sidecar).read_text(encoding="utf-8"))
+        try:
+            data = json.loads(Path(args.sidecar).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:   # missing, unreadable, or not JSON (e.g. the render itself)
+            ap.error(f"cannot read {args.sidecar} as a sidecar: {e}")
+        if not isinstance(data, dict):
+            ap.error(f"cannot replay {args.sidecar}: not a sidecar")
         try:
             rargs = _args_from_sidecar(data, seed=args.seed,
                                        comfy_output_dir=args.comfy_output_dir,
@@ -654,6 +676,10 @@ def main():
     if args.modality == "finalize-texture":
         run_finalize_texture(args, repo_root, ap)
         return
+    if getattr(args, "upscale_model", None) and not args.upscale:
+        ap.error("--upscale-model picks the upscaler for --upscale; add --upscale")
+    if args.modality == "audio" and args.mode != "music" and (args.bpm is not None or args.keyscale):
+        ap.error(f"--bpm/--keyscale are music settings; audio --mode {args.mode} doesn't use them")
     _run_comfy(args, repo_root, ap)
 
 

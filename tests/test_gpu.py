@@ -47,8 +47,16 @@ def test_ollama_root_strips_v1_and_honours_ollama_host(monkeypatch):
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     assert gpu.ollama_root("http://localhost:11434/v1/") == "http://localhost:11434"
     assert gpu.ollama_root() == gpu.DEFAULT_OLLAMA
-    monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11500")
-    assert gpu.ollama_root() == "http://0.0.0.0:11500"
+    # read the way Ollama's client reads it: the bind-all address means this machine, and no scheme means
+    # port 11434 (OLLAMA_HOST=0.0.0.0 used to become http://0.0.0.0 on port 80, unreachable on Windows)
+    for host, root in (("0.0.0.0:11500", "http://127.0.0.1:11500"), ("0.0.0.0", "http://127.0.0.1:11434"),
+                       ("localhost", "http://localhost:11434"), ("http://localhost", "http://localhost"),
+                       ("[::]:11434", "http://[::1]:11434"), ("https://ollama.example.com/", "https://ollama.example.com"),
+                       ("http://box:11434/ollama/", "http://box:11434/ollama")):
+        monkeypatch.setenv("OLLAMA_HOST", host)
+        assert gpu.ollama_root() == root, host
+    assert gpu.is_local("http://0.0.0.0:11434") and gpu.is_local("http://[::]:1")
+    assert not gpu.is_local("http://192.168.1.5:11434")
 
 
 def test_loaded_models_parses_ps_and_tolerates_a_stopped_ollama():
@@ -67,12 +75,45 @@ def test_unload_all_unloads_each_resident_model_with_keep_alive_zero():
                      {"model": "qwen3.6-27b", "keep_alive": 0}]
 
 
+def _ollama(models, log, forgets=True):
+    """A fake Ollama whose /api/ps stops listing a model once it is unloaded (keep_alive 0), unless not `forgets`."""
+    ps = [dict(m) for m in models]
+
+    def open_(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else req
+        method = req.get_method() if hasattr(req, "get_method") else "GET"
+        path = "/" + url.split("://", 1)[1].split("/", 1)[1]
+        body = json.loads(req.data) if getattr(req, "data", None) else None
+        log.append((method, path, body))
+        if path == "/api/version":
+            return _Resp({"version": "0.40.4"})
+        if path == "/api/ps":
+            return _Resp({"models": list(ps)})
+        if path == "/api/generate" and body and body.get("keep_alive") == 0:
+            if forgets:
+                ps[:] = [m for m in ps if m["name"] != body["model"]]
+            return _Resp({})
+        raise urllib.error.URLError("connection refused")
+    return open_
+
+
 def test_release_unloads_only_its_own_resident_model_on_ollama(monkeypatch):
     monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
     log = []
     c = LLMClient(base_url="http://o/v1", model="qwen3-vl:8b-instruct")
-    assert c.release(_opener=_server(_OLLAMA, log)) is True
+    assert c.release(_opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], log)) is True
     assert [b for m, p, b in log if m == "POST"] == [{"model": "qwen3-vl:8b-instruct", "keep_alive": 0}]
+    assert log[-1][1] == "/api/ps"             # and it checked that the model really left
+
+
+def test_unload_waits_for_ollama_to_let_go_and_says_when_it_does_not():
+    # keep_alive 0 is answered before Ollama's runner frees the memory; a render must not start beside it
+    now, sleep = _clock()
+    models = [{"name": "judge:8b", "size_vram": 6 * 2**30}]
+    assert gpu.unload("http://o", "judge:8b", wait=10, _opener=_ollama(models, []), _sleep=sleep, _clock=now)
+    stuck = _ollama(models, [], forgets=False)
+    assert gpu.unload("http://o", "judge:8b", wait=10, _opener=stuck, _sleep=sleep, _clock=now) is False
+    assert gpu.unload("http://o", "judge:8b", _opener=stuck) is True        # no wait: Ollama accepted it
 
 
 def test_release_never_loads_a_model_that_is_not_resident(monkeypatch):
@@ -201,7 +242,8 @@ class _Card:
             self.free_gb = self.after
         elif self.freed:
             self.polls -= 1
-        return {"devices": [{"vram_free": (self.free_gb + 0.5) * 2**30, "torch_vram_free": 0.5 * 2**30}]}
+        return {"devices": [{"type": "cuda", "vram_total": 32 * 2**30, "vram_free": (self.free_gb + 0.5) * 2**30,
+                             "torch_vram_free": 0.5 * 2**30}]}
 
     def free(self):
         self.freed += 1
@@ -230,7 +272,8 @@ def test_make_room_counts_comfyuis_own_cache_as_taken():
     # vram_free includes memory ComfyUI's torch has reserved but not used: another process can't have it
     now, sleep = _clock()
     card = _Card(free_gb=0.1, after_free_gb=0.1)
-    card.system_stats = lambda: {"devices": [{"vram_free": 20 * 2**30, "torch_vram_free": 19.9 * 2**30}]}
+    card.system_stats = lambda: {"devices": [{"type": "cuda", "vram_total": 32 * 2**30, "vram_free": 20 * 2**30,
+                                              "torch_vram_free": 19.9 * 2**30}]}
     assert gpu.make_room(card, 9 * 2**30, wait=5, _sleep=sleep, _clock=now) is False and card.freed == 1
 
 
@@ -306,7 +349,8 @@ def test_make_room_says_why_the_next_render_reloads(capsys):
 
 def test_unload_others_keeps_the_runs_own_models():
     log = []
-    done = gpu.unload_others("http://o", keep={"qwen3-vl:8b-instruct"}, _opener=_server(_OLLAMA, log))
+    done = gpu.unload_others("http://o", keep={"qwen3-vl:8b-instruct"},
+                             _opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], log))
     assert done == [("qwen3.6-27b", 20_000_000_000)]
     assert [b for m, p, b in log if m == "POST"] == [{"model": "qwen3.6-27b", "keep_alive": 0}]
 
@@ -362,12 +406,21 @@ def test_a_model_bigger_than_the_card_empties_comfyui_and_then_loads():
 
 def test_total_memory_prefers_comfyui_then_nvidia_smi(monkeypatch):
     class _C:
+        def __init__(self, kind="cuda", base=None):
+            self.kind = kind
+            if base:
+                self.base = base
+
         def system_stats(self):
-            return {"devices": [{"vram_total": 31.8 * 2**30}]}
+            return {"devices": [{"type": self.kind, "vram_total": 31.8 * 2**30}]}
     assert gpu.total_memory_gb(_C()) == 31.8
+    assert gpu.total_memory_gb(_C(base="http://127.0.0.1:8000")) == 31.8
     monkeypatch.setattr(gpu, "_nvidia_smi_gb", lambda: 12.0)
     assert gpu.total_memory_gb(object()) == 12.0              # no ComfyUI answer -> nvidia-smi
     assert gpu.total_memory_gb() == 12.0
+    # an Apple / CPU ComfyUI reports system RAM, and a remote one another machine's card
+    assert gpu.total_memory_gb(_C(kind="mps")) == 12.0
+    assert gpu.total_memory_gb(_C(base="http://192.168.1.9:8188")) == 12.0
 
 
 def test_nvidia_smi_reading_is_parsed_and_time_limited(monkeypatch):
@@ -395,3 +448,112 @@ def test_pulled_models_lists_tags_and_tolerates_a_stopped_ollama():
     tags = {("GET", "/api/tags"): {"models": [{"name": "qwen3.8:27b"}, {"model": "qwen3-vl:8b-instruct"}]}}
     assert gpu.pulled_models("http://o", _opener=_server(tags, [])) == ["qwen3.8:27b", "qwen3-vl:8b-instruct"]
     assert gpu.pulled_models("http://o", _opener=_server({}, [])) == []
+
+
+
+# --- the 2026-10 review of the hand-off: fail safe, real CUDA cards only, Ollama's own name and host rules ---
+def test_make_room_only_reads_a_local_cuda_card():
+    # mps and the CPU report system RAM, DirectML a 1 GB placeholder: every local judge refused on a Mac
+    now, sleep = _clock()
+    for dev in ({"type": "mps", "vram_total": 64 * 2**30, "vram_free": 0, "torch_vram_free": 0},
+                {"type": "privateuseone", "vram_total": 2**30, "vram_free": 2**30, "torch_vram_free": 0}):
+        card = _Card(0, 0)
+        card.system_stats = lambda dev=dev: {"devices": [dev]}
+        assert gpu.make_room(card, 9 * 2**30, _sleep=sleep, _clock=now) is None and card.freed == 0
+    remote = _Card(0.1, 29)
+    remote.base = "http://192.168.1.9:8188"        # another machine's card: freeing it frees nothing here
+    assert gpu.make_room(remote, 9 * 2**30, _sleep=sleep, _clock=now) is None and remote.freed == 0
+
+
+def test_make_room_refuses_when_comfyui_stops_answering_after_showing_a_full_card():
+    # any later error used to read as "ComfyUI isn't running", and the model loaded onto the full card
+    now, sleep = _clock()
+
+    class _Wedged(_Card):
+        def free(self):
+            raise urllib.error.URLError("timed out")
+    assert gpu.make_room(_Wedged(0.1, 29), 9 * 2**30, _sleep=sleep, _clock=now) is False
+
+    class _Gone(_Card):
+        def system_stats(self):
+            if self.freed:
+                raise TimeoutError("timed out")
+            return super().system_stats()
+    assert gpu.make_room(_Gone(0.1, 29), 9 * 2**30, wait=5, _sleep=sleep, _clock=now) is False
+
+
+def test_a_model_bigger_than_the_card_always_empties_comfyui_first():
+    # capped to the card, the need "fit" beside 1.5 GB of ComfyUI models that Ollama can't see
+    now, sleep = _clock()
+
+    class _Small(_Card):
+        def system_stats(self):
+            s = super().system_stats()
+            s["devices"][0]["vram_total"] = 16 * 2**30
+            return s
+    card = _Small(free_gb=14.5, after_free_gb=15.5)
+    assert gpu.make_room(card, 22 * 2**30, _sleep=sleep, _clock=now) is True and card.freed == 1
+
+
+def test_nvidia_smi_errors_are_not_read_as_a_size(monkeypatch):
+    # a driver mismatch prints 'NVML library version: 560.35', which read as a 0.5 GiB card (the small tier)
+    import subprocess as _sp
+    monkeypatch.setattr(gpu, "_nvidia_smi_gb", _real_smi)
+    monkeypatch.setattr(gpu.subprocess, "run", lambda argv, **kw: _sp.CompletedProcess(
+        argv, 18, stdout="Failed to initialize NVML\nNVML library version: 560.35\n", stderr=""))
+    assert gpu._nvidia_smi_gb() is None
+    monkeypatch.setattr(gpu.subprocess, "run", lambda argv, **kw: _sp.CompletedProcess(argv, 0, stdout="560.35\n",
+                                                                                       stderr=""))
+    assert gpu._nvidia_smi_gb() is None             # sizes are whole MiB
+
+
+def test_a_bad_port_in_ollama_host_falls_back_to_ollamas_default(monkeypatch):
+    monkeypatch.setenv("OLLAMA_HOST", "localhost:port")
+    assert gpu.ollama_root() == "http://localhost:11434"
+
+
+def test_model_names_compare_the_way_ollama_resolves_them():
+    # a model written another way ('Judge:8B') skipped the room check
+    assert gpu.same_model("Judge:8B", "judge:8b") and gpu.same_model("registry.ollama.ai/library/judge:8b", "judge:8b")
+    assert gpu.same_model("judge", "judge:latest") and not gpu.same_model("judge:8b", "judge:4b")
+    tags = {("GET", "/api/tags"): {"models": [{"name": "registry.ollama.ai/library/judge:8b", "size": 6 * 2**30}]}}
+    assert gpu.vram_need("http://o", "Judge:8B", _opener=_server(tags, [])) is not None
+
+
+def test_the_context_cache_counts_parallel_slots_and_needs_flash_attention_to_shrink(monkeypatch):
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    one = gpu._kv_cache_bytes(_JUDGE_SHOW)
+    monkeypatch.setenv("OLLAMA_NUM_PARALLEL", "2")
+    assert gpu._kv_cache_bytes(_JUDGE_SHOW) == 2 * one
+    monkeypatch.setenv("OLLAMA_NUM_PARALLEL", "lots")
+    assert gpu._kv_cache_bytes(_JUDGE_SHOW) == one
+    monkeypatch.setenv("OLLAMA_FLASH_ATTENTION", "0")              # a quantized cache needs flash attention
+    assert gpu._kv_cache_bytes(_JUDGE_SHOW) > 3 * one
+
+
+def test_room_counts_the_models_ollama_already_holds():
+    # ComfyUI can't see Ollama's resident models either: a second model needs room beside them
+    asked = []
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c.make_room = asked.append
+    c._ensure_room(_opener=_server(_TAGS, []))
+    assert asked[0] > 6_100_000_000 + 20_000_000_000 + 6 * 2**30   # the two resident models + its own need
+
+
+def test_no_room_check_when_ollama_is_down_or_lacks_the_model():
+    asked = []
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c.make_room = asked.append
+    c._ensure_room(_opener=_server({}, []))                       # Ollama not answering
+    c._ensure_room(_opener=_server(_OLLAMA, []))                  # not pulled: the request fails without loading
+    assert asked == []
+
+
+def test_a_failed_probe_of_a_local_ollama_is_retried():
+    # one failed probe (Ollama restarting) used to switch the GPU checks off for the whole run
+    models = _OLLAMA[("GET", "/api/ps")]["models"]
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
+    assert c.release(_opener=_server({}, [])) is False
+    assert c.release(_opener=_ollama(models, [])) is True
+    assert c.resident(_opener=_ollama([], [])) is False and c.resident(_opener=_ollama(models, [])) is True
+    assert LLMClient(base_url="https://api.example.com/v1", model="m").resident() is False

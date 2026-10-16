@@ -12,7 +12,8 @@ import shutil
 import subprocess
 
 MANIFEST_TAG = "@@CHIMERA_MANIFEST@@"
-_SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH", re.IGNORECASE)
+_SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSW|PWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|DSN|DATABASE_URL"
+                          r"|_PAT$|^PAT_|CONN(ECTION)?_?STR", re.IGNORECASE)
 
 
 def scrubbed_env(**extra):

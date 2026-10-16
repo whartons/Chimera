@@ -89,3 +89,29 @@ def test_foley_watermark_injected_over_components_keeps_audio():
     foley_id, _ = find_node_by_title(wf, "brand:foley")
     cv = find_node_by_title(wf, "brand:create_video")[1]["inputs"]
     assert cv["images"] == [cid, 0] and cv["audio"] == [foley_id, 0]
+
+
+
+def test_lyrics_reach_ace_step_and_nothing_else():
+    # ACE-Step was kept for songs with vocals, but the CLI had no way to send it words
+    import pytest
+    from scripts.brandkit.audio import check_options
+    m = load_manifest(FIX)
+    wf = build(ROOT, m, positive="anthem", negative="", seed=3, mode="music", model="acestep",
+               lyrics="[verse]\nsteel and fire")
+    assert find_node_by_title(wf, "brand:tags")[1]["inputs"]["lyrics"] == "[verse]\nsteel and fire"
+    plain = build(ROOT, m, positive="anthem", negative="", seed=3, mode="music", model="acestep")
+    assert find_node_by_title(plain, "brand:tags")[1]["inputs"]["lyrics"] == ""
+    with pytest.raises(ValueError, match="add --model acestep"):
+        check_options(m, "music", lyrics="la la")                # Stable Audio 3 doesn't sing
+    with pytest.raises(ValueError, match="no vocals"):
+        check_options(m, "sfx", lyrics="la la")
+
+
+def test_music_sidecars_record_the_lyrics_and_replay_sends_them_back():
+    from scripts.brandkit.sidecar import relevant_inputs
+    from scripts.brandkit.replay import args_from_sidecar
+    assert relevant_inputs("audio", "music", {"subject": "s", "lyrics": "la"})["lyrics"] == "la"
+    s = {"schema": 2, "modality": "audio", "mode": "music", "brand": None, "seed": 3,
+         "model": "acestep_v1.5_xl_turbo_bf16.safetensors", "inputs": {"subject": "anthem", "lyrics": "[verse]\nla"}}
+    assert args_from_sidecar(s).lyrics == "[verse]\nla"

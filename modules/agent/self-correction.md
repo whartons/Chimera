@@ -22,7 +22,7 @@ not individually sidecar'd, so the loop is **not** per-iteration replayable.
 |---|---|
 | `rubric.py` | `Rubric` + `build_rubric(manifest, subject)` — composes a scorable checklist from the brand (subject, style, palette, negative). `rubric.as_prompt()` renders the numbered **MET / NOT-MET → PASS/FAIL → `score: 0-1`** instructions a judge follows. With a brand, the subject criterion judges the object itself and the brand wins any styling conflict; a FIX may never contradict another criterion. Palette colors are named for the judge (`color_words`: `#1c1f22` → `near-black (#1c1f22)`), since a VLM can't read hex. |
 | `expander.py` | `PromptExpander` ABC + `TemplatedExpander` — wraps `build_prompt(manifest, subject)` for the on-brand `(positive, negative)`. On a correction pass it applies the judge's `FIX: add …; avoid …` directives (`parse_fixes` reads either order, `remove …`, `none needed`), after `brand_guard` drops contradictions: never add a trait an avoid term or the brand's negative names, never avoid the brand's own style or palette. |
-| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, NOT-MET lines → issues; a criterion marked NOT-MET fails the verdict even under an "Overall: PASS"; never raises). |
+| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, `4 out of 5` / `7` / `85` rescaled to 0–1, NOT-MET lines → issues; a criterion whose status is NOT-MET fails the verdict even under an "Overall: PASS"; never raises). The status is the first MET / NOT-MET word on a criterion's line or a table cell holding only it, in any common form (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `| 2 | … | NOT-MET |`, `1 NOT-MET` in a summary), while `NOT MET: none` and a MET reason that mentions "unmet" don't count. |
 | `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best-scoring candidate after the cap, with full per-iteration history. In branded runs it also drops the subject styling the judge flagged from the subject **and** the rubric (`correct_subject`; the object phrase is kept), so later passes aren't judged against the off-brand words. |
 
 The judge's **PASS/FAIL verdict is authoritative** for stopping the loop — a single
@@ -102,7 +102,9 @@ python scripts/agent/auto_generate.py [--brand <brand>] --subject "<subject>" \
 ```
 
 Without `--seeds`, each run draws fresh seeds and prints them (outputs are named by seed, so a fixed
-default let a second run replace the first run's winner); pass them back with `--seeds` to repeat a run.
+default let a second run replace the first run's winner); pass them back with `--seeds` to repeat a run. A
+shorter `--seeds` list is topped up with fresh seeds, and a seed the run repeats (`--seeds 7,7,7`, one seed
+with corrected prompts) gets its own files per pass: `agent_7`, `agent_7_2`, `agent_7_3`.
 
 `--brand` is **optional** — the same machinery does branded *and* general self-correction:
 
@@ -631,15 +633,23 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
 
 - **Before a model loads** (judge, rewriter, CAD codegen), the client asks ComfyUI, which does see its own
   memory, how much of the card it leaves free. If that is less than the model needs (its weights plus its
-  context cache, read from Ollama: a 192k-token context adds about 13.5 GB to a 27B model), ComfyUI unloads its
-  models (`/free`) and the loop waits up to 30 s for the memory. A model bigger than the card gets ComfyUI
-  emptied, and Ollama puts the overflow on the CPU. If the room never comes, the model is **not** loaded: the
-  iteration fails with "the GPU has no room for it".
-- **Before every ComfyUI render** and **when the run ends**, even on failure, the loops unload their own
-  resident models (`LLMClient.release`, Ollama's `keep_alive: 0`); the CAD loop also unloads its codegen
-  before Blender renders.
+  context cache, read from Ollama: a 192k-token context adds about 13.5 GB to a 27B model, more with
+  `OLLAMA_NUM_PARALLEL` above 1), plus whatever Ollama already holds (ComfyUI can't see that either), ComfyUI
+  unloads its models (`/free`) and the loop waits up to 30 s for the memory. A model bigger than the card always
+  gets ComfyUI emptied, and Ollama puts the overflow on the CPU. If the room never comes, or ComfyUI stops
+  answering after showing a full card, the model is **not** loaded: the iteration fails with "the GPU has no
+  room for it". The check reads a local CUDA card only (an Apple mps or CPU ComfyUI reports system RAM, so the
+  loop skips it there).
+- **Before every render** (ComfyUI and, in the CAD loop, Blender) and **when the run ends**, even on failure,
+  the loops unload their own resident models (`LLMClient.release`, Ollama's `keep_alive: 0`) and wait until
+  Ollama lists them as gone; a model that won't unload stops that iteration rather than render beside it. The
+  CAD loop's code-gen unloads itself before Blender renders.
 - **Before the first render**, they unload Ollama models the run didn't load (another tool's, or an earlier
   run's), printing which.
+
+The checks apply to a "local" endpoint: `localhost`, `127.x`, `::1`, or the bind-all `0.0.0.0` / `::` (so
+`OLLAMA_HOST=0.0.0.0` works, read the way Ollama reads it: port 11434 when none is given). This machine's LAN
+address or host name doesn't count, so give a local Ollama or ComfyUI as `localhost` or `127.0.0.1`.
 
 Hosted and remote endpoints are untouched, and a remote ComfyUI is never asked to free. Reloading the judge
 costs a few seconds per iteration for the 8B, more for a 27B, and the image model reloads only when ComfyUI

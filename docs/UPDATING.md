@@ -11,7 +11,7 @@ code. Two pieces make that reliable:
 - **The lever** — this runbook: the safe, gated process to actually apply each kind of update.
 
 > **The three gates — run them after *any* update before you trust it:**
-> 1. `python -m pytest -q` is green, 2. `chimera doctor` (and `chimera doctor --brand <b>`) is clean,
+> 1. `python -m pytest` is green, 2. `chimera doctor` (and `chimera doctor --brand <b>`) is clean,
 > 3. a **smoke render** of the affected modality looks right. If any gate fails, roll back.
 
 The dependency inventory those updates touch lives in [`docs/STACK.md`](STACK.md); models in

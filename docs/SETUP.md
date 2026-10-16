@@ -13,7 +13,8 @@ upscaler, Wan 2.2 (incl. Fun Camera), Stable Audio 3, and TRELLIS.2 / Pixal3D. O
 pass `--model` to use the earlier models (Z-Image / FLUX.2, LTX-2.3, ACE-Step, Hunyuan3D 2.1). There, image
 `--upscale` also needs `--upscale-model 4x-UltraSharp.pth` (SeedVR2's nodes are new in 0.40),
 `audio --mode sfx` has no older path (it is Stable Audio 3 only), and the mesh3d agent loop needs
-`--mesh-model hunyuan21`. On 0.40, LTX-2.3 needs the bundled LTXVideo patch (see
+`--mesh-model hunyuan21`, plus `--model` with a Z-Image or FLUX.2 file for its concept image (or
+`--from-image`). On 0.40, LTX-2.3 needs the bundled LTXVideo patch (see
 [`../modules/video/README.md`](../modules/video/README.md)).
 
 ## This repo
@@ -30,10 +31,14 @@ the agent loop.
 ## Per-module models
 Each `modules/<name>/models.md` lists the model files, their Hugging Face /
 Civitai URLs, target paths under `ComfyUI/models/...`, and license. Download what
-a module needs before importing its `workflow.template.json`.
+a module needs before importing its default graph: `modules/image/workflow.qwen-image-txt2img.template.json`,
+`modules/video/workflow.wan22-i2v.template.json`, `modules/audio/workflow.sa3.template.json`, or
+`modules/threed/workflow.trellis2.template.json`. (A module's plain `workflow.template.json` is an earlier
+model's graph: FLUX.2, LTX-2.3, or Hunyuan3D 2.1.)
 
 The **defaults** come from ungated Comfy-Org repos (no Hugging Face login): about 119 GB in all, or about
-88 GB without the camera-move models.
+88 GB without the camera-move models. These sizes are decimal GB, as Hugging Face lists them; Windows (and
+[`CATALOG.md`](CATALOG.md)'s per-file sizes) show about 7% less.
 
 | Modality | Default | Download |
 |---|---|---|
@@ -50,9 +55,11 @@ hint. Comfy-Org's "repackaged" repos nest files under `split_files/<type>/`: pla
 without the `split_files` level.
 
 ## VRAM
-Baseline dev hardware: RTX 5090, 32 GB. Most modules run on 8–16 GB via
-quantized weights — see each module's notes. Install `ComfyUI-GGUF` for quantized
-loading and use NVFP4 / fp8 variants where available for speed on RTX.
+Baseline dev hardware: RTX 5090, 32 GB, and the defaults aim high. The README's
+[Hardware table](../README.md#%EF%B8%8F-hardware) lists each default's GPU memory and the route for a
+smaller card; each module README's VRAM notes have the details. Chimera's graphs load the fp8 / int8 /
+NVFP4 files each `models.md` names; GGUF quants need ComfyUI-GGUF's own loader nodes, so they suit your own
+workflows rather than Chimera's graphs.
 
 ## Performance tuning (RTX 50-series / Blackwell)
 Check your current state in the ComfyUI **startup log**: the attention backend line

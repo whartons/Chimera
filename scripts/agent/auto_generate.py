@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.agent.expander import TemplatedExpander
 from scripts.agent.judge import LocalVLMJudge, GeometryAwareJudge
-from scripts.agent.loop import run_loop
+from scripts.agent.loop import SeedNames, run_loop
 from scripts.agent.rubric import build_rubric
 from scripts.agent.render_generate import make_render_generate
 from scripts.brandkit import workflow as image_filler
@@ -62,15 +62,15 @@ def _parse_seeds(raw):
 
 
 def _run_seeds(raw, max_iters):
-    """--seeds as given, else a fresh random run of seeds. The loop's fixed 1000+i default made a second run
-    overwrite the first run's winner (outputs are named <mode>_<seed>); the seeds are printed so a run can
-    be repeated with --seeds."""
-    seeds = _parse_seeds(raw)
-    if seeds:
+    """--seeds as given, else a fresh random run of seeds; a shorter --seeds list is topped up with fresh
+    ones. The loop's fixed 1000+i default made a second run overwrite the first run's winner (outputs are
+    named <mode>_<seed>); the seeds are printed so a run can be repeated with --seeds."""
+    seeds = _parse_seeds(raw) or []
+    if len(seeds) >= max_iters:
         return seeds
     import random
     base = random.randrange(1, 2**31 - 1000)
-    seeds = [base + i for i in range(max_iters)]
+    seeds = seeds + [base + i for i in range(max_iters - len(seeds))]
     print(f"[agent] seeds {','.join(map(str, seeds))} (repeat this run with --seeds)", file=sys.stderr)
     return seeds
 
@@ -103,12 +103,13 @@ def _make_generate(args, repo_root, manifest, client):
     the txt2img graph, queues it, waits, and routes the result into the output folder (brand or
     global, per --brand) with mode label 'agent' so per-iteration renders are distinguishable."""
     out_dir = Path(args.comfy_output_dir)
+    name = SeedNames()
 
     def generate(pos, neg, seed):
         wf = image_filler.build(repo_root, manifest, positive=pos, negative=neg, seed=seed,
                                 mode="txt2img", variant=args.variant, model=args.model)
         local = run_graph_to_file(client, wf, out_dir, timeout=args.timeout)
-        return str(route_output(repo_root, args.brand, local, "agent", seed))
+        return str(route_output(repo_root, args.brand, local, "agent", name(seed)))
 
     return generate
 
@@ -169,11 +170,23 @@ def _clear_other_ollama_models(llms):
         for name, vram in gpu.unload_others(root, keep):
             print(f"[gpu] unloaded {name} ({vram / 2**30:.1f} GB) from Ollama before rendering: ComfyUI can't "
                   "see that memory, so rendering beside it could overcommit the card", file=sys.stderr)
+        stuck = [n for n, _ in gpu.loaded_models(root) if not any(gpu.same_model(n, k) for k in keep)]
+        if stuck:
+            sys.exit(f"[gpu] Ollama still holds {', '.join(stuck)} and rendering beside it could overcommit the "
+                     "card (ComfyUI can't see that memory): run `python scripts/generate.py free`, or close the "
+                     "app using it, then retry")
+
+
+def _same_llm(a, b):
+    """True when two role clients run the same model on the same server (the large tier's code-gen and judge)."""
+    ma, mb = getattr(a, "model", None), getattr(b, "model", None)
+    return bool(ma and mb) and getattr(a, "base_url", None) == getattr(b, "base_url", None) and gpu.same_model(ma, mb)
 
 
 def _hand_gpu_back(generate, clients):
-    """Unload this run's local Ollama models before every ComfyUI render (LLMClient.release), so a
-    resident judge/rewriter never starves ComfyUI on a single GPU. A no-op for hosted endpoints."""
+    """Unload this run's local Ollama models before every render (LLMClient.release), so a resident
+    judge/rewriter never starves ComfyUI or Blender on a single GPU. A no-op for hosted endpoints. A model
+    that won't unload stops that iteration rather than render beside memory ComfyUI can't see."""
     live = [c for c in clients if c is not None]
     if not live:
         return generate
@@ -181,6 +194,10 @@ def _hand_gpu_back(generate, clients):
     def wrapped(*args, **kwargs):
         for c in live:
             c.release()
+        stuck = [] if gpu.keep_llms_loaded() else [c.model for c in live if getattr(c, "resident", None) and c.resident()]
+        if stuck:
+            raise RuntimeError(f"{', '.join(stuck)} is still loaded in Ollama, so not rendering beside it "
+                               "(ComfyUI can't see that memory); `python scripts/generate.py free` unloads it")
         return generate(*args, **kwargs)
     return wrapped
 
@@ -377,7 +394,11 @@ def main():
         from scripts.agent.cad_generate import make_cad_generate
         from scripts.agent.llm import LLMCadGenerator
         rubric = build_rubric(m, args.subject, modality="3d")   # clean-solid form rubric (BREP is manifold)
-        generate = make_cad_generate(args, repo_root, LLMCadGenerator(codegen_llm))
+        # the judge and rewriter go before each iteration's renders too (code-gen releases itself before
+        # Blender): a resident judge sat beside the next Blender render and a --backend local judge graph. One
+        # on code-gen's own model is left to code-gen, which loads it next and releases it before Blender.
+        generate = _hand_gpu_back(make_cad_generate(args, repo_root, LLMCadGenerator(codegen_llm)),
+                                  [c for c in (judge_llm, rewriter_llm) if not _same_llm(c, codegen_llm)])
         judge = GeometryAwareJudge(build_judge(), strict=True)   # manifold, but a script can build separate bodies
     elif args.pipeline == "mesh3d":
         # textured: the Phase-4a front bake (--texture) or a 3D model that bakes its own textures

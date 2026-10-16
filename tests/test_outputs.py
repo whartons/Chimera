@@ -219,3 +219,38 @@ def test_run_graph_to_file_queues_a_fresh_output_name(tmp_path):
 def test_route_output_says_clearly_when_the_reported_file_is_missing(tmp_path):
     with pytest.raises(NoOutputError, match="isn't in its output folder"):
         route_output(tmp_path, "b", tmp_path / "gone.png", "txt2img", 1)
+
+
+
+# --- names that arrive from outside stay one plain name (2026-10 review) ---------------------------------
+@pytest.mark.parametrize("name, ok", [("rover.png", True), ("my brand", True), ("Café & Co", True), ("", False),
+                                      (".", False), ("..", False), ("a/b", False), ("a\\b", False), ("c:x", False),
+                                      ("x.", False), (" x", False), ("a\tb", False)])
+def test_plain_name(name, ok):
+    assert outputs.plain_name(name) is ok
+
+
+def test_route_output_refuses_a_mode_or_brand_that_is_a_path(tmp_path):
+    from scripts.brandkit.outputs import NoOutputError
+    src = tmp_path / "r.png"
+    src.write_bytes(b"x")
+    with pytest.raises(NoOutputError, match="plain names"):
+        route_output(tmp_path, None, src, "../../evil", 42)
+    with pytest.raises(NoOutputError, match="plain names"):
+        route_output(tmp_path, "..", src, "txt2img", 42)
+    with pytest.raises(NoOutputError):
+        route_output(tmp_path, "b", tmp_path, "txt2img", 1)      # a folder isn't an output file
+    assert src.exists()
+
+
+def test_comfy_output_path_refuses_an_empty_or_dot_name(tmp_path):
+    # '.' passed the check and moved ComfyUI's whole output folder into the brand's outputs
+    from scripts.brandkit.outputs import NoOutputError, comfy_output_path
+    for bad in ("", ".", ".."):
+        with pytest.raises(NoOutputError):
+            comfy_output_path(tmp_path, "", bad)
+
+
+def test_a_replay_name_ignores_case_like_windows_does(tmp_path):
+    (tmp_path / "Example_txt2img_9.png").write_bytes(b"orig")
+    assert outputs._unused_stem(tmp_path, "example_txt2img_9") == "example_txt2img_9_replay"

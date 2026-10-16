@@ -89,10 +89,16 @@ what you downloaded).
 
 ## Faster / lighter variants (optional)
 
+- **Wan 2.2 (default):** no lighter Wan model is wired into Chimera yet. GGUF quants of the 14B experts
+  (via `ComfyUI-GGUF`) need that pack's own loader node, which Chimera's graph doesn't use, and the 5B TI2V
+  model isn't wired in either. Below 24 GB, ComfyUI offloads part of each expert to system RAM, so the
+  default still runs, only slower (not measured here; plenty of system RAM helps). `--quality fast` and a
+  smaller `--width`/`--height` keep activation memory down.
 - **Full distilled checkpoint** (`ltx-2.3-22b-distilled-1.1.safetensors`,
   `checkpoints/`, ~46 GB) — fewer sampling steps at full fp16 weight; only
   practical with 32+ GB VRAM and if you need maximum output quality without
   the nvfp4 quantization. See `Lightricks/LTX-2.3` on Hugging Face.
-- **GGUF quantized** — if VRAM is tight, check the community for GGUF variants
-  loadable via `ComfyUI-GGUF`; note audio generation quality may degrade under
-  heavy quantization.
+- **GGUF quantized** — community GGUF variants need `ComfyUI-GGUF`'s own loader
+  node, and Chimera's LTX graph loads a checkpoint (`CheckpointLoaderSimple`), so
+  they need a hand-edited graph; audio quality may also degrade under heavy
+  quantization.

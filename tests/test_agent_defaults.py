@@ -1,4 +1,4 @@
-"""Migration guard for the Qwen3 agent upgrade: the orchestrator carries no stale Qwen2.5 or personal
+"""Migration guard for the Qwen3 agent upgrade: the orchestrator carries no stale Qwen2.5 or machine-specific
 model references, and it documents the Ollama Qwen3-VL judge path (the judge's local default; any other
 endpoint or model comes from config)."""
 from __future__ import annotations
@@ -20,16 +20,16 @@ def test_agent_layer_does_not_import_the_cli_module():
     finally:
         sys.modules.update(saved)
 import inspect
+import re
 
 ag = importlib.import_module("scripts.agent.auto_generate")
 
 
-def test_orchestrator_has_no_stale_qwen25_or_personal_refs():
+def test_orchestrator_has_no_stale_or_machine_specific_refs():
     src = inspect.getsource(ag)
     low = src.lower()
     assert "qwen2.5" not in low                       # migrated to Qwen3
-    assert "qwen-sports" not in low                   # never the personal Ollama tag
-    assert "c:\\ai" not in low and "c:/ai" not in low  # never the personal model path
+    assert not re.search(r"\b[a-z]:[\\/]", low)       # no local absolute path (a drive letter)
 
 
 def test_orchestrator_documents_ollama_qwen3_recommendation():

@@ -52,6 +52,7 @@ chimera/
 │   ├── CATALOG.md       # best models/templates per modality (+ licenses)
 │   ├── STACK.md         # dependency/stack inventory (Python · ComfyUI · node-pack pins · MCP · CI · host)
 │   ├── SETUP.md         # install notes
+│   ├── UPDATING.md      # the gated update runbook (re-audit a pin before it moves)
 │   └── BLACKWELL-TUNING.md  # RTX 50-series / cu130 tuning guide (measured numbers)
 ├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent, blender, cad
 ├── scripts/
@@ -128,7 +129,7 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   swaps in an `LLMExpander` that rewrites prompts from the judge's FIX feedback (falling back to the
   template). An **interactive AI agent in the IDE supersedes all of this** — the endpoint config/keys are
   read only by headless `auto_generate.py` runs. **Phase-4b in-loop finalize is shipped:** `auto_generate.py --pipeline
-  mesh3d --finalize` textures the winning mesh (multi-view auto-repaint bake) + re-judges it
+  mesh3d --mesh-model hunyuan21 --finalize` textures the winning mesh (multi-view auto-repaint bake) + re-judges it
   (informational, non-gating); cross-view-consistency conditioning shipped with the auto-repaint polish.
 
 ## Hardware
@@ -147,8 +148,8 @@ stale doc is a bug.
   `CHANGELOG.md` `[Unreleased]` entry. If it touches the agent loop or judge, also
   `modules/agent/self-correction.md`.
 - **Dependency, model, or node-pack pin** → `docs/STACK.md` **and** `docs/CATALOG.md` (plus the pin +
-  `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`NPM_PACKS` table in
-  `scripts/update_report.py`). Pin third-party packs by commit, never `@latest`; updating is gated by
+  `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`GITEA_PACKS`/`NPM_PACKS` tables
+  in `scripts/update_report.py`, plus `.mcp.json` for an MCP server). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (the CI count uses
   `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 7).

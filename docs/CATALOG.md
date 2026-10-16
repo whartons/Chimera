@@ -53,7 +53,7 @@ module dispatches to Z-Image templates when the active model name starts with
 | `ae.safetensors` *(shared)* | `Comfy-Org/z_image_turbo` | `vae/` | ~0.3 GB | ✅ Apache-2.0 |
 
 - **Z-Image turbo** (`z_image_turbo_nvfp4`) — 8-step / CFG 1.0 fast path.
-  Default for `txt2img` and `logo` modes in Brand Kits.
+  Z-Image's default variant for `txt2img` and `logo` when a `z_image` model is chosen.
 - **Z-Image base** (`z_image_bf16`) — 25-step / CFG 4.0, full fidelity. Default
   for `product` img2img (always) and for `txt2img`/`logo` when `--variant base`
   is passed.
@@ -156,8 +156,8 @@ via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 | `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `Lightricks/LTX-2.3` | `latent_upscale_models/` | ~1 GB | open weights |
 | `gemma_3_12B_it_fp4_mixed.safetensors` *(LTX-2.3 text encoder)* | fetched with the LTX-2.3 setup / the `ComfyUI-LTXVideo` pack | `text_encoders/` | ~7 GB | ❓ verify |
 
-- **Dev nvfp4** (`ltx-2.3-22b-dev-nvfp4`) — quantized for 32 GB cards; primary
-  daily-driver path.
+- **Dev nvfp4** (`ltx-2.3-22b-dev-nvfp4`) — quantized for 32 GB cards; the
+  primary LTX-2.3 path (`--model ltx23`).
 - **Distilled** (`ltx-2.3-22b-distilled-1.1`) — fewer steps, higher throughput at
   full weight; only practical on 32+ GB.
 - **Distilled LoRA** — **must be v1.1** to match the v1.1 spatial upscaler; v1.0
@@ -186,9 +186,9 @@ via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 > **Wan 2.5 / 2.6 / 2.7 are API-only** — disqualified for local use. Use Wan 2.2
 > if you want the Wan family for its motion realism.
 
-**For live-stream stingers/transitions:** LTX-2.3 dev-nvfp4 (speed + quality) or
-the already-validated LTX-2 path for synced audio-video. Wan 2.2 with Lightning
-LoRAs is a strong second for pure-motion clips.
+**For live-stream stingers/transitions:** Wan 2.2, the default (`--camera static` for a
+locked shot; add sound with the foley module, `audio --mode foley`), or `--model ltx23`
+when you want synced audio in one pass.
 
 ---
 
@@ -247,11 +247,12 @@ enhancer**, and its sound-effects mode powers `audio --mode sfx`.
 | `t5gemma_b_b_ul2.safetensors` | `Comfy-Org/stable-audio-3` | `text_encoders/` | ~1.1 GB | ⚠️ Gemma terms |
 | `qwen3.5_2b_bf16.safetensors` *(prompt enhancer)* | `Comfy-Org/Qwen3.5` | `text_encoders/` | ~4.2 GB | ✅ Apache-2.0 |
 
-**Vocals / lyrics option (`--model acestep`): ACE-Step 1.5 XL Turbo**
+**Vocals option (`--model acestep --lyrics "…"`): ACE-Step 1.5 XL Turbo**
 
 ComfyUI core-native (no extra node pack); 8-step turbo, KSampler euler, cfg 1.0.
-Generates instrumental stingers/loops from genre/style tags; supports lyrics, voice
-cloning, and remix. Output: `.mp3` (SaveAudioMP3, V0).
+Generates stingers/loops from genre/style tags, and sings `--lyrics` when given (section
+tags such as `[verse]` / `[chorus]`). The model also does voice cloning and remix, which
+Chimera doesn't wire up. Output: `.mp3` (SaveAudioMP3, V0).
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
@@ -447,17 +448,18 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
   IPAdapter** repaint (`scripts/brandkit/repaint.py`). Pinned/audited pieces for auto-repaint:
   | Piece | Source / pin | License |
   |---|---|---|
-  | IPAdapter node pack | `cubiq/ComfyUI_IPAdapter_plus` @ `a0f451a` (audited safe-with-precautions) | MIT |
+  | IPAdapter node pack | `cubiq/ComfyUI_IPAdapter_plus` @ `a0f451a` (audited safe-with-precautions) | GPL-3.0 |
   | IPAdapter model | `h94/IP-Adapter` → `ip-adapter-plus_sdxl_vit-h.safetensors` → `models/ipadapter/` | Apache-2.0 |
   | CLIP-Vision (ViT-H) | `h94/IP-Adapter` image_encoder → `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` → `models/clip_vision/` | MIT |
-  | Depth ControlNet | `xinsir/controlnet-depth-sdxl-1.0` → `models/controlnet/` | Apache-2.0 |
-  | Base | `sd_xl_base_1.0.safetensors` (already present) | CreativeML-OpenRAIL++ |
+  | Depth ControlNet | `xinsir/controlnet-depth-sdxl-1.0` → `controlnet-depth-sdxl-1.0.safetensors` → `models/controlnet/` | Apache-2.0 |
+  | Base | `stabilityai/stable-diffusion-xl-base-1.0` → `sd_xl_base_1.0.safetensors` → `models/checkpoints/` | CreativeML-OpenRAIL++ |
 
   Auto-repaint masks each view to its depth silhouette + adds cross-view consistency (a 2nd IPAdapter pass
   on the previous painted view). The **autonomous CAD loop** uses the provider-agnostic LLM backend
   (`scripts/agent/llm.py` — OpenAI-compatible: Gemini / OpenAI / Anthropic / OpenRouter / local). The
   **in-loop finalize** on the mesh3d winner is now **shipped** (`auto_generate.py --pipeline mesh3d
-  --finalize` — auto-runs the auto-repaint bake on the winner + re-judges, informational).
+  --mesh-model hunyuan21 --finalize` — auto-runs the auto-repaint bake on the winner + re-judges,
+  informational).
 
 ---
 

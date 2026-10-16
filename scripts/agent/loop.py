@@ -49,6 +49,19 @@ def _brand_corrected(subject, rubric, manifest, issues):
     return fixed, rubric
 
 
+class SeedNames:
+    """Output names for one run's renders: the seed, then <seed>_2, <seed>_3, ... when the run repeats a seed
+    (`--seeds 7,7,7` re-renders one seed with corrected prompts). Each pass needs its own file: under one
+    name a later pass replaced the reported winner's file (2026-10 review)."""
+
+    def __init__(self):
+        self._uses = {}
+
+    def __call__(self, seed):
+        n = self._uses[seed] = self._uses.get(seed, 0) + 1
+        return seed if n == 1 else f"{seed}_{n}"
+
+
 def run_loop(*, expander, judge, generate, manifest, subject,
              rubric=None, max_iters=4, seeds=None) -> LoopResult:
     """Iterate render->judge, feeding unmet issues back in, until PASS or exhaustion.

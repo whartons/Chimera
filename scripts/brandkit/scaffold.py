@@ -9,13 +9,14 @@ from pathlib import Path
 
 from .manifest import load_manifest, ManifestError
 from .nodes import model_file
+from .outputs import brand_name_ok
 
 _LEVEL_MARK = {"ok": "[ok]  ", "warn": "[warn]", "fail": "[FAIL]", "info": "[info]"}
 
 
 def new_brand(repo_root, name) -> Path:
     """Copy brands/_template/ to brands/<name>/, refuse if it exists, seed the name: field."""
-    if not name or "/" in name or "\\" in name or name.startswith("."):
+    if not brand_name_ok(name):
         raise ValueError(f"invalid brand name {name!r}: use a simple folder-safe name")
     src = Path(repo_root) / "brands" / "_template"
     if not src.is_dir():

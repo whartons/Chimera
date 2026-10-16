@@ -22,7 +22,7 @@ needed**); two thin CLIs wire it together:
 | `scripts/generate.py` | Unified CLI (`image` subcommand; per-modality subcommands) |
 | `scripts/train_brand_lora.py` | LoRA trainer scaffold CLI (dry-run by default) |
 
-Everything except `comfy.py` is testable without a server, so `python -m pytest -q`
+Everything except `comfy.py` is testable without a server, so `python -m pytest`
 covers the whole core offline.
 
 ## The three on-brand mechanisms
@@ -59,7 +59,8 @@ toggle and lands in a separate V2 plan — adding it doesn't disturb V1.
 
 ## Modes → templates
 
-`--mode` selects one of three generic, API-format graphs in `workflows/templates/`. The
+`--mode` selects one of four generic, API-format graphs in `workflows/templates/`: `txt2img`, `logo`
+and `product` (table below), plus `relight`, which always uses FLUX.2 (`brand-flux2-relight.json`). The
 **default backend is Qwen-Image-2.1**. The filler picks the graph family from the model name:
 `qwen_image*` → the `brand-qwen-image-*` graphs, `z_image*` → `brand-zimage-*`, and `flux2*` → the
 FLUX.2 graphs. It addresses nodes by a stable `_meta.title` (see `brandkit/nodes.py`), so re-saving
@@ -93,7 +94,7 @@ gitignored. Pass `--comfy-output-dir` so the orchestrator knows where to pick th
 ## Testing
 
 ```bash
-python -m pytest -q          # the offline core: manifest, prompt, workflow, outputs, comfy, training
+python -m pytest             # the offline core: manifest, prompt, workflow, outputs, comfy, training
 ```
 
 End-to-end generation (needs a running ComfyUI at `127.0.0.1:8000` with the relevant

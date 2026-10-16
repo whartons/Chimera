@@ -68,7 +68,7 @@ class Audio:
     music_bpm: int = 100
     music_keyscale: str = "C minor"
     music_duration: float = 8.0
-    foley: str = "hunyuan"                       # backend selector: "hunyuan" | "ltx-native"
+    foley: str = "hunyuan"                       # unused: foley always runs HunyuanVideo-Foley
     foley_model: str | None = None            # filler falls back to DEFAULT_FOLEY_MODEL
     foley_negative: str = "music, speech, voice, singing, noisy, harsh"
     foley_cfg: float = 4.5
@@ -162,6 +162,9 @@ def load_manifest(path) -> BrandManifest:
     name = data.get("name")
     if not name or not str(name).strip():
         raise ManifestError("brand.yaml requires a non-empty 'name'")
+    threed = _sub(Threed, data, "threed")
+    if str(threed.format).lower() not in ("glb", "stl", "obj"):
+        raise ManifestError(f"'threed.format' must be glb, stl or obj (got {threed.format!r})")
     return BrandManifest(
         name=str(name),
         style=str(data.get("style", "") or ""),
@@ -176,6 +179,6 @@ def load_manifest(path) -> BrandManifest:
         watermark=_sub(Watermark, data, "watermark"),
         video=_sub(Video, data, "video"),
         audio=_sub(Audio, data, "audio"),
-        threed=_sub(Threed, data, "threed"),
+        threed=threed,
         root=path.parent,
     )

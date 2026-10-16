@@ -192,3 +192,50 @@ def test_the_codegen_model_leaves_the_gpu_before_blender_renders(tmp_path, monke
     monkeypatch.setattr(CG, "route_output", lambda root, brand, src, mode, seed, **kw: Path(src))
     CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc, blender_runner=bl)("p", "", 1)
     assert log == ["release", "blender"]
+
+
+
+def test_a_repeated_seed_gets_its_own_files(tmp_path, monkeypatch):
+    fc, bl = _ok_runners(tmp_path)
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+    seen = []
+    monkeypatch.setattr(CG, "route_output", lambda root, brand, src, mode, seed, **kw: seen.append(seed) or Path(src))
+    g = CG.make_cad_generate(_args(), tmp_path, _Gen(), freecad_runner=fc, blender_runner=bl)
+    g("p", "", 7)
+    g("p", "", 7)
+    assert seen == [7, 7, "7_2", "7_2"]          # sheet + STL per pass; the second pass doesn't replace the first
+
+
+def test_a_codegen_llm_failure_is_not_fed_back_as_a_script_error(tmp_path, monkeypatch):
+    # "the GPU has no room" isn't the script's fault; telling code-gen it was sent it chasing it
+    from scripts.agent.llm import LLMError
+    fc, bl = _ok_runners(tmp_path)
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+    monkeypatch.setattr(CG, "route_output", lambda root, brand, src, mode, seed, **kw: Path(src))
+
+    class _Flaky(_Gen):
+        def generate_script(self, brief, fix_feedback=None):
+            if not self.calls:
+                self.calls.append((brief, fix_feedback))
+                raise LLMError("not loading the model: the GPU has no room")
+            return super().generate_script(brief, fix_feedback)
+    gen = _Flaky()
+    g = CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc, blender_runner=bl)
+    with pytest.raises(LLMError):
+        g("P0", "", 1)
+    g("P1", "", 2)
+    assert gen.calls[1] == ("a coffee mug", None)
+
+
+@pytest.mark.parametrize("ok", ["socket_depth = 12", "sockets = 6", "# a ball-and-socket joint\nbox = 1",
+                                "requests_per_tray = 4", "hex_socket = Part.makeCylinder(3, 5)"])
+def test_assert_safe_allows_names_that_merely_contain_a_module_word(ok):
+    # a 'hex socket organizer' brief failed every iteration on socket_depth / '# ball-and-socket'
+    CG._assert_safe(ok)
+
+
+@pytest.mark.parametrize("bad", ["import socket", "from socket import socket", "s = socket.socket()",
+                                 "import urllib.request", "subprocess.run(['x'])", "import http.client"])
+def test_assert_safe_still_rejects_the_modules_themselves(bad):
+    with pytest.raises(RuntimeError, match="disallowed"):
+        CG._assert_safe(bad)

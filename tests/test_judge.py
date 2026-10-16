@@ -283,3 +283,34 @@ def test_prose_mentioning_unmet_in_a_met_line_still_passes():
     from scripts.agent.judge import parse_verdict
     assert parse_verdict("1. MET: nothing about the subject is unmet\n2. MET - sharp - nothing unmet\n"
                          "Overall: PASS\nscore: 1.0").passed is True
+
+
+
+# --- the 2026-10 review: NOT-MET in the forms judges really write, and scores on other scales -------------
+@pytest.mark.parametrize("line", [
+    "1. Subject — NOT-MET: the head is missing", "1. **Subject** — NOT-MET", "1. Six-wheeled rover: NOT-MET",
+    "1. The image clearly depicts: a robot with arms: NOT-MET", "| 1 | Depicts the robot | NOT-MET | no head |",
+    "1. ❌ NOT-MET", "1. Palette: NOT_MET - wrong colors", "1. Avoids toy-like: NOT-MET - glossy plastic",
+    "2. Palette: the rover is yellow (NOT-MET)", "Summary: 3 MET, 1 NOT-MET",
+    "- No text or watermarks: NOT-MET - a logo is visible", "1. Palette: NOT-MET: no brand colors visible"])
+def test_a_criterion_marked_not_met_in_any_common_form_fails_the_verdict(line):
+    # each of these, followed by 'Overall: PASS', used to pass
+    v = parse_verdict(line + "\nOverall: PASS\nscore: 0.9")
+    assert not v.passed and v.issues
+
+
+@pytest.mark.parametrize("text", [
+    "1. Subject: MET - nothing is unmet", "- NOT MET: none", "Unmet criteria: none", "No criteria are NOT-MET.",
+    "None of the criteria are NOT-MET", "Criteria: 4 MET, 0 NOT-MET",
+    "| 1 | Requirements not met by older designs are fixed | MET |",
+    "Be strict: mark a criterion NOT-MET unless it is clearly and fully satisfied.",
+    "NOT-MET: none (all criteria met)"])
+def test_a_line_that_only_mentions_not_met_does_not_fail_a_pass(text):
+    assert parse_verdict(text + "\nOverall: PASS\nscore: 0.9").passed
+
+
+@pytest.mark.parametrize("line, score", [("score: 4 out of 5", 0.8), ("Score: 7", 0.7), ("score - 0.82", 0.82),
+                                         ("score: 85", 0.85), ("score: 85%", 0.85), ("score: 1.7", 1.0)])
+def test_scores_on_other_scales_and_separators(line, score):
+    # 'score: 4 out of 5' and 'Score: 7' read as a perfect 1.0, 'score - 0.82' as 0.0
+    assert round(parse_verdict("PASS\n" + line).score, 3) == score

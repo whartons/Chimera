@@ -252,7 +252,8 @@ def test_prepare_audio_music_maps(tmp_path):
     args = _args_ns(modality="audio", mode="music", duration=6.0, bpm=120, keyscale="C major", brand="b")
     fkw = generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())
     # model: None = brand/default; replay sets args.model to pin the recorded model
-    assert fkw == {"mode": "music", "duration": 6.0, "bpm": 120, "keyscale": "C major", "model": None}
+    assert fkw == {"mode": "music", "duration": 6.0, "bpm": 120, "keyscale": "C major", "model": None,
+                   "lyrics": None}
 
 
 def test_prepare_passes_a_replay_pinned_model_to_the_video_and_audio_fillers(tmp_path):

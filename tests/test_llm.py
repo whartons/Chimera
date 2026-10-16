@@ -434,3 +434,17 @@ def test_doctor_reports_the_tier_and_missing_pulls(monkeypatch):
     assert lines[1][0] == "ok"
     monkeypatch.setenv("CHIMERA_LLM_TIER", "giant")
     assert local_model_checks(object())[0][0] == "warn"
+
+
+
+def test_codegen_retrying_a_rejected_first_script_says_why():
+    # with no previous script to revise, the retry prompt dropped the reason the first one was rejected
+    from scripts.agent.llm import LLMCadGenerator
+    seen = []
+
+    class _C:
+        def chat(self, messages, **kw):
+            seen.append(messages[-1]["content"])
+            return "```python\nbox = 1\n```"
+    LLMCadGenerator(_C()).generate_script("a mug", fix_feedback="The previous script failed: disallowed 'socket'")
+    assert seen[0].startswith("Create a parametric FreeCAD script for: a mug.") and "disallowed 'socket'" in seen[0]
