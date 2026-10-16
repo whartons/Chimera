@@ -29,7 +29,7 @@ Dependabot opens weekly PRs (`pip` + `github-actions`). Nothing to remember:
 If you want to pull deps locally: `pip install -U -e ".[dev]"`, then run the gates.
 
 ## 2 · ComfyUI (Desktop) — *manual, low-risk*
-ComfyUI Desktop versions independently of the `comfyanonymous/ComfyUI` core repo's GitHub releases,
+ComfyUI Desktop versions independently of the `Comfy-Org/ComfyUI` core repo's GitHub releases,
 so the weekly report only *points* at the core release — the authoritative check is local:
 1. `chimera update-check` (against your running instance) tells you if you're behind.
 2. Update via the **ComfyUI Desktop app**.

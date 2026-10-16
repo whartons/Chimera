@@ -192,27 +192,39 @@ def unload(root, model, *, wait=0.0, poll=0.25, _opener=urllib.request.urlopen, 
 
 
 _KV_BYTES = {"q4_0": 0.5625, "q8_0": 1.0625}   # per cached element (block scale included); else f16 = 2
-_DEFAULT_CTX = 32768                             # Ollama 0.40's context on a 24 GB+ card when num_ctx is unset
+_DEFAULT_CTX = 32768                             # the context assumed when a model doesn't report its own
 _OFF = ("0", "false", "no", "off")
 
 
 def _kv_cache_bytes(show):
-    """The context cache Ollama allocates for a model, from /api/show: layers x KV heads x (key + value
-    dims) x context x bytes per element, for each of OLLAMA_NUM_PARALLEL slots. A quantized cache type
+    """The context cache Ollama allocates for a model, from /api/show: attention layers x KV heads x (key +
+    value dims) x context x bytes per element, for each of OLLAMA_NUM_PARALLEL slots. A quantized cache type
     needs flash attention, so with OLLAMA_FLASH_ATTENTION off the cache stays f16. None when the
-    architecture keys are missing."""
+    architecture keys are missing.
+
+    The context is num_ctx when the model pins it, else OLLAMA_CONTEXT_LENGTH, else the model's trained length:
+    with neither set, Ollama 0.40 sizes the context to the VRAM it sees, up to that length. It gave the 8B judge
+    32k beside a loaded ComfyUI (2026-10-15) but 256k on a free card (2026-10-16: 16.3 GB resident, not 6.6),
+    so a 32k estimate let a medium- or small-tier judge load 7-8 GB more than the room asked of ComfyUI."""
     info = show.get("model_info") or {}
     arch = info.get("general.architecture")
     layers, kv_heads = info.get(f"{arch}.block_count"), info.get(f"{arch}.attention.head_count_kv")
     if not layers or not kv_heads:
         return None
     heads = info.get(f"{arch}.attention.head_count") or 1
-    dims = (info.get(f"{arch}.attention.key_length") or info.get(f"{arch}.embedding_length", 0) // heads) + \
-        (info.get(f"{arch}.attention.value_length") or info.get(f"{arch}.embedding_length", 0) // heads)
-    per_token = (sum(kv_heads) if isinstance(kv_heads, list) else kv_heads * layers) * dims
+    key = info.get(f"{arch}.attention.key_length") or info.get(f"{arch}.embedding_length", 0) // heads
+    dims = key + (info.get(f"{arch}.attention.value_length") or key)
+    interval = info.get(f"{arch}.full_attention_interval")
+    if isinstance(kv_heads, list):
+        per_token = sum(kv_heads) * dims
+    elif isinstance(interval, int) and interval > 1:   # hybrid (Qwen 3.5+): only every Nth layer keeps a cache
+        per_token = -(-layers // interval) * kv_heads * dims
+    else:
+        per_token = kv_heads * layers * dims
+    trained = info.get(f"{arch}.context_length")
     m = re.search(r"\bnum_ctx\s+(\d+)", show.get("parameters") or "")
-    ctx = int(m.group(1)) if m else (int(os.environ.get("OLLAMA_CONTEXT_LENGTH") or 0) or _DEFAULT_CTX)
-    ctx = min(ctx, info.get(f"{arch}.context_length") or ctx)
+    ctx = int(m.group(1)) if m else (int(os.environ.get("OLLAMA_CONTEXT_LENGTH") or 0) or trained or _DEFAULT_CTX)
+    ctx = min(ctx, trained or ctx)
     fa_off = os.environ.get("OLLAMA_FLASH_ATTENTION", "").strip().lower() in _OFF
     per_elem = 2.0 if fa_off else _KV_BYTES.get(os.environ.get("OLLAMA_KV_CACHE_TYPE", "").strip().lower(), 2.0)
     try:

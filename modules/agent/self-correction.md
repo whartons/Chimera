@@ -644,7 +644,9 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
 - **Before a model loads** (judge, rewriter, CAD codegen), the client asks ComfyUI, which does see its own
   memory, how much of the card it leaves free. If that is less than the model needs (its weights plus its
   context cache, read from Ollama: a 192k-token context adds about 13.5 GB to a 27B model, more with
-  `OLLAMA_NUM_PARALLEL` above 1), plus, on Windows, whatever Ollama already holds (ComfyUI can't see that
+  `OLLAMA_NUM_PARALLEL` above 1; with no `num_ctx` or `OLLAMA_CONTEXT_LENGTH` set, Ollama 0.40 gives a model up
+  to its full trained context when the card looks free, 256k for the Qwen judges, so the estimate assumes that),
+  plus, on Windows, whatever Ollama already holds (ComfyUI can't see that
   there either; Linux and macOS drivers count it), ComfyUI unloads its models (`/free`) and the loop waits up
   to 30 s for the memory. A model bigger than the card always
   gets ComfyUI emptied, and Ollama puts the overflow on the CPU. If the room never comes, or ComfyUI stops

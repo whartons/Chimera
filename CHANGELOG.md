@@ -366,6 +366,17 @@ loop's FreeCAD process and the MCP approval gates.
   `--comfy-output-dir` hint); a missing Blender during `--auto-repaint` (labelled "ComfyUI"); `auto_generate
   --brand` with an unknown brand or a bad `brand.yaml`, and `--seeds 7,x`; and a brand or file name the
   Windows console can't encode, in a piped run (it crashed after queueing the job).
+- **The GPU hand-off under-sized the medium and small tiers' judges.** With no `num_ctx` or
+  `OLLAMA_CONTEXT_LENGTH` set, Ollama 0.40 sizes a model's context to the VRAM it sees, up to the model's full
+  trained length. On a free 32 GB card the 8B and 4B judges loaded with a 256k context (16.3 and 14.2 GB), while
+  the hand-off assumed 32k (9.1 and 6.1 GB), so beside a loaded ComfyUI they would have overcommitted the card:
+  the PC-freeze path. The estimate now assumes the full trained context unless one is pinned, counts the cache
+  only on a hybrid model's attention layers (Qwen 3.8 keeps one every 4th layer), and sizes a missing
+  `value_length` from the key length: 17.9 GB for the 8B, 15.0 for the 4B, 24.5 for the 27B. Re-checked live on
+  each tier (the 8B now asks ComfyUI to unload first, where before it would have loaded beside it).
+- **`chimera update-check` called a ComfyUI ahead of the latest release outdated** (0.41.1 against the v0.41.0
+  release; ComfyUI tags versions before it publishes them as releases). It now compares version numbers, and both
+  update checks query `Comfy-Org/ComfyUI` directly (the old path only answered through a redirect).
 - **A brand name that isn't a folder name is refused before anything renders** (`generate.py` and
   `auto_generate.py`). It was refused only when routing the output, after the GPU work, leaving the file in
   ComfyUI's folder.

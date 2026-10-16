@@ -105,3 +105,15 @@ def test_latest_comfyui_release_offline_returns_none(monkeypatch):
         raise OSError("offline")
     monkeypatch.setattr(updates.urllib.request, "urlopen", boom)
     assert updates.latest_comfyui_release() is None
+
+
+def test_a_comfyui_ahead_of_the_latest_release_is_not_an_update(monkeypatch):
+    # Desktop ran core 0.41.1 while the latest GitHub release was v0.41.0 (tags ran ahead): it said "update"
+    monkeypatch.setattr(updates, "_repo_behind", lambda root: 0)
+    res = updates.check_updates(FakeClient("0.41.1"), ".", latest_comfyui="v0.41.0")
+    assert not any(lvl == "warn" and "ComfyUI" in msg for lvl, msg in res)
+    assert ("ok", "ComfyUI: 0.41.1 (ahead of the latest release, v0.41.0)") in res
+    res = updates.check_updates(FakeClient("0.41.1"), ".", latest_comfyui="v0.41.10")   # by number, not text
+    assert any(lvl == "warn" and "latest v0.41.10" in msg for lvl, msg in res)
+    res = updates.check_updates(FakeClient("dev"), ".", latest_comfyui="v0.41.0")       # unparsable: differs
+    assert any(lvl == "warn" and "ComfyUI" in msg for lvl, msg in res)

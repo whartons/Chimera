@@ -7,6 +7,7 @@ Best-effort and offline-tolerant: the GitHub release lookup is injected so it's 
 and the git/network calls never raise out of the checker."""
 from __future__ import annotations
 import json
+import re
 import urllib.request
 
 from .scaffold import _LEVEL_MARK
@@ -42,12 +43,25 @@ def latest_comfyui_release(timeout=10):
     """Best-effort latest ComfyUI release tag from GitHub, or None (offline / rate-limited)."""
     try:
         req = urllib.request.Request(
-            "https://api.github.com/repos/comfyanonymous/ComfyUI/releases/latest",
+            "https://api.github.com/repos/Comfy-Org/ComfyUI/releases/latest",
             headers={"Accept": "application/vnd.github+json", "User-Agent": "chimera"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read()).get("tag_name") or None
     except Exception:
         return None
+
+
+def _behind(running, latest):
+    """True when the running ComfyUI is older than the latest release. ComfyUI Desktop can run a core version
+    ahead of the latest GitHub release (0.41.1 when the latest release was v0.41.0, which was reported as an
+    update), so versions compare by number; one that doesn't parse counts as behind when it differs."""
+    def key(v):
+        nums = re.findall(r"\d+", v)
+        return tuple(int(n) for n in nums[:3]) if nums else None
+    a, b = key(running), key(latest)
+    if a is None or b is None:
+        return running.lstrip("v") != latest.lstrip("v")
+    return a < b
 
 
 def check_updates(client, repo_root, *, latest_comfyui=None):
@@ -66,9 +80,11 @@ def check_updates(client, repo_root, *, latest_comfyui=None):
 
     # 2. ComfyUI engine (self-updates via the Desktop app; we just surface the gap)
     running = client.comfyui_version()
-    if running and latest_comfyui and running.lstrip("v") != latest_comfyui.lstrip("v"):
+    if running and latest_comfyui and _behind(running, latest_comfyui):
         out.append(("warn", f"ComfyUI: running {running}, latest {latest_comfyui} - "
                             "update via the ComfyUI Desktop app"))
+    elif running and latest_comfyui and running.lstrip("v") != latest_comfyui.lstrip("v"):
+        out.append(("ok", f"ComfyUI: {running} (ahead of the latest release, {latest_comfyui})"))
     elif running:
         out.append(("ok", f"ComfyUI: {running}" + (" (latest)" if latest_comfyui else "")))
     else:

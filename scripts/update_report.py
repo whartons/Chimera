@@ -108,11 +108,11 @@ def check_npm(name, pkg, pin):
 
 def check_comfyui():
     """Reference pointer, NOT a 'behind' verdict: ComfyUI Desktop (what Chimera targets) versions
-    independently of the comfyanonymous/ComfyUI core repo's GitHub releases, so comparing the two
+    independently of the Comfy-Org/ComfyUI core repo's GitHub releases, so comparing the two
     streams can't reliably say 'behind'. The authoritative check is `chimera update-check` against
     the running Desktop instance."""
     try:
-        tag = _gh("/repos/comfyanonymous/ComfyUI/releases/latest").get("tag_name", "").lstrip("v")
+        tag = _gh("/repos/Comfy-Org/ComfyUI/releases/latest").get("tag_name", "").lstrip("v")
         note = f"latest core GitHub release `{tag}`" if tag else "core release lookup unavailable"
         return ("info", f"**ComfyUI** — reference build `{COMFY_REF}`; {note}. The Desktop app versions "
                         "independently — run `chimera update-check` against your running instance for the "

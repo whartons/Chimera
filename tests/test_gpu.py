@@ -369,11 +369,12 @@ _JUDGE_SHOW = {"model_info": {"general.architecture": "qwen3vl", "qwen3vl.block_
 
 
 def test_the_context_cache_is_sized_like_ollama_does(monkeypatch):
-    # real metadata (2026-10-15): Ollama logged a 1296 MiB q4_0 cache for the judge at its 32k default; a
+    # real metadata (2026-10-15): Ollama logged a 1296 MiB q4_0 cache for the judge at a 32k context; a
     # 27B model with a 192k-token context came to ~33 GB resident on an 18.7 GB file
     monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
-    monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH", raising=False)
+    monkeypatch.setenv("OLLAMA_CONTEXT_LENGTH", "32768")
     assert abs(gpu._kv_cache_bytes(_JUDGE_SHOW) / 2**20 - 1296) < 1
+    monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH")
     assert 13 < gpu._kv_cache_bytes(_BIG_CTX_SHOW) / 2**30 < 14
     monkeypatch.delenv("OLLAMA_KV_CACHE_TYPE")                      # f16 cache: four times the bytes, roughly
     assert gpu._kv_cache_bytes(_JUDGE_SHOW) / 2**20 > 4000
@@ -585,12 +586,42 @@ def test_a_failed_nvidia_smi_is_not_a_size(monkeypatch):
 def test_the_cache_follows_ollama_context_length_capped_at_the_trained_context(monkeypatch):
     # an undersized estimate is the PC-freeze path
     monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
-    base = gpu._kv_cache_bytes(_JUDGE_SHOW)                      # Ollama's 32k default
+    monkeypatch.setenv("OLLAMA_CONTEXT_LENGTH", "32768")
+    base = gpu._kv_cache_bytes(_JUDGE_SHOW)                      # a 32k context
     monkeypatch.setenv("OLLAMA_CONTEXT_LENGTH", "131072")
     assert gpu._kv_cache_bytes(_JUDGE_SHOW) == 4 * base
     monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH")
     huge = {**_JUDGE_SHOW, "parameters": "num_ctx 1048576"}      # more than the model's 262144
     assert gpu._kv_cache_bytes(huge) == 8 * base
+
+
+def test_an_unpinned_context_is_sized_at_the_models_full_length(monkeypatch):
+    # Ollama 0.40 sizes an unpinned context to the VRAM it sees: the 8B judge took 32k beside a loaded ComfyUI
+    # but its full 256k on a free card (16.3 GB resident against a 9.1 GB estimate, 2026-10-16)
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    monkeypatch.setenv("OLLAMA_CONTEXT_LENGTH", "32768")
+    base = gpu._kv_cache_bytes(_JUDGE_SHOW)
+    monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH")
+    assert gpu._kv_cache_bytes(_JUDGE_SHOW) == 8 * base
+    no_length = {"model_info": {k: v for k, v in _JUDGE_SHOW["model_info"].items() if "context_length" not in k}}
+    assert gpu._kv_cache_bytes(no_length) == base               # a model that doesn't say: the 32k fallback
+
+
+def test_a_hybrid_model_caches_only_its_attention_layers(monkeypatch):
+    # Qwen 3.8 27B (qwen35): 65 blocks, but only every 4th is full attention; counting all 65 over-reserved
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    show = {"model_info": {"general.architecture": "qwen35", "qwen35.block_count": 65,
+                           "qwen35.attention.head_count": 24, "qwen35.attention.head_count_kv": 4,
+                           "qwen35.attention.key_length": 256, "qwen35.attention.value_length": 256,
+                           "qwen35.full_attention_interval": 4, "qwen35.context_length": 262144}}
+    assert gpu._kv_cache_bytes(show) == int(17 * 4 * 512 * 262144 * 0.5625)
+
+
+def test_a_missing_value_length_takes_the_key_length(monkeypatch):
+    # qwen3-vl 4B lists key_length 128 but no value_length; embedding / heads (80) under-sized its cache
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    info = {k: v for k, v in _JUDGE_SHOW["model_info"].items() if "value_length" not in k}
+    assert gpu._kv_cache_bytes({"model_info": info}) == gpu._kv_cache_bytes(_JUDGE_SHOW)
 
 
 def test_unload_others_waits_for_each_model_to_leave():
