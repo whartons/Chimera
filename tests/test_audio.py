@@ -8,8 +8,8 @@ FIX = Path(__file__).parent / "fixtures" / "brand.yaml"
 
 def test_music_fills_tags_seed_duration_bpm_keyscale():
     m = load_manifest(FIX)
-    wf = build(ROOT, m, positive="dark sting, instrumental", negative="", seed=7,
-               mode="music", duration=6.0, bpm=120, keyscale="A minor")
+    wf = build(ROOT, m, positive="dark sting, instrumental", negative="", seed=7,   # the ACE-Step graph
+               mode="music", duration=6.0, bpm=120, keyscale="A minor", model="acestep")
     enc = find_node_by_title(wf, "brand:tags")[1]["inputs"]
     assert enc["tags"] == "dark sting, instrumental"
     assert enc["seed"] == 7 and enc["duration"] == 6.0 and enc["bpm"] == 120
@@ -17,13 +17,14 @@ def test_music_fills_tags_seed_duration_bpm_keyscale():
     assert find_node_by_title(wf, "brand:sampler")[1]["inputs"]["seed"] == 7
     assert find_node_by_title(wf, "brand:latent")[1]["inputs"]["seconds"] == 6.0
 
-def test_music_uses_manifest_and_default_model_when_unset():
+def test_acestep_uses_the_manifest_bpm_and_duration_when_unset():
+    # (Stable Audio 3, the default music model, is covered in test_audio_sa3.py)
     m = load_manifest(FIX)  # fixture sets no music_model, music_bpm=90
-    wf = build(ROOT, m, positive="x", negative="", seed=1, mode="music")
+    wf = build(ROOT, m, positive="x", negative="", seed=1, mode="music", model="acestep")
     enc = find_node_by_title(wf, "brand:tags")[1]["inputs"]
     assert enc["bpm"] == 90 and enc["duration"] == 8.0  # manifest bpm, default duration
     assert find_node_by_title(wf, "brand:unet")[1]["inputs"]["unet_name"] == \
-        "acestep_v1.5_xl_turbo_bf16.safetensors"  # DEFAULT_MUSIC_MODEL
+        "acestep_v1.5_xl_turbo_bf16.safetensors"
 
 def test_music_model_override_from_arg():
     m = load_manifest(FIX)
@@ -65,9 +66,9 @@ def test_resolved_model_matches_graph_music_and_foley():
     # B6: the resolver is the single source of truth — equal to what build() wrote, per mode
     from scripts.brandkit.audio import resolved_model
     m = load_manifest(FIX)
-    wfm = build(ROOT, m, positive="x", negative="", seed=1, mode="music")
+    wfm = build(ROOT, m, positive="x", negative="", seed=1, mode="music")   # Stable Audio 3 (checkpoint)
     assert resolved_model(m, "music") == \
-        find_node_by_title(wfm, "brand:unet")[1]["inputs"]["unet_name"]
+        find_node_by_title(wfm, "brand:ckpt")[1]["inputs"]["ckpt_name"]
     wff = build(ROOT, m, positive="x", negative="", seed=1, mode="foley", from_video="s.mp4",
                 frame_rate=24.0, duration=2.0, fps=24.0)
     assert resolved_model(m, "foley") == \

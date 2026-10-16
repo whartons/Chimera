@@ -235,7 +235,20 @@ benchmarks higher per the independent arXiv evaluation).
 
 ## 🎵 Audio — standalone music / stingers
 
-**Recommended default (mid-2026): ACE-Step 1.5 XL Turbo**
+**Recommended default (late 2026): Stable Audio 3 Medium (music + sound effects)**
+
+It clearly won the 2026-10 listening comparison against ACE-Step 1.5 XL Turbo, using the same
+three 30 s briefs and seeds (a synthwave intro, a lo-fi loop, an epic orchestral cue). It is also faster,
+at ~4–10 s per clip. It runs core-native in ComfyUI 0.40 with the official graph's **Qwen3.5-2B prompt
+enhancer**, and its sound-effects mode powers `audio --mode sfx`.
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|-----------------|----------------------------------|------|---------|
+| `stable_audio_3_medium.safetensors` | `Comfy-Org/stable-audio-3` | `checkpoints/` | ~8.6 GB | ⚠️ Stability AI Community License |
+| `t5gemma_b_b_ul2.safetensors` | `Comfy-Org/stable-audio-3` | `text_encoders/` | ~1.1 GB | ⚠️ Gemma terms |
+| `qwen3.5_2b_bf16.safetensors` *(prompt enhancer)* | `Comfy-Org/Qwen3.5` | `text_encoders/` | ~4.2 GB | ✅ Apache-2.0 |
+
+**Vocals / lyrics option (`--model acestep`): ACE-Step 1.5 XL Turbo**
 
 ComfyUI core-native (no extra node pack); 8-step turbo, KSampler euler, cfg 1.0.
 Generates instrumental stingers/loops from genre/style tags; supports lyrics, voice
@@ -264,7 +277,6 @@ cloning, and remix. Output: `.mp3` (SaveAudioMP3, V0).
 |-------|-----------|---------|
 | **ACE-Step (base)** | Proven, MIT, ~4 min music | ✅ MIT |
 | **HeartMula** | Offline songs from lyrics + style tags, multilingual | open (Jan 2026) |
-| **Stable Audio 3.0** | SFX + music, native ComfyUI support | ⚠️ check Stability license |
 
 **For streaming:** great for intro/outro stings and background beds — pick the model
 that sounds best for the cue (licensing isn't a constraint for personal use).

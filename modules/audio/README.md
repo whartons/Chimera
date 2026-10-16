@@ -1,16 +1,22 @@
-# `audio` — brand-aware music generation and video foley
+# `audio` — brand-aware music, sound effects and video foley
 
-Two modes of audio generation in a single unified CLI entry point:
+Three modes of audio generation in a single unified CLI entry point:
 
-- **`--mode music`** — ACE-Step 1.5 XL Turbo: text → on-brand instrumental
-  stinger or loop. Generates music from the brand's `audio.music_tags` in
-  `brand.yaml`, output as an `.mp3` (V0 quality).
+- **`--mode music`**: text → on-brand instrumental stinger, loop or track, output as an `.mp3` (V0).
+  - **Default: Stable Audio 3 Medium**, which won the 2026-10 listening comparison by a wide margin.
+  - **`--model acestep`:** ACE-Step 1.5 XL Turbo (e.g. for songs with lyrics/vocals).
+  - Both take the brand's `audio.music_tags` from `brand.yaml`.
+- **`--mode sfx`** — Stable Audio 3's **sound-effects** mode: text → a short sound effect (stinger
+  whooshes, sword rings, UI and alert sounds) → `.mp3`.
 - **`--mode foley`** — HunyuanVideo-Foley: video → synchronized SFX, muxed
   back onto the source frame batch → `.mp4`. Generates 48 kHz audio that the
   `Synchformer` dependency time-aligns to the on-screen motion.
 
 ## Files
 
+- [`workflow.sa3.template.json`](workflow.sa3.template.json) — the Stable Audio 3 Medium graph (music and
+  sfx), built from Comfy's official template with its prompt enhancer. A copy also lives in
+  [`../../workflows/templates/brand-audio-sa3.json`](../../workflows/templates/brand-audio-sa3.json).
 - [`workflow.music.template.json`](workflow.music.template.json) — ComfyUI
   **API-format** workflow for the ACE-Step music path. A copy also lives in
   [`../../workflows/templates/brand-audio-music.json`](../../workflows/templates/brand-audio-music.json).
@@ -32,14 +38,29 @@ python scripts/generate.py audio \
   [--duration 8.0] [--bpm 120] [--keyscale "C minor"]
 ```
 
-(`--watermark` is silently ignored for music — there is no visual canvas.)
+(`--watermark` is silently ignored for music and sfx — there is no visual canvas.)
 
-The filler reads `audio.music_tags` from the active brand's `brand.yaml` and
-populates the `TextEncodeAceStepAudio1.5` node's `tags` field. The subject
-string is used as-is or merged with the brand tags depending on your filler
-implementation. Override any key via CLI; CLI always wins over `brand.yaml`.
+The brief is the brand's `audio.music_tags` plus `--subject`.
+- **Stable Audio 3** has no tempo or key inputs, so an explicit `--bpm` / `--keyscale` joins the brief
+  (e.g. "…, 128 BPM, in A minor"). The brand's ACE-tuned `music_bpm` / `music_keyscale` defaults don't.
+- **ACE-Step** (`--model acestep`) takes the brief as `TextEncodeAceStepAudio1.5` tags, and uses BPM / key
+  directly.
+
+Override any key via CLI; CLI always wins over `brand.yaml`.
 
 Output routes to `brands/<brand>/outputs/audio/<brand>_music_<seed>.mp3`.
+
+### Sound effect
+
+```
+python scripts/generate.py audio --mode sfx \
+  --subject "a heavy medieval sword unsheathing with a bright metallic ring" \
+  [--duration 4] [--comfy-output-dir <dir>]
+```
+
+Stable Audio 3 with its prompt enhancer in sound-effects mode. The brief is the subject alone: a sound
+effect doesn't inherit the brand's musical tags. Default length 4 s. Output:
+`…/outputs/audio/<brand>_sfx_<seed>.mp3`.
 
 ### Foley (video → SFX)
 
@@ -84,7 +105,21 @@ unknown keys are ignored with a warning. Override `--duration`/`--bpm`/
 
 ## How it works
 
-### Music — ACE-Step 1.5 XL Turbo (8-step turbo)
+### Music and sfx — Stable Audio 3 Medium (default)
+
+The official Comfy graph, core nodes only (ComfyUI 0.40):
+
+1. **Prompt enhancer.** A small LLM (**Qwen3.5-2B** via `TextGenerate`) rewrites the brief using the
+   template's own system prompt for the mode (`Music` or `SFX`), sized to the target length. Its sampling
+   seed is the render seed, so a replay gets the same rewrite.
+2. **`CheckpointLoaderSimple(stable_audio_3_medium)`** with a **T5Gemma** text encoder
+   (`CLIPLoader(type="stable_audio")`) → `CLIPTextEncode` (empty negative) → `EmptyLatentAudio(seconds)`.
+3. **`KSampler`:** 8 steps, `lcm`, CFG 1 → `VAEDecodeAudio` → `SaveAudioAdvanced` (mp3 V0).
+
+About 4–10 s per clip on an RTX 5090. The sidecar records your brief; the enhancer's rewrite is
+re-derived on replay.
+
+### Music — ACE-Step 1.5 XL Turbo (`--model acestep`, 8-step turbo)
 
 The graph uses:
 
@@ -130,6 +165,7 @@ The graph uses:
 
 | Mode | Approximate VRAM | Notes |
 |------|-----------------|-------|
+| Music / sfx (Stable Audio 3 Medium) | ~14 GB of weights (8.6 GB model + 1.1 GB T5Gemma + 4.2 GB Qwen3.5-2B enhancer) | `--free-before` default ON |
 | Music (ACE-Step Turbo) | ~12–14 GB | `--free-before` default ON |
 | Foley (HunyuanVideo-Foley) | ~12–16 GB peak | `force_offload` default ON; offloads between passes |
 
@@ -187,7 +223,9 @@ require no additional node pack. No external network calls during inference.
 
 ## Performance (RTX 5090 / cu130 / SageAttention)
 
-- **Music (8-step turbo):** an 8-second stinger generates in a few seconds on
+- **Stable Audio 3 (music / sfx):** a 12 s track in ~10 s, a 4 s sound effect in ~4 s, including the
+  prompt enhancer (2026-10 live runs).
+- **ACE-Step (8-step turbo):** an 8-second stinger generates in a few seconds on
   the 5090 after model load. First session is slower (model load).
 - **Foley (50-step euler):** generation time scales with clip length and
   resolution. `force_offload` trades some speed for VRAM headroom; disable it

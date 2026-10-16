@@ -1,13 +1,29 @@
 # Audio module — models
 
-Two stacks, one per mode. Download each file and drop it into the matching
+Three stacks. Download each file and drop it into the matching
 `ComfyUI/models/...` subfolder. Filenames must match those in the template
 JSONs (or edit the templates to match what you downloaded). No machine-absolute
 paths — all destinations are relative to your `ComfyUI/` root.
 
 ---
 
-## Music stack — ACE-Step 1.5 XL Turbo
+## Music + sfx stack — Stable Audio 3 Medium (default)
+
+Core-native in ComfyUI 0.40 (no node pack). From `Comfy-Org/stable-audio-3` (the model and its T5Gemma
+encoder) and `Comfy-Org/Qwen3.5` (the prompt enhancer):
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|-----------------|----------------------------------|------|---------|
+| `stable_audio_3_medium.safetensors` | `Comfy-Org/stable-audio-3` | `checkpoints/` | ~8.6 GB | ⚠️ Stability AI Community License |
+| `t5gemma_b_b_ul2.safetensors` | `Comfy-Org/stable-audio-3` | `text_encoders/` | ~1.1 GB | ⚠️ Gemma terms |
+| `qwen3.5_2b_bf16.safetensors` *(prompt enhancer)* | `Comfy-Org/Qwen3.5` | `text_encoders/` | ~4.2 GB | ✅ Apache-2.0 |
+
+The Stability AI Community License allows free use below a revenue threshold. Chimera picks the best
+model regardless; a fork that needs other terms can pin `audio.music_model: acestep`.
+
+---
+
+## Music stack — ACE-Step 1.5 XL Turbo (`--model acestep`)
 
 ACE-Step 1.5 XL Turbo is **ComfyUI core-native** — no custom node pack
 required. All nodes used (`UNETLoader`, `DualCLIPLoader`, `VAELoader`,

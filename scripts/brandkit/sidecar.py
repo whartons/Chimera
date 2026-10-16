@@ -20,7 +20,10 @@ _PROMPT_NODES = {
     ("image", None): ((("brand:positive", "text"), ("brand:positive", "prompt")),
                       (("brand:negative", "text"), ("brand:positive", "negative_prompt"))),
     ("video", None): (("brand:positive", "text"), ("brand:negative", "text")),
-    ("audio", "music"): (("brand:tags", "tags"), None),
+    # ACE-Step's encoder carries the tags; Stable Audio 3 records the brief (its prompt enhancer rewrites it
+    # in-graph, deterministically for a given seed)
+    ("audio", "music"): ((("brand:tags", "tags"), ("brand:prompt", "value")), None),
+    ("audio", "sfx"): ((("brand:prompt", "value"),), None),
     ("audio", "foley"): (("brand:foley", "prompt"), ("brand:foley", "negative_prompt")),
     ("3d", None): (None, None),
 }
@@ -31,6 +34,7 @@ _INPUT_KEYS = {
     ("video", None): ("subject", "from_image", "length", "fps", "width", "height", "audio",
                       "upscale", "upscale_model", "camera", "quality"),
     ("audio", "music"): ("subject", "duration", "bpm", "keyscale"),
+    ("audio", "sfx"): ("subject", "duration"),
     ("audio", "foley"): ("subject", "from_video", "duration", "fps"),
     ("3d", None): ("from_image", "octree", "model", "format"),
 }
@@ -89,7 +93,7 @@ def graph_signature(wf):
 
 # Scalar inputs that legitimately differ between a render and its replay: the seed (`replay --seed`)
 # and the output filename prefix. Everything else is a render setting.
-_VOLATILE_INPUTS = {"seed", "noise_seed", "filename_prefix"}
+_VOLATILE_INPUTS = {"seed", "noise_seed", "sampling_mode.seed", "filename_prefix"}
 
 
 def graph_values(wf, modality=None, mode=None):
