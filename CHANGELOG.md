@@ -173,12 +173,12 @@ loop's FreeCAD process and the MCP approval gates.
   render passed. A criterion whose reason says `overall … would not pass` was taken for the verdict line, so the
   27B's bare `FAIL` came back as a PASS. The summary escapes let a numbered criterion off (`2. NOT-MET: none (the
   top face is flat)`, `2. Holes drilled: 0/5 NOT-MET`). Softer wordings read as MET (`Mostly MET`, `Barely met`,
-  `Not quite met`, `MET (partially)`, a full-width `NOT－MET`). Now a line whose status comes before its PASS or
-  FAIL is never the verdict, a numbered criterion's status always counts, and those wordings fail. So does a PASS
-  that admits an unmet criterion (`PASS - criterion 2 NOT-MET is minor`) or is negated (`Does not pass`). The
-  rubric's instructions echoed back are ignored: their `<comma-separated visual elements to include>` had
-  reached the next prompt as a term to add. Errors on the 24,426 cases went from 3,914 to 0, all 204 real
-  replies parse as before, and the grid stays clean. Scores on other scales read right too: `4 out of
+  `Not quite met`, `MET (partially)`, a full-width `NOT－MET`). Now a numbered criterion, or a line marking one
+  NOT-MET, is never taken for the verdict, a numbered criterion's status always counts, and those wordings
+  fail. So does a PASS that admits an unmet criterion (`PASS - criterion 2 NOT-MET is minor`) or is negated
+  (`Does not pass`). The rubric's instructions echoed back are ignored: their `<comma-separated visual elements
+  to include>` had reached the next prompt as a term to add. Errors on the 24,426 cases went from 3,914 to 0,
+  all 204 real replies parse as before, and the grid stays clean. Scores on other scales read right too: `4 out of
   5` is 0.8, `7` is 0.7, `85` is 0.85 (each read as 1.0 before), and `Scores: 0.4` or a value on the line
   after `**Score:**` are read (they scored 0.0), as is a scale named first (`Score (0-1): 0.82`, `Score [0-5]: 4`
   and `score: 0,85` read 0.0).
