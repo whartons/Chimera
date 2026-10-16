@@ -1,6 +1,12 @@
 from pathlib import Path
 from scripts.brandkit.manifest import load_manifest
-from scripts.brandkit.video import build
+from scripts.brandkit.video import build as _build, LTX23_MODEL
+
+
+def build(*a, **k):
+    # these tests cover the LTX-2.3 graph (Wan 2.2, the default since 2026-10, is in test_video_wan.py)
+    k.setdefault("model", LTX23_MODEL)
+    return _build(*a, **k)
 from scripts.brandkit.nodes import find_node_by_title
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -141,7 +147,7 @@ def test_resolved_model_matches_graph_ckpt():
     m = load_manifest(FIX)
     wf = build(ROOT, m, positive="x", negative="", seed=1, watermark=False,
                from_image="r.png", length=97, fps=25, audio=True, width=768, height=512)
-    assert resolved_model(m) == find_node_by_title(wf, "brand:ckpt")[1]["inputs"]["ckpt_name"]
+    assert resolved_model(m, LTX23_MODEL) == find_node_by_title(wf, "brand:ckpt")[1]["inputs"]["ckpt_name"]
 
 
 def test_resolved_upscale_model_matches_graph():

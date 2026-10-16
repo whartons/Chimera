@@ -29,7 +29,7 @@ _PROMPT_NODES = {
 _INPUT_KEYS = {
     ("image", None): ("subject", "asset", "variant", "model", "upscale", "upscale_model"),
     ("video", None): ("subject", "from_image", "length", "fps", "width", "height", "audio",
-                      "upscale", "upscale_model"),
+                      "upscale", "upscale_model", "camera", "quality"),
     ("audio", "music"): ("subject", "duration", "bpm", "keyscale"),
     ("audio", "foley"): ("subject", "from_video", "duration", "fps"),
     ("3d", None): ("from_image", "octree", "model", "format"),

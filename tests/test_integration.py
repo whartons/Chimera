@@ -320,3 +320,19 @@ def test_replay_stops_when_the_brand_changed_since_the_render(monkeypatch, tmp_p
     assert "prompt changed" in err and "render settings changed" in err and "--accept-drift" in err
     generate.run(_img_args(seed=5, expect=meta, accept_drift=True, model_override=None), repo, _StubAp())
     assert fake.wf is not None                             # accepted: renders with today's brand
+
+
+def test_run_reports_an_unrenderable_combination_as_a_cli_error(monkeypatch, tmp_path):
+    # a filler's ValueError (e.g. --camera with --model ltx23) becomes a clean ap.error, not a traceback
+    repo = _tmp_repo(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+
+    def cannot_render(*a, **k):
+        raise ValueError("camera moves need Wan 2.2's Fun Camera model")
+    monkeypatch.setitem(generate.FILLERS, "image", cannot_render)
+
+    class _Ap:
+        def error(self, msg):
+            raise SystemExit(f"error: {msg}")
+    with pytest.raises(SystemExit, match="Fun Camera"):
+        generate.run(_img_args(seed=1), repo, _Ap())

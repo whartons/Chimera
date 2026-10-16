@@ -116,7 +116,32 @@ through the FLUX.2 templates instead.
 
 ## 🎬 Video (text-to-video / image-to-video)
 
-**Recommended default (mid-2026): LTX-2.3 22B**
+**Recommended default (late 2026): Wan 2.2 14B — core ComfyUI nodes, Apache-2.0**
+
+Picked in the 2026-10 review, which measured camera drift with chained feature tracking on three shots.
+The prompts asked for a locked camera:
+- **LTX-2.3** pushed in 9% on a product, drove a "parked" car off with a 34% pan, and drifted a face's
+  identity.
+- **Wan 2.2 with the lightx2v 4-step LoRAs** held ≤ 0.8% zoom, kept identity, and ran ~30–55 s per 5 s
+  clip.
+- **Wan 2.2 Fun Camera "Static"** held ≤ 0.15%. Fun Camera gives `--camera` a locked shot or a controlled
+  pan / zoom / rotation.
+
+Wan clips are silent (add sound with the foley module), so LTX-2.3 stays as `--model ltx23` for synced
+audio.
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|-----------------|----------------------------------|------|---------|
+| `wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors` | `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` | `diffusion_models/` | ~13.3 GB | ✅ Apache-2.0 |
+| `wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors` | `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` | `diffusion_models/` | ~13.3 GB | ✅ Apache-2.0 |
+| `wan2.2_fun_camera_{high,low}_noise_14B_fp8_scaled.safetensors` *(`--camera`)* | `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` | `diffusion_models/` | ~14.3 GB each | ✅ Apache-2.0 |
+| `wan2.2_i2v_lightx2v_4steps_lora_v1_{high,low}_noise.safetensors` | `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` | `loras/` | ~1.1 GB each | ✅ Apache-2.0 |
+| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `Comfy-Org/Wan_2.1_ComfyUI_repackaged` | `text_encoders/` | ~6.3 GB | ✅ Apache-2.0 |
+| `wan_2.1_vae.safetensors` | `Comfy-Org/Wan_2.1_ComfyUI_repackaged` | `vae/` | ~0.25 GB | ✅ Apache-2.0 |
+
+(The repackaged repos nest files under `split_files/<type>/`; drop that folder level when placing them.)
+
+**Synced-audio option (`--model ltx23`): LTX-2.3 22B**
 
 Node pack: `https://github.com/Lightricks/ComfyUI-LTXVideo` — **pinned at audited
 commit `15d09ab`** (re-scan before advancing the pin). Provides MultimodalGuider,

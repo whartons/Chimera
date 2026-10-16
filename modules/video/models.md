@@ -1,5 +1,27 @@
 # Video module — models
 
+## Wan 2.2 14B (default) — core ComfyUI nodes, no pack
+
+Two experts per model (high-noise and low-noise, fp8), plus the lightx2v 4-step LoRAs for `fast`
+quality. All Apache-2.0, from `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` (the text encoder and VAE from
+`Comfy-Org/Wan_2.1_ComfyUI_repackaged`). Those repos nest files under `split_files/<type>/`: place them in
+`ComfyUI/models/<type>/`, without the `split_files` folder.
+
+| File | Destination (`ComfyUI/models/…`) | Size | Needed for |
+|------|----------------------------------|------|------------|
+| `wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors` | `diffusion_models/` | ~13.3 GB | image-to-video |
+| `wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors` | `diffusion_models/` | ~13.3 GB | image-to-video |
+| `wan2.2_fun_camera_high_noise_14B_fp8_scaled.safetensors` | `diffusion_models/` | ~14.3 GB | `--camera` |
+| `wan2.2_fun_camera_low_noise_14B_fp8_scaled.safetensors` | `diffusion_models/` | ~14.3 GB | `--camera` |
+| `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors` | `loras/` | ~1.1 GB | `--quality fast` |
+| `wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors` | `loras/` | ~1.1 GB | `--quality fast` |
+| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `text_encoders/` | ~6.3 GB | all Wan |
+| `wan_2.1_vae.safetensors` | `vae/` | ~0.25 GB | all Wan |
+
+---
+
+## LTX-2.3 22B (`--model ltx23`) — synced audio
+
 LTX-2.3 22B is a **multimodal checkpoint** that generates video and synchronized
 48 kHz audio in a single pass. It requires the
 [`ComfyUI-LTXVideo`](https://github.com/Lightricks/ComfyUI-LTXVideo) custom-node

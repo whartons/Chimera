@@ -58,8 +58,8 @@ python scripts/generate.py audio \
 - `--from-video` is the input clip — a file in the brand's
   `outputs/video/`, `outputs/`, `references/`, or `products/` folder (searched in
   that order; `outputs/video/` is where the media-type router puts generated clips).
-  The filler auto-probes fps/duration/size via **PyAV**; use `--fps` and
-  `--duration` to override.
+  The filler takes fps/duration/size from the clip's own Chimera sidecar, or probes them with **PyAV**;
+  use `--fps` and `--duration` to override.
 - Output routes to `brands/<brand>/outputs/video/<brand>_foley_<seed>.mp4` (a foley
   clip is a video, so it lands under `video/`).
 - `--watermark` composites the brand logo over the **source frame batch**
@@ -154,10 +154,17 @@ inherits the already-composited frames from the source.
 
 ## Auto-probe (foley)
 
-The filler reads the source video's fps, duration, and frame size automatically
-using **PyAV** — no manual frame counting needed. Supply `--fps` or
-`--duration` on the CLI to override the probed values (useful when the source
-has a non-standard container or when you want to generate foley for a sub-clip).
+The filler reads the source video's fps, duration, and frame size automatically, with no manual frame
+counting needed:
+
+1. from the clip's own **Chimera sidecar** (`<clip>.json`, written by `chimera video`): exact, and needs
+   no extra package;
+2. else by probing the file with **PyAV** (the `[video]` extra);
+3. else it falls back to 25 fps / 5 s and warns.
+
+The sidecar step matters for Wan 2.2 clips (16 fps): before it, a host without PyAV re-timed them at
+25 fps, so they played about 1.6× too fast. Supply `--fps` or `--duration` on the CLI to override (useful
+for a non-standard container or a sub-clip).
 
 ## Security — foley node pack
 
