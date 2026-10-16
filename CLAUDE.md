@@ -105,7 +105,9 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   ([`modules/cad/`](modules/cad/)) — both **interactive/GUI only in Phase 1**, driven via
   [`lab/blender_mcp`](https://projects.blender.org/lab/blender_mcp) and
   [`neka-nat/freecad-mcp`](https://github.com/neka-nat/freecad-mcp), with gates in
-  `.claude/settings.json`. Headless Blender automation (Phase 2), 3D self-correction over Blender
+  `.claude/settings.json`. **3D default since 2026-10: native TRELLIS.2** (ComfyUI 0.40 core graph that bakes
+  PBR textures itself; `--model`/`--mesh-model trellis2|pixal3d|hunyuan21`). The Blender color bakes below
+  (`--texture`, `--finalize`, `finalize-texture`) are for the shape-only Hunyuan3D path. Headless Blender automation (Phase 2), 3D self-correction over Blender
   renders (Phase 3, `auto_generate.py --pipeline mesh3d`), front-projected albedo **texturing**
   (Phase 4a, `--texture`), the all-around **multi-view bake** (Phase 4b — `generate.py finalize-texture`
   → `_common.bake_multiview`, **manual views AND `--auto-repaint`** = `render_views` depth + SDXL

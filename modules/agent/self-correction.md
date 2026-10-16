@@ -272,24 +272,36 @@ consistent with the rest of Chimera's third-party-code policy (same standard app
 The same loop now corrects **3D meshes**. `auto_generate.py --pipeline mesh3d` runs:
 
 ```
-subject ─► txt2img concept ─► Hunyuan3D mesh ─► Blender mesh_eval (4 orbit stills + geometry probe)
+subject ─► txt2img concept ─► 3D mesh ─► Blender mesh_eval (4 orbit stills + geometry probe)
         ─► contact-sheet PNG ─► VLM form judge (+ geometry checks) ─► FIX ─► refine ─► repeat
 ```
+
+**Which 3D model (since 2026-10).** The mesh comes from `--mesh-model` (else the brand's `threed.model`,
+else the default **TRELLIS.2**):
+
+- **TRELLIS.2 (default) / Pixal3D** bake PBR textures natively, so the stills show the textured model and
+  the loop uses the **textured rubric** (form criteria plus a lenient color criterion).
+- **`--mesh-model hunyuan21`** gives the original shape-only flow described below, and is **required for
+  `--texture` and `--finalize`**. Those Blender bakes color a shape-only mesh; on an already-textured mesh
+  they would overwrite its textures, so the loop refuses them up front.
+- `--model` is only the **concept image's** model. Until 2026-10 it leaked into the 3D build as the
+  Hunyuan3D checkpoint, which made every mesh3d iteration fail validation.
 
 It reuses the **model-free core unchanged** — `run_loop`, `parse_verdict`, `TemplatedExpander`,
 `ConsensusJudge`. Only three pieces are new:
 
 | Piece | What |
 |---|---|
-| `scripts/agent/render_generate.py` | `make_render_generate(...)` — the `generate(pos, neg, seed)` closure: txt2img concept (or `--from-image`) → upload → Hunyuan3D mesh (routed to `outputs/3d`) → headless `mesh_eval.py` render+probe → host-side contact-sheet montage → returns the **contact-sheet PNG** the judge consumes. |
+| `scripts/agent/render_generate.py` | `make_render_generate(...)` — the `generate(pos, neg, seed)` closure: txt2img concept (or `--from-image`) → upload → 3D mesh from `--mesh-model` (routed to `outputs/3d`) → headless `mesh_eval.py` render+probe → host-side contact-sheet montage → returns the **contact-sheet PNG** the judge consumes. |
 | `workflows/templates/blender/mesh_eval.py` | bpy template: import mesh → 4 orbit Cycles stills → **bmesh geometry checks** (non-manifold / open-edge / loose-part / tri-count / bounds) → emits both in its manifest. |
 | `scripts/agent/judge.py` `GeometryAwareJudge` | wraps any `Judge`; reads the `<stem>.checks.json` the generator writes and **forces FAIL + unions structural NOT-MET issues** on any geometry defect (things a VLM can't see from a render). |
 
-**Form, not color.** Hunyuan3D output is **untextured grey clay**, so `build_rubric(manifest, subject,
-modality="3d")` scores *form* — recognizability, proportions/silhouette, completeness (no missing/
-broken/fused parts), clean surface — and **drops the color/palette criteria**. (Texturing is Phase 4.)
+**Form, not color (shape-only meshes).** Hunyuan3D output is **untextured grey clay**, so with
+`--mesh-model hunyuan21` `build_rubric(manifest, subject, modality="3d")` scores *form* — recognizability,
+proportions/silhouette, completeness (no missing/broken/fused parts), clean surface — and **drops the
+color/palette criteria**. (Texturing is Phase 4; the textured models add one color criterion.)
 
-**The lever is the concept image.** Hunyuan3D is image-conditioned (no text prompt steers the mesh
+**The lever is the concept image.** Every 3D model here is image-conditioned (no text prompt steers the mesh
 graph), so the expander's `FIX` directives steer the **concept** prompt, and a fresh mesh is lifted from
 it each iteration. Two failure modes self-route: an *actionable* visual miss (wrong proportions, a
 missing part) folds into the next concept prompt; a *lift-lottery* defect (a melted back, a hole)

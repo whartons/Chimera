@@ -27,6 +27,7 @@ PAIRS = [
     ("modules/audio/workflow.music.template.json",               "workflows/templates/brand-audio-music.json"),
     ("modules/audio/workflow.foley.template.json",               "workflows/templates/brand-audio-foley.json"),
     ("modules/threed/workflow.template.json",                    "workflows/templates/brand-3d-image.json"),
+    ("modules/threed/workflow.trellis2.template.json",           "workflows/templates/brand-3d-trellis2.json"),
 ]
 
 

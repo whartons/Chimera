@@ -38,11 +38,27 @@ All notable changes to Chimera are documented here. The format follows
   keeps its exact look in a new scene. Core nodes only (ComfyUI 0.40), fixed 25 steps / CFG 1, about 6 s per
   1024² image on an RTX 5090. Relight stays FLUX.2. Templates in `workflows/templates/brand-qwen-image-*.json`
   (module copies under `modules/image/`); `lint` recognizes the family.
+- **Textured 3D: native TRELLIS.2 and Pixal3D** (`chimera 3d --model trellis2|pixal3d`). One ComfyUI 0.40
+  core graph does all of it:
+  - cuts the subject out of its background (BiRefNet);
+  - generates structure → shape → texture;
+  - remeshes and UV-unwraps;
+  - **bakes PBR textures** (base color, metallic-roughness, normal, AO) into the GLB.
+
+  No node pack, compiled wheel or gated download is needed, so the Blackwell texturing blocker no longer
+  applies to new assets. Pixal3D adds a MoGe camera-FOV estimate so the mesh matches the photo's viewpoint.
+  Template `workflows/templates/brand-3d-trellis2.json` is built from Comfy's official graph, with previews
+  rewired out. Short names (`trellis2`, `pixal3d`, `hunyuan21`) work for `--model`, `--mesh-model` and a
+  brand's `threed.model`, and resolve to file names in sidecars. **`auto_generate --mesh-model`** picks the
+  mesh3d loop's 3D model.
 - **`replay --model <file>`** re-runs a recorded render on a different model with everything else as
   recorded (subject, seed, settings), e.g. to run old brand work back on a newer model. **`replay
   --accept-drift`** renders even when the brand or a template changed since (see Fixed).
 
 ### Fixed
+- **`auto_generate --pipeline mesh3d --model X` loaded X as the 3D checkpoint.** `--model` is the concept
+  image's model, but it was also passed to the 3D build, so every iteration failed validation and the loop
+  had no winner. The 3D model now comes from the new `--mesh-model` only.
 - **Replay could silently render something different.** It re-resolved the model and settings from the
   *live* brand kit and Chimera's defaults, so after a brand pin or a default model changed, replaying an
   older asset used the new model. Replay now pins the model the render actually used, then compares the
@@ -84,6 +100,15 @@ All notable changes to Chimera are documented here. The format follows
   about 10 s on an RTX 5090. `--upscale-model 4x-UltraSharp.pth` (or `defaults.upscale_model`) still selects
   the ESRGAN pass, and older upscaled renders replay on their recorded upscaler. Video `--upscale` is unchanged
   (the LTX latent upscaler).
+- **Default 3D model: Hunyuan3D 2.1 (shape only) → TRELLIS.2 (textured).**
+  - **Why:** in the 2026-10 review on three photos, TRELLIS.2 and Pixal3D both beat Hunyuan3D 2.1. They
+    produce textured meshes, and they cut the subject out of a cluttered photo where Hunyuan3D rebuilt the
+    desk and monitor with it. TRELLIS.2 was the most faithful on two of three.
+  - **Cost:** about 90–135 s per textured mesh vs about 25–35 s.
+  - **Hunyuan3D 2.1 stays** as `--model hunyuan21`, the fast shape-only option, and is the path for the
+    Blender color bakes.
+  - **mesh3d loop:** it now judges the textured model, with the textured rubric. `--texture` / `--finalize`
+    require `--mesh-model hunyuan21`; on a textured mesh they would overwrite its textures.
 
 ### Erratum
 - The **v0.5.0** notes overstated its validation ("smoke-validated live across image, video, 3D … and the full

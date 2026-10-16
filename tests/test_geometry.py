@@ -53,3 +53,14 @@ def test_none_values_treated_as_clean():
 
 def test_suffix_constant():
     assert RENDER_CHECKS_SUFFIX == ".checks.json"
+
+
+def test_tiny_accessory_shells_are_not_fragmentation():
+    # 2026-10: TRELLIS.2 models eyes / an antenna tip / claws as separate tiny shells. A clean toy robot
+    # had 12 loose parts but only 3 of at least 1% of the mesh; it judged 1.0 and still failed the old gate.
+    assert structural_issues({**_CLEAN, "loose_parts": 12, "major_parts": 3}) == []
+
+
+def test_many_significant_parts_still_flag():
+    out = structural_issues({**_CLEAN, "loose_parts": 20, "major_parts": 11})
+    assert len(out) == 1 and "11 significant parts" in out[0] and out[0].startswith("NOT-MET:")

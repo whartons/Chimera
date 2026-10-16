@@ -248,7 +248,37 @@ that sounds best for the cue (licensing isn't a constraint for personal use).
 
 ## 🧊 3D (image-to-3D)
 
-**Recommended default (mid-2026): Hunyuan3D 2.1 — Brand Kits pipeline default**
+**Recommended default (late 2026): TRELLIS.2 — native in ComfyUI 0.40, textured**
+
+Since ComfyUI 0.40, **TRELLIS.2** and **Pixal3D** (built on it) run on core nodes: no custom node pack,
+no compiled wheels, and no gated download (the Comfy-Org packaging ships an ungated DINOv3 encoder). One
+graph does all of it:
+- cuts the subject out of its background (BiRefNet);
+- generates structure → shape → texture;
+- remeshes and UV-unwraps;
+- **bakes PBR textures** (base color, metallic-roughness, normal, AO) into the GLB.
+
+In the 2026-10 review on three photos, both beat Hunyuan3D 2.1. They came out textured, and they cut the
+subject out of a cluttered photo, where Hunyuan3D rebuilt the desk and monitor with it. TRELLIS.2 was the
+most faithful on two of three; Pixal3D, which matches the photo's camera via MoGe, was cleaner on the
+third. Expect ~90–135 s per textured mesh on an RTX 5090 and ~12–15 GB of GPU memory; Hunyuan3D 2.1
+takes ~25–35 s, shape only.
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|-----------------|----------------------------------|------|---------|
+| `trellis_2_int8_convrot.safetensors` | `Comfy-Org/TRELLIS.2` | `diffusion_models/` | ~4.9 GB | ✅ MIT |
+| `pixal3d_int8_convrot.safetensors` *(Pixal3D)* | `Comfy-Org/Pixal3D` | `diffusion_models/` | ~5.2 GB | ✅ MIT |
+| `trellis_2_shape_vae_bf16.safetensors` | `Comfy-Org/Pixal3D` | `vae/` | ~1.0 GB | ✅ MIT |
+| `trellis_2_texture_vae_bf16.safetensors` | `Comfy-Org/Pixal3D` | `vae/` | ~0.9 GB | ✅ MIT |
+| `dino_v3_L_naf_fp32.safetensors` | `Comfy-Org/Pixal3D` | `clip_vision/` | ~1.1 GB | ⚠️ repo lists MIT; upstream DINOv3 is under Meta's DINOv3 license |
+| `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT |
+| `moge_2_vitl_normal_fp16.safetensors` *(Pixal3D)* | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT |
+
+- `chimera 3d --model trellis2|pixal3d|hunyuan21` (or a brand's `threed.model`); `--octree` is Hunyuan3D-only.
+- The mesh3d agent loop judges the textured render. `--texture` / `--finalize` (Blender bakes for a
+  shape-only mesh) need `--mesh-model hunyuan21`.
+
+**Fast shape-only option: Hunyuan3D 2.1**
 
 Hunyuan3D 2.1 is **ComfyUI 0.22.3 core-native** — no custom node pack, no
 gated model dependencies. One `.safetensors` checkpoint bundles the DiT shape
@@ -256,11 +286,11 @@ model, a DINOv2 CLIP-Vision encoder (ungated), and the 3D VAE. Takes a single
 image and produces a high-detail geometry mesh (~421 K verts / ~1.1 M tris at
 `octree_resolution 256`, valid glTF-v2 GLB). **Shape-only in the native path**
 — the output has no PBR textures/materials (geometry only; downstream texturing
-in Blender etc. works normally). In-pipeline PBR texturing (Hunyuan3D-Paint) is
-**deferred on the Blackwell / cu130 / torch 2.10 stack**: it needs a compiled
+in Blender etc. works normally). Painting a Hunyuan mesh inside ComfyUI (Hunyuan3D-Paint) is
+**still deferred on the Blackwell / cu130 / torch 2.10 stack**: it needs a compiled
 `custom_rasterizer`, and every prebuilt wheel targets cu126/torch2.6 (or cu129/
 torch2.8), none ABI-compatible with torch 2.10 — and no CUDA Toolkit (`nvcc`) is
-present to compile `sm_120` from source. See [`modules/threed/README.md`](../modules/threed/README.md#why-in-pipeline-pbr-texturing-is-deferred-on-this-stack)
+present to compile `sm_120` from source. See [`modules/threed/README.md`](../modules/threed/README.md#why-hunyuan3d-paint-in-comfyui-pbr-painting-for-hunyuan-meshes-is-still-deferred)
 for the texturing routes (Blender/Substance, or a cu126 env) and the re-visit path.
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
@@ -274,26 +304,6 @@ for the texturing routes (Blender/Substance, or a cu126 env) and the re-visit pa
 
 > **Hunyuan3D 3.0 reminder:** API/cloud only (paid "Partner Nodes") — **not**
 > the free local path. Use **2.1** for free local generation.
-
-**Secondary: TRELLIS.2 4B — higher ceiling but wheel-bound**
-
-TRELLIS.2 produces high-quality PBR-textured meshes from a single image and is
-the stronger output when texturing matters. Currently listed as secondary
-because its prebuilt Windows CUDA wheels target **Python 3.11 / PyTorch 2.7–2.8
-/ CUDA 12.8** — incompatible with the reference setup (py3.12 / torch2.10 /
-cu130). Building from source requires a separate CUDA 12.8 toolchain. Also has a
-**gated dependency** (`facebook/dinov3-vitl16-pretrain-lvd1689m`) that requires
-HF license acceptance + `hf auth login`. Upgrade path when wheel compatibility
-catches up.
-
-- HuggingFace repo: `microsoft/TRELLIS.2-4B` (whole repo, ~16 GB)
-- Destination: `models/trellis2/` (preserving `ckpts/`, `pipeline.json`,
-  `texturing_pipeline.json` sub-structure)
-- Node pack: `https://github.com/visualbruno/ComfyUI-Trellis2`
-- Gated dep: `facebook/dinov3-vitl16-pretrain-lvd1689m` — HF license accept +
-  `hf auth login` required; model download returns 401 otherwise
-- VRAM: ~16 GB (whole repo loaded)
-- License: ❓ verify — conflicting sources; do not rely on any single claim
 
 **Other secondary picks**
 

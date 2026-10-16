@@ -372,8 +372,11 @@ def main():
     td.add_argument("--mode", choices=["image"], default="image")
     td.add_argument("--from-image", dest="from_image", required=True,
                     help="source image: a file in brands/<brand>/products|references/ or outputs/images/")
-    td.add_argument("--octree", type=int, default=None, help="VAEDecodeHunyuan3D octree_resolution (detail vs size)")
-    td.add_argument("--model", default=None, help="3D checkpoint override")
+    td.add_argument("--octree", type=int, default=None,
+                    help="(Hunyuan3D only) VAEDecodeHunyuan3D octree_resolution (detail vs size)")
+    td.add_argument("--model", default=None,
+                    help="3D model: trellis2 (default; textured PBR GLB) | pixal3d (textured, matches the "
+                         "photo's viewpoint) | hunyuan21 (shape only, ~4x faster), or a model file name")
     td.add_argument("--format", choices=["glb", "stl", "obj"], default=None,
                     help="3D export format (default glb; stl/obj converted host-side, geometry only)")
     rn = sub.add_parser("render", help="headless Blender: render a mesh / ComfyUI asset, or finish a mesh")

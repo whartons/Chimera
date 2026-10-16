@@ -134,6 +134,7 @@ def test_finalize_hands_the_gpu_back_before_its_repaint(monkeypatch):
     monkeypatch.setattr(AG, "_write_run_sidecar", lambda *a, **k: None)
     monkeypatch.setattr(FIN, "finalize_winner", lambda *a, **k: log.append(("finalize", None)))
     monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "mesh3d", "--backend", "api",
+                                      "--mesh-model", "hunyuan21",   # finalize colors a shape-only mesh
                                       "--finalize", "--rewrite-prompts", "--subject", "a robot",
                                       "--comfy-output-dir", "/tmp/o", "--llm-base-url", "http://x/v1",
                                       "--llm-model", "Z"])
