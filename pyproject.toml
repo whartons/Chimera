@@ -21,7 +21,7 @@ dependencies = ["pyyaml>=6"]
 
 [project.optional-dependencies]
 # `pip install -e .[dev]` for the test + lint + coverage tooling.
-dev = ["pytest>=8", "ruff>=0.10", "pytest-cov>=5"]
+dev = ["pytest>=8", "ruff>=0.17.1,<0.18", "pytest-cov>=5"]   # ruff: one minor, same as pre-commit
 # Optional host-side helpers, loaded only if present (graceful fallbacks otherwise):
 images = ["pillow>=12.3"]   # non-PNG logo sizing (see generate._image_size); 12.3 fixes 6 PYSEC advisories
 video = ["av>=12"]        # foley fps/duration auto-probe (see generate._probe_video)
