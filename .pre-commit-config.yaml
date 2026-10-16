@@ -3,7 +3,7 @@
 #   pre-commit run --all-files                         # run on demand
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.16
+    rev: v0.17.1                   # same ruff minor as the [dev] extra (CI)
     hooks:
       - id: ruff                       # lint with the project's F,B,UP rules (configured in pyproject.toml)
         args: [--fix]
