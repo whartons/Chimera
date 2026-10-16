@@ -30,26 +30,36 @@ class Judge(ABC):
 # 'passable' / 'compass' / 'failsafe' never trip the overall verdict.
 _PASS = re.compile(r"\bpass(?:ed)?\b", re.IGNORECASE)
 _FAIL = re.compile(r"\bfail(?:ed)?\b", re.IGNORECASE)
-_SCORE = re.compile(r"\bscore\b[^\d\n]{0,8}?(-?\d+(?:\.\d+)?)\s*(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?",
+_SCORE = re.compile(r"\bscores?\b[^\d\n]{0,8}?(-?\d+(?:\.\d+)?)\s*(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?",
                     re.IGNORECASE)
-# A criterion's STATUS is the first status word on its line, or a table cell holding nothing else, so a MET
-# line whose reason says 'nothing is unmet' stays MET while '1. Six-wheeled rover — NOT-MET', '1. **Palette**:
-# NOT_MET', '| 2 | Depicts the robot | NOT-MET |' and '1. ❌ NOT-MET' all count (a pattern that wanted the
-# status at the start of the line let those through under an 'Overall: PASS', 2026-10 review). A summary of
-# nothing unmet ('NOT MET: none', 'No criteria are NOT-MET') isn't one; a count ('1 NOT-MET') is.
-_STATUS = re.compile(r"(?<![A-Za-z])(not[\s_\-]*met|unmet|met)(?![A-Za-z])", re.IGNORECASE)
-_COUNTED = re.compile(r"(?<![\d.])[1-9]\d*\s*(?:criteria\s+|criterion\s+)?(?:not[\s_\-]*met|unmet)(?![A-Za-z])",
+# a bare value on the line after a 'Score:' label ('**Score:**' with '0.85' below it)
+_SCORE_VALUE = re.compile(r"^[\s*_`]*(-?\d+(?:\.\d+)?)\s*(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?[\s*_`.]*$",
+                          re.IGNORECASE)
+_DASH = r"[\s_\-‐-―−]*"   # NOT-MET / NOT MET / NOT_MET, and with typographic dashes
+_STATUS = re.compile(rf"(?<![A-Za-z])(not{_DASH}met|unmet|met)(?![A-Za-z])", re.IGNORECASE)
+_COUNTED = re.compile(rf"(?<![\d.])[1-9]\d*\s*(?:criteria\s+|criterion\s+)?(?:not{_DASH}met|unmet)(?![A-Za-z])",
                       re.IGNORECASE)
 _NOTHING_AFTER = re.compile(r"^[\W_]*(?:criteria|criterion|items?)?[\W_]*(?:none|nothing|n/?a|0|zero)\b"
                             r"[^A-Za-z0-9(]*(?:\(.*\))?[\W_]*$", re.IGNORECASE)
-_NOTHING_BEFORE = re.compile(r"^[\W_]*(?:no\s+(?:criteria|criterion|items?)|none\b|nothing\b|"
-                             r"(?:zero|0)\s+(?:criteria|items?))", re.IGNORECASE)
+# 'no NOT-MET criteria', 'none of them are unmet', 'nothing is unmet', 'for any NOT-MET criterion': a negation or
+# a condition just before the word, with no punctuation between, makes the line a summary or an instruction
+_NEGATED = re.compile(r"\b(?:no|none|nothing|zero|without|any|if)\b[\w\s'-]{0,30}$", re.IGNORECASE)
 _NUMBERED = re.compile(r"^[\s*#>|_\-]*(?:criterion\s*)?\d+\s*[.):|]", re.IGNORECASE)
-_CELL_TRIM = " \t*_`❌✅✔✖✗✘"
+_MARKS = "❌✅✔✖✗✘"   # the check and cross marks judges put before a status
+# On an unnumbered line a status counts where judges write one: leading the line ('NOT-MET: the head is
+# missing') or right after a short label and a separator ('- Palette: NOT-MET', 'Status — NOT-MET').
+_LEADING = re.compile(rf"^[\s*#>\-+•{_MARKS}_`]*$")
+_LABELLED = re.compile(rf"^[\s*#>\-+•]*[^\W\d_][^:|–—]{{0,60}}?(?:[:|–—]|\s-\s)"
+                       rf"[\s*_`{_MARKS}]*$")
+_CELL_TRIM = " \t*_`" + _MARKS
 
 
 def _line_unmet(line):
-    """True when a line of a judge's reply marks a criterion NOT-MET (see _STATUS)."""
+    """True when a line of a judge's reply marks a criterion NOT-MET: a table cell holding only the status, a
+    count ('1 NOT-MET'), or the line's first status word when the line is a numbered criterion or the word sits
+    where judges put a status (_LEADING / _LABELLED). A MET reason that says 'nothing is unmet', a summary ('No
+    NOT-MET criteria', 'NOT MET: none') and an echoed instruction ('For any NOT-MET criterion ...') are not:
+    each failed correct renders (2026-10 review)."""
     if "|" in line:
         cells = [c for c in (c.strip(_CELL_TRIM) for c in line.split("|")) if _STATUS.fullmatch(c)]
         if cells:
@@ -60,16 +70,16 @@ def _line_unmet(line):
     if not m or m.group(1).lower() == "met":
         return False
     before, after = line[:m.start()], line[m.end():]
-    if _NOTHING_AFTER.match(after) or re.match(r"\s+unless\b", after, re.IGNORECASE):   # a summary, or the
-        return False                                                                   # instructions echoed
-    return _NUMBERED.match(line) is not None or not _NOTHING_BEFORE.match(before)
+    if _NOTHING_AFTER.match(after) or re.match(r"\s+unless\b", after, re.IGNORECASE) or _NEGATED.search(before):
+        return False
+    return bool(_NUMBERED.match(line) or _LEADING.match(before) or _LABELLED.match(before))
 # Also carry any line bearing a 'FIX:' directive (the judge's structured add/avoid correction) so
 # the expander receives it even if the model puts it on its own line rather than the NOT-MET line.
 _FIXLINE = re.compile(r"\bfix\b\s*[:\-]", re.IGNORECASE)
 # A line that IS the overall-verdict / score line (allowing markdown bullets/emphasis), as opposed
 # to a criterion reason that merely mentions 'overall'/'scored' mid-sentence.
 _OVERALL_LINE = re.compile(r"\s*[*#>\-\s]*overall\b", re.IGNORECASE)
-_SCORE_LINE = re.compile(r"\s*[*#>\-\s]*(?:final\s+)?score\b", re.IGNORECASE)
+_SCORE_LINE = re.compile(r"\s*[*#>\-\s]*(?:final\s+)?scores?\b", re.IGNORECASE)
 
 
 def parse_verdict(text: str) -> Verdict:
@@ -104,9 +114,12 @@ def parse_verdict(text: str) -> Verdict:
         # Score: prefer the dedicated trailing 'score: ...' line (rubric instruction); fall back
         # to the LAST match anywhere, so prose like 'scored 7 criteria' can't clamp to 1.0.
         m = None
-        for l in reversed(lines):
-            if _SCORE_LINE.match(l):
-                m = _SCORE.search(l)
+        for i in range(len(lines) - 1, -1, -1):
+            if _SCORE_LINE.match(lines[i]):
+                m = _SCORE.search(lines[i])
+                nxt = next((l for l in lines[i + 1:] if l.strip()), None)
+                if m is None and nxt is not None:   # the value on the line below the label
+                    m = _SCORE_VALUE.match(nxt)
                 if m:
                     break
         if m is None:

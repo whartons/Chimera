@@ -117,3 +117,14 @@ def test_finish_formats_ignore_case_and_cannot_be_empty(monkeypatch):
     monkeypatch.setattr(G.blender_runner, "run_template", lambda *x, **k: pytest.fail("blender must not run"))
     with pytest.raises(SystemExit):
         G.run_render(_args(mode="finish", formats=" , "), Path("/tmp"), argparse.ArgumentParser())
+
+
+
+def test_a_blender_job_listing_a_missing_file_is_one_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: tmp_path / "m.glb")
+    monkeypatch.setattr(G.blender_runner, "run_template",
+                        lambda t, p, **kw: {"outputs": [str(Path(p["out_dir"]) / "ghost.png")]})
+    with pytest.raises(SystemExit) as e:
+        G.run_render(_args(), tmp_path, argparse.ArgumentParser())
+    err = capsys.readouterr().err
+    assert e.value.code == 1 and "render failed: Blender listed ghost.png" in err and "comfy-output-dir" not in err

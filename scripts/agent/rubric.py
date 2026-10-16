@@ -48,14 +48,17 @@ class Rubric:
 
 
 _HUES = ((15, "red"), (45, "orange"), (65, "yellow"), (160, "green"), (200, "cyan"), (250, "blue"),
-         (320, "purple"), (345, "pink"), (360, "red"))
+         (285, "purple"), (320, "magenta"), (345, "pink"), (360, "red"))
 
 
 def _hue_name(hue, light, chroma):
     """Name a chromatic color by hue band, with the special cases a judge reads differently: brown and tan
     are dark or muted oranges, gold a mid yellow-orange (a vivid one stays orange), navy a dark blue, teal
-    a dark cyan, pink a light red, and a low-chroma blue or green a blue-grey or green-grey (slate)."""
+    a dark cyan, purple a dark magenta, pink a pale light red (a vivid one is coral), and a low-chroma blue
+    or green a blue-grey or green-grey (slate)."""
     base = next(n for limit, n in _HUES if hue < limit)
+    if base == "magenta" and light < 0.4:
+        base = "purple"   # CSS purple (#800080) is a dark magenta; #ff00ff is magenta, not purple
     if base == "orange" or (base == "yellow" and hue < 52):
         if light < 0.42:
             return "brown"
@@ -70,7 +73,7 @@ def _hue_name(hue, light, chroma):
     if base == "cyan" and light < 0.45:
         return "teal"
     if base == "red" and light > 0.7:
-        return "pink"
+        return "pink" if chroma < 0.45 else "coral"   # #ffc0cb is pink; #ff6b6b and salmon are not
     if chroma < 0.16 and base in ("blue", "cyan", "green"):
         return ("dark " if light < 0.3 else "light " if light > 0.75 else "") + base + "-grey"
     return ("dark " if light < 0.3 else "light " if light > 0.75 else "") + base

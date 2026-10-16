@@ -6,7 +6,7 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-10-15
+## [0.6.0] - 2026-10-16
 
 The model-refresh release. The 2026-10 quarterly review's winners are the new defaults: Qwen-Image-2.1
 (image), SeedVR2 (upscale), Wan 2.2 (video, with camera moves), Stable Audio 3 (music, plus a new sound-effects
@@ -52,8 +52,10 @@ loop's FreeCAD process and the MCP approval gates.
   stored as given, folder layout and user name included; sidecars now keep the file name.
 - **The CAD loop's FreeCAD process gets no credentials.** The loop runs LLM-written scripts, and their
   restricted mode is not a sandbox: a probe walked Python object internals back to `os` and read all 104
-  environment variables, API keys included. FreeCADCmd now starts without credential-named variables
-  (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSW*`, `*PWD*`, `*AUTH*`, `*SESSION*`, `*_PAT`, `DATABASE_URL`, …), and
+  environment variables, API keys included. FreeCADCmd and headless Blender now start without
+  credential-named variables (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASS*`, `*AUTH*`, `*SESSION*`, proxies,
+  webhooks, `*_URL` / `*_URI` connection strings, `*_PROFILE`, …), a job's reported outputs must sit in its own
+  folder (an LLM-written script could print a forged result naming any file to be moved into `outputs/`), and
   the pre-filter also rejects dunder-attribute walks (`.__globals__`,
   `.__subclasses__`, frame objects). Only point `--pipeline cad` at a codegen model you trust.
 - **18 more comfyui-mcp tools need approval** (`.claude/settings.json`; `tests/test_mcp_gates.py` pins the
@@ -63,6 +65,9 @@ loop's FreeCAD process and the MCP approval gates.
   save workflows, defaults and snapshots. FreeCAD's `reload_document` moved from read-only to Tier 2: it
   closes and reopens the document, discarding unsaved edits.
 - **Pillow ≥ 12.3** for the `images` extra; older versions carry six PYSEC advisories.
+- **`.gitignore` covers conventional secret files** (`.netrc`, `.npmrc`, `.pypirc`, `.envrc`, `*.pem`, `*.p12`,
+  `id_rsa*`, `credentials.json`, `service-account*.json`, `secrets.yaml`), which push protection and the
+  private-key hook don't catch.
 - **CI hardening.** Actions are pinned by commit SHA, checkouts don't keep the token, only the Codecov upload
   job can mint an OIDC token (the jobs that install packages can't), and `pip-audit` runs in its own job.
   Pre-commit adds `detect-private-key`. `.gitignore` adds `coverage.xml` (it embeds the absolute source
@@ -116,10 +121,14 @@ loop's FreeCAD process and the MCP approval gates.
   - **Template:** `workflows/templates/brand-audio-sa3.json`.
 - **`audio --model acestep --lyrics "..."`**: words for ACE-Step to sing, with `[Verse 1]` / `[Chorus]` tags.
   ACE-Step was kept as the vocals option, but Chimera sent it empty lyrics, so every render was instrumental.
-  Lyrics need room: in a listening test ACE-Step sang six lines in a 40 s clip and none in 20 s, so a lyric
-  render is at least 40 s unless `--duration` says otherwise (shorter prints a warning). Sidecars record the
+  Lyrics need room: in tests (by ear and by transcription) ACE-Step never sang six lines in a 20 s clip and
+  sang them in 40 s on most seeds (5–6 of 7), so a lyric render is at least 40 s unless `--duration` says
+  otherwise (shorter prints a warning), and the CLI suggests another `--seed` when a render comes out
+  instrumental, since some seeds plan one regardless. Sidecars record the
   lyrics, so replay sings them again; `--lyrics` with Stable Audio 3 or a non-music mode is an error. The
   ACE-Step graph's sampler shift is now 3, as in Comfy's ACE-Step 1.5 templates (it was 1.73).
+- **`chimera --version`**, read from `pyproject.toml` (`scripts.brandkit.__version__` had said 0.1.0 since the
+  first release), and `chimera --help` now describes each modality command.
 - **`replay --model <file>`** re-runs a recorded render on a different model with the same subject and seed,
   e.g. to run old brand work back on a newer model. Only the prompt is compared, and settings that belong to
   the old model family (Wan or LTX clip timing, a Z-Image variant, a Hunyuan3D octree) give way to the new
@@ -147,11 +156,15 @@ loop's FreeCAD process and the MCP approval gates.
   completely absent" and then "Overall: PASS". That way the loop accepted a headless robot, a two-goat Chimera
   and a portrait missing the requested raincoat. A criterion marked NOT-MET now fails the verdict. On a new
   34-case judge benchmark (hard cases: wrong counts, misplaced elements, missing attributes, off-brand colors),
-  this took the default judge from 27 to 30 correct. A second review found forms the first fix missed, and the
-  status is now the first MET / NOT-MET word on a criterion's line (or a table cell holding it): `1. Subject —
-  NOT-MET`, `**Palette**: NOT_MET`, `1. Six-wheeled rover: NOT-MET`, `| 2 | … | NOT-MET |` and `1 NOT-MET` in a
-  summary all fail it, while `NOT MET: none` and a MET reason that says "nothing is unmet" don't. Scores on
-  other scales read right too: `4 out of 5` is 0.8, `7` is 0.7, `85` is 0.85 (each read as 1.0 before).
+  this took the default judge from 27 to 30 correct. Two more reviews found forms the first fix missed. A status
+  now counts when it is a table cell (`| 2 | … | NOT-MET |`), a count (`1 NOT-MET`), or the first status word
+  on a criterion's line (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `- Nothing floats free of the hub:
+  NOT-MET`, `Status: NOT-MET`), written with hyphens or typographic dashes (`NOT‑MET`, as hosted models write
+  it). A line that only says nothing is unmet keeps a PASS: `NOT MET: none`, `No NOT-MET criteria.`,
+  `Criteria: 4 MET, 0 NOT-MET`, a MET reason on its own line, or the instructions echoed back (each had failed
+  correct renders and gone into the next prompt as a "Fix"). Scores on other scales read right too: `4 out of
+  5` is 0.8, `7` is 0.7, `85` is 0.85 (each read as 1.0 before), and `Scores: 0.4` or a value on the line
+  after `**Score:**` are read (they scored 0.0).
 - **The self-correction loop inverted its own fixes when a subject's styling fought the brand.** Found with
   the local Qwen3-VL-8B judge while regenerating the README demo. Under a gunmetal brand, a subject such as
   "a glossy candy-red toy rover" made the subject criterion demand the candy colors while the style, palette
@@ -279,7 +292,8 @@ loop's FreeCAD process and the MCP approval gates.
   - it only trusts a local CUDA card. Apple's mps and the CPU report system RAM, which made every local judge
     refuse on a Mac, and DirectML reports a placeholder that let everything through;
   - a model bigger than the card now always empties ComfyUI first (capped to the card, it could "fit" beside
-    ComfyUI's models), and the room asked for covers the models Ollama already holds, which ComfyUI can't see;
+    ComfyUI's models), and on Windows the room asked for covers the models Ollama already holds, which ComfyUI
+    can't see there;
   - unloading a model waits until Ollama has let go of it, and a loop won't render beside one that stays loaded;
   - the CAD loop unloads the judge and rewriter before its renders too (only code-gen was unloaded), and one
     failed check of a local Ollama (restarting, starting late) no longer turns the checks off for the run;
@@ -293,14 +307,22 @@ loop's FreeCAD process and the MCP approval gates.
   of a repeated seed now gets its own files (`agent_7`, `agent_7_2`, …); a shorter `--seeds` list is topped up
   with fresh seeds (it fell back to `1000+i`, which collided across runs).
 - **FIX directives lost their meaning.** `avoid gaps between blades and hub` split into "gaps between blades"
-  and "hub", so "hub" was cut from "a fan rotor with a central hub"; phrases now split at "and" only between
-  short items. Cutting a flagged term from the subject keeps the object's noun. The brand guard now also keeps
-  palette colors the judge asks to avoid by their rubric names ("avoid near-black" for `#1c1f22`), and the
-  rubric names purple, orange, pink and slate colors right (`#800080` read as "dark pink", `#FFA500` as "gold").
+  and "hub", so "hub" was cut from "a fan rotor with a central hub"; a list now splits at "and" / "or" except
+  inside a pair ("between A and B", "both", "either"), so `avoid red paint and chrome trim` still avoids both.
+  Cutting a flagged term from the subject keeps the object's noun. The brand guard now also keeps palette
+  colors the judge asks to avoid by their rubric names ("avoid near-black" for `#1c1f22`), and the rubric names
+  purple, magenta, orange, pink, coral and slate colors right (`#800080` read as "dark pink", `#FFA500` as
+  "gold"; `#ff00ff` is magenta and `#ff6b6b` coral, not purple and pink).
 - **The CAD loop rejected harmless scripts and misreported failures.** `socket_depth`, `sockets` or a
   `# ball-and-socket` comment failed the pre-filter, so a "hex socket organizer" brief failed every iteration;
-  it now rejects only importing or using those modules. A rejected first script's reason now reaches the retry,
-  and an LLM or GPU error is no longer reported to code-gen as a script failure.
+  it now rejects only a line that imports one of those modules (a shape named `socket`, or `# dims from
+  http://…`, is fine, and restricted scripts can't import them anyway). A rejected first script's reason now
+  reaches the retry, an LLM or GPU error is no longer reported to code-gen as a script failure, and a code-gen
+  model that won't unload stops the iteration before Blender renders beside it. The code-gen prompt now
+  states what the loop checks: the part must be one connected solid, and a cut only removes material that is
+  there. In a live run on that organizer brief, the model had cut its sockets into the tray's empty cavity
+  (nothing removed, 0 of 4 iterations), then added rims floating in the cavity (7 pieces); with both rules
+  stated, the first iteration came out right.
 - **Replay refused brands that `new-brand` creates** (a space, `&`, accented letters); both now share one rule.
   On Windows, a replay whose brand was cased differently could still replace the render it reproduced.
 - **Blender exports carried the startup file's Cube** as a second scene: the factory scene's selected Cube rode
@@ -309,11 +331,49 @@ loop's FreeCAD process and the MCP approval gates.
 - **`--format stl|obj` deleted the GLB**, which for TRELLIS.2 and Pixal3D held the only textured copy; it now
   stays beside the STL/OBJ. A GLB in several parts is refused rather than cut to its first part.
 - **Mistakes that printed a traceback are one line:** an unknown brand or a bad `brand.yaml` value (an unknown
-  `threed.format` is now caught when the brand loads, before the GPU render), replaying a file that isn't a
-  sidecar, ComfyUI timing out, and `finalize-texture --auto-repaint` with ComfyUI down or rejecting the graph.
+  `threed.format` is now caught when the brand loads, before the GPU render; `null` means the default),
+  replaying a file that isn't a sidecar, ComfyUI timing out, and `finalize-texture --auto-repaint` with ComfyUI
+  down or rejecting the graph.
 - **Flags a mode ignored are errors:** `--upscale-model` without `--upscale`, and `--bpm` / `--keyscale` outside
   music; a `--watermark` logo is checked before anything uploads; `3d --format stl` without
   `--comfy-output-dir` says it stays a GLB; `render --mode finish --formats STL,GLB` exported nothing (case).
+- **The agent loop checks its local models before it renders.** v0.6 made a local Ollama model the default
+  judge, and with Ollama stopped or the model not pulled a run rendered every iteration (meshes and Blender
+  stills included) and only then failed at each judging, ending with "winning image: None". It now stops first
+  with the fix: start Ollama, or `ollama pull <model>`. A missing `--rewrite-prompts` model only warns, since
+  the templated expander takes over. A v0.5 setup that relied on `OPENAI_API_KEY` for another host (OpenRouter,
+  say) gets a note that the key isn't sent there, where it got HTTP 401 after every render.
+- **Replay, a third review:**
+  - it accepts every input `generate` accepts (`.gif`, `.jfif`, `.avif`, `.heic` images; `.m4v`, `.mpg`, `.wmv`
+    clips);
+  - a hand-edited or damaged sidecar (`"schema": "2"`, a text duration, no subject, `format: fbx`) fails with
+    the field named, where it crashed mid-render, or after a whole 3D render for `fbx`;
+  - a sidecar from before v0.6.0 has no settings record, so replay says what it can't check, and an ACE-Step
+    one reports the sampler shift change (1.73 → 3) as drift;
+  - `replay --model sa3` of an ACE-Step render (and the reverse) no longer stops on the BPM and key that Stable
+    Audio 3 writes into its brief;
+  - foley sidecars record the timing and size the render used, so a replay without PyAV, or of a clip whose
+    own sidecar is gone, renders the same graph (it stopped on drift at 25 fps / 5 s);
+  - a relative input path is stored with `/`, so a sidecar made on Windows replays elsewhere, and a sidecar
+    saved with a BOM (Windows PowerShell 5.1) reads.
+- **Video and product renders can start from the brand's own renders** (`outputs/images/`), as 3D and relight
+  already could. The README's image → video → 3D chain failed with "not found", and so did its replay.
+- **Without Pillow, JPEG, WebP and GIF sizes are read from the file's header** (only PNG's were), so a
+  watermarked or product render builds the same graph with or without the `images` extra, and a replay on the
+  other kind of install reports no drift.
+- **More one-line errors:** `finalize-texture` with neither `--views` nor `--auto-repaint` (an
+  `AttributeError`); a Blender or FreeCAD job that lists a file it didn't write (reported as ComfyUI's, with a
+  `--comfy-output-dir` hint); a missing Blender during `--auto-repaint` (labelled "ComfyUI"); `auto_generate
+  --brand` with an unknown brand or a bad `brand.yaml`, and `--seeds 7,x`; and a brand or file name the
+  Windows console can't encode, in a piped run (it crashed after queueing the job).
+- **A brand name that isn't a folder name is refused before anything renders** (`generate.py` and
+  `auto_generate.py`). It was refused only when routing the output, after the GPU work, leaving the file in
+  ComfyUI's folder.
+- **The GPU hand-off fits more setups:** an image loop on a remote ComfyUI no longer unloads local models before
+  each render or stops beside one (nothing renders on this machine); `--finalize` is skipped with the command
+  to run it later, rather than repainting beside a judge that won't unload; and the models Ollama already holds
+  count toward the room asked of ComfyUI on Windows only (Linux and macOS drivers already include them, so a
+  second local model waited 30 s and fell back).
 
 ### Changed
 - **The agent loops run on local Ollama models sized to your GPU, with nothing to configure.**
@@ -322,11 +382,13 @@ loop's FreeCAD process and the MCP approval gates.
 
   | Tier | GPU | Judge and rewriter | CAD code-gen |
   |---|---|---|---|
-  | large | 24 GB+ | Qwen 3.8 27B | Qwen 3.8 27B |
+  | large | 32 GB | Qwen 3.8 27B | Qwen 3.8 27B |
   | medium | 12–24 GB | Qwen3-VL 8B Instruct | Qwen 3.8 27B, partly on the CPU |
   | small | under 12 GB | Qwen3-VL 4B Instruct | Qwen 3.8 27B, mostly on the CPU |
 
-  The defaults were chosen on an RTX 5090, and smaller cards get lighter judges automatically. `--llm-tier` /
+  The defaults were chosen on an RTX 5090, and smaller cards get lighter judges automatically. A 24 GB card
+  gets the medium tier: beside ComfyUI's image model it has no room for the 27B judge (about 22 GB with its
+  context), so every judgment would wait on ComfyUI emptying itself. `--llm-tier` /
   `CHIMERA_LLM_TIER` overrides the tier; per-role flags and `CHIMERA_*` variables still win; `chimera doctor`
   reports the tier and any `ollama pull` it needs. The CAD loop no longer refuses to start without a
   configured LLM endpoint. Measured on a new 34-case judge benchmark (3 runs each): Qwen 3.8 27B 31.0 correct
@@ -347,8 +409,11 @@ loop's FreeCAD process and the MCP approval gates.
   move, foley on a Wan clip, Stable Audio 3 music and sound effects, TRELLIS.2 3D + render, cad, the three agent
   loops, replay, and doctor. Re-checked on ComfyUI 0.41.1 after the GPU fix (doctor, image, product edit +
   SeedVR2, sfx, Wan 2.2, TRELLIS.2, each local-model tier on the image loop and the large tier on the CAD loop),
-  and after the second review (the image and CAD loops, image replay, ACE-Step with lyrics, TRELLIS.2 with
-  `--format stl`, and a Blender finish export).
+  after the second review (the image and CAD loops, image replay, ACE-Step with lyrics, TRELLIS.2 with
+  `--format stl`, and a Blender finish export), and after the third (the image and CAD loops on the large
+  tier, the endpoint check, replays of genuine v0.5.1 sidecars, a Wan clip started from a brand render with
+  foley on it, that foley replayed without PyAV or the clip's sidecar, the video replay, and a Blender
+  render).
 - **LTX-2.3 on ComfyUI ≥ 0.40 needs the bundled LTXVideo patch** (Wan 2.2, the default, runs on core nodes)
   ([`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)).
   ComfyUI 0.40 passes attention inputs as `AttentionTensorContainer`s, and the pack's STG guidance returned
@@ -396,6 +461,10 @@ loop's FreeCAD process and the MCP approval gates.
 
 - **CAD STL/OBJ exports tessellate curves finer** (angular deflection 0.5 → 0.1 rad). At 0.5, a circle came
   out as about 13 visible flats in renders and prints. Round parts' STLs grow about 1.6×.
+- **Tests can't reach the network or a developer's settings.** A socket-level guard refuses every connection
+  (one test sent a GET to a running ComfyUI), `CHIMERA_*` and vendor key variables are cleared (VS Code loads
+  `.env` into test runs), and git is faked for provenance. CI's Linux leg installs the `images` extra, so the
+  contact sheet the judge scores is tested there; Windows CI stays on `[dev]` and proves the no-Pillow paths.
 
 ### Docs
 - **All README media regenerated on the new defaults.**

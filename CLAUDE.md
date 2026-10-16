@@ -95,7 +95,7 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
   GPU); three backends slot in — a provider-agnostic OpenAI-compatible **LLMJudge** (`--backend api`,
-  the default: unconfigured, it calls a local Ollama model from a GPU tier, **Qwen 3.8 27B** on 24 GB+ and a
+  the default: unconfigured, it calls a local Ollama model from a GPU tier, **Qwen 3.8 27B** on 32 GB cards and a
   Qwen3-VL 8B/4B on smaller cards, `--llm-tier` to choose), an optional headless
   **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass (an
   interactive agent following `workflows/agent/README.md`; `auto_generate.py` refuses `--backend assistant`).
@@ -151,8 +151,9 @@ stale doc is a bug.
   `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`GITEA_PACKS`/`NPM_PACKS` tables
   in `scripts/update_report.py`, plus `.mcp.json` for an MCP server). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
-- **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (the CI count uses
-  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 7).
+- **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (CI's Linux leg installs
+  `[images]` and matches the local count; the Windows leg uses `[dev]` only, so its 8 Pillow-gated tests
+  skip there: Windows CI = local − 8).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump
   `pyproject.toml` `version`, then tag + create the GitHub release.
 

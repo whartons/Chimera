@@ -16,8 +16,9 @@ from . import blender as blender_runner
 from . import finalize as finalize_core
 from . import freecad as freecad_runner
 from .comfy import ComfyClient
+from .dcc import job_outputs
 from .manifest import ManifestError, default_manifest, load_manifest
-from .outputs import route_output, write_sidecar
+from .outputs import NoOutputError, route_output, write_sidecar
 from .provenance import git_provenance
 from .sidecar import build_cad_meta, build_render_meta
 
@@ -132,8 +133,8 @@ def run_render(args, repo_root, ap):
         outs = manifest.get("outputs", [])
         if not outs:
             print("render produced no outputs", file=sys.stderr); sys.exit(1)
-        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed) for o in outs]
-    except blender_runner.BlenderJobError as e:
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, producer="Blender") for o in outs]
+    except (blender_runner.BlenderJobError, NoOutputError) as e:
         print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -251,11 +252,11 @@ def run_cad(args, repo_root, ap):
         manifest = freecad_runner.run_template(
             template, _cad_params(args, source, tmp, seed),
             freecad_bin=args.freecad_bin, timeout=args.timeout or CAD_TIMEOUT)
-        outs = manifest.get("outputs", [])
+        outs = job_outputs(manifest, tmp, freecad_runner.FreeCADJobError)   # a script prints its own manifest
         if not outs:
             print("cad produced no outputs", file=sys.stderr); sys.exit(1)
-        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed) for o in outs]
-    except freecad_runner.FreeCADJobError as e:
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, producer="FreeCAD") for o in outs]
+    except (freecad_runner.FreeCADJobError, NoOutputError) as e:
         print(f"cad failed: {e}", file=sys.stderr); sys.exit(1)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -273,7 +274,7 @@ def run_cad(args, repo_root, ap):
 
 
 def _finalize_views(args):
-    return [v.strip() for v in args.views.split(",") if v.strip()]
+    return [v.strip() for v in (args.views or "").split(",") if v.strip()]
 
 
 def _finalize_azimuths(args, n):
@@ -344,6 +345,9 @@ def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
     except finalize_core.FinalizeError as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
+    except blender_runner.BlenderJobError as e:   # the depth renders: not ComfyUI's fault (a missing Blender)
+        print(f"finalize-texture failed: {e}", file=sys.stderr)
+        sys.exit(1)
     except (RuntimeError, OSError) as e:   # ComfyUI down or timing out (OSError), or rejecting the graph
         print(f"finalize-texture: ComfyUI at {args.comfy_url}: {e}", file=sys.stderr)   # (HTTP 400, no output)
         sys.exit(1)
@@ -380,7 +384,7 @@ def run_finalize_texture(args, repo_root, ap):
         glb = manifest.get("textured_glb")
         if not glb:
             print("finalize-texture produced no textured GLB", file=sys.stderr); sys.exit(1)
-        routed_glb = route_output(repo_root, args.brand, Path(glb), "finalize", seed)
+        routed_glb = route_output(repo_root, args.brand, Path(glb), "finalize", seed, producer="Blender")
         stills = manifest.get("outputs", [])
         if stills:
             # the verification sheet is a nicety — its failure (e.g. Pillow absent) must NOT sink the
@@ -392,7 +396,7 @@ def run_finalize_texture(args, repo_root, ap):
                 sheet = route_output(repo_root, args.brand, sheet_tmp, "finalize", seed)
             except Exception as e:   # noqa: BLE001 - best-effort verification render
                 print(f"warning: verification contact sheet skipped ({e})", file=sys.stderr)
-    except blender_runner.BlenderJobError as e:
+    except (blender_runner.BlenderJobError, NoOutputError) as e:
         print(f"finalize-texture failed: {e}", file=sys.stderr); sys.exit(1)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

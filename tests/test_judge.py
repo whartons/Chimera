@@ -314,3 +314,74 @@ def test_a_line_that_only_mentions_not_met_does_not_fail_a_pass(text):
 def test_scores_on_other_scales_and_separators(line, score):
     # 'score: 4 out of 5' and 'Score: 7' read as a perfect 1.0, 'score - 0.82' as 0.0
     assert round(parse_verdict("PASS\n" + line).score, 3) == score
+
+
+
+# --- 2026-10 test review: verdict precedence ----------------------------------------------------------
+def test_fail_beats_pass_on_the_verdict_line():
+    assert not parse_verdict("1. Palette: MET\nOverall: FAIL - it would pass with the brand palette\nscore: 0.6").passed
+
+
+def test_the_last_overall_line_wins():
+    assert not parse_verdict("Overall: PASS\n1. Subject: MET\nRe-checking the palette: grey.\nOverall: FAIL\n"
+                             "score: 0.4").passed
+    assert not parse_verdict("1. Subject: MET (overall it would PASS)\n2. Palette: MET\nThe overall verdict: FAIL\n"
+                             "score: 0.4").passed
+
+
+def test_without_an_overall_line_the_last_verdict_word_wins():
+    assert not parse_verdict("PASS (draft)\n1. Subject: MET\nFAIL\nscore: 0.2").passed
+
+
+def test_a_verdict_line_that_mentions_not_met_is_neither_a_criterion_nor_an_issue():
+    v = parse_verdict("1. Subject: MET\nOverall: PASS - no criterion is NOT-MET\nscore: 1.0")
+    assert v.passed and v.issues == []
+    v = parse_verdict("1. Subject: MET\n2. Palette: NOT-MET\nOverall: FAIL - 1 NOT-MET\nscore: 0.4")
+    assert v.issues == ["2. Palette: NOT-MET"]
+
+
+def test_the_last_score_wins():
+    assert parse_verdict("Score: 0.9 (draft)\nOverall: FAIL\nFinal score: 0.3").score == 0.3
+    assert parse_verdict("I first gave score 0.9; on reflection the score is 0.3\nOverall: FAIL").score == 0.3
+
+
+def test_a_fix_directive_on_its_own_line_reaches_the_expander():
+    v = parse_verdict("1. Palette: NOT-MET\nFIX: add brand red; avoid grey\nOverall: FAIL\nscore: 0.2")
+    assert "FIX: add brand red; avoid grey" in v.issues
+
+
+def test_a_crashing_judge_is_a_fail_vote():
+    from scripts.agent.judge import ConsensusJudge
+
+    class Boom:
+        def judge(self, image_path, rubric):
+            raise RuntimeError("kaboom")
+
+    class Fixed:
+        def __init__(self, p): self.p = p
+        def judge(self, i, r): return Verdict(self.p, 0.9 if self.p else 0.1, [])
+    assert ConsensusJudge([Fixed(True), Fixed(False), Boom()]).judge("i", None).passed is False
+
+
+@pytest.mark.parametrize("line", [
+    "No NOT-MET criteria.", "There are no NOT-MET criteria, so the verdict is PASS.", "No unmet criteria.",
+    "   - Reason: all six wheels are present; nothing is unmet.", "For any NOT-MET criterion a FIX is given below.",
+    "NOT-MET: none (all criteria met)", "Criteria: 4 MET, 0 NOT-MET"])
+def test_a_line_that_only_says_nothing_is_unmet_keeps_a_pass(line):
+    # these failed correct renders, and went into the next prompt as "Fix: ..." (2026-10 review)
+    v = parse_verdict(f"1. Subject - MET\n2. Style - MET\n{line}\n**Overall verdict:** PASS\nscore: 0.9")
+    assert v.passed and v.issues == []
+
+
+@pytest.mark.parametrize("line", [
+    "1. Subject: NOT\u2011MET - the head is missing", "1. Subject: NOT\u2013MET", "- Palette: NOT\u2014MET",
+    "- Nothing floats free of the hub: NOT-MET", "1. Subject\n   NOT-MET \u2014 the head is missing",
+    "Status: NOT-MET", "2. Palette: the rover is yellow (NOT-MET)"])
+def test_every_way_of_writing_not_met_fails_the_render(line):
+    v = parse_verdict(f"1. Style - MET\n{line}\nOverall: PASS\nscore: 0.9")
+    assert not v.passed and v.issues
+
+
+def test_a_score_on_the_next_line_or_with_a_plural_label_is_read():
+    assert parse_verdict("1. MET\nOverall: FAIL\n**Score:**\n0.85").score == 0.85
+    assert parse_verdict("PASS\nScores: 0.4").score == 0.4

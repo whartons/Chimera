@@ -35,7 +35,7 @@ _INPUT_KEYS = {
                       "upscale", "upscale_model", "camera", "quality"),
     ("audio", "music"): ("subject", "duration", "bpm", "keyscale", "lyrics"),
     ("audio", "sfx"): ("subject", "duration"),
-    ("audio", "foley"): ("subject", "from_video", "duration", "fps"),
+    ("audio", "foley"): ("subject", "from_video", "duration", "fps", "width", "height"),
     ("3d", None): ("from_image", "octree", "model", "format"),
 }
 

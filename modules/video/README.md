@@ -78,8 +78,8 @@ python scripts/generate.py video --model ltx23 \
 ```
 
 - `--from-image` is a bare file name that the CLI looks up in the brand's `products/`, then
-  `references/` folder (e.g. `rover.png`, not `products/rover.png`). Without `--brand` it is a path to
-  the file.
+  `references/`, then `outputs/images/` folder (e.g. `rover.png`, not `products/rover.png`), so a brand's
+  own render can be the start frame. Without `--brand` it is a path to the file.
 - Output routes to `brands/<brand>/outputs/video/<brand>_i2v_<seed>.mp4` with a
   reproducibility `.json` sidecar alongside it. If the file already exists it is
   overwritten (idempotent re-render); a `chimera replay` lands beside it as `<name>_replay` instead.

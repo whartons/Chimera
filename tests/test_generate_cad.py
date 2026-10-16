@@ -73,7 +73,7 @@ def test_run_cad_script_routes_and_sidecars(tmp_path, monkeypatch):
     repo = tmp_path
     s = repo / "model.py"; s.write_text("# build a thing")
     monkeypatch.setattr(G.freecad_runner, "run_template",
-                        lambda t, p, **kw: {"outputs": [str(tmp_path / "m.step")],
+                        lambda t, p, **kw: {"outputs": [str(Path(p["out_dir"]) / "m.step")],
                                             "freecad_version": "1.1.1", "objects": 1})
     (tmp_path / "m.step").write_text("s")
     def fake_route(root, brand, src, mode, seed, **kw):
@@ -151,7 +151,7 @@ def test_cad_formats_dedups_and_normalizes_case():
 def test_run_cad_routes_and_sidecars(tmp_path, monkeypatch):
     repo = tmp_path
     monkeypatch.setattr(G.freecad_runner, "run_template",
-                        lambda t, p, **kw: {"outputs": [str(tmp_path / "x.step"), str(tmp_path / "x.stl")],
+                        lambda t, p, **kw: {"outputs": [str(Path(p["out_dir"]) / "x.step"), str(Path(p["out_dir"]) / "x.stl")],
                                             "freecad_version": "1.1.1", "shape": "box"})
     (tmp_path / "x.step").write_text("s"); (tmp_path / "x.stl").write_text("m")
     routed = {}
@@ -173,7 +173,7 @@ def test_run_cad_convert_records_source_and_null_shape(tmp_path, monkeypatch):
     repo = tmp_path
     src = repo / "part.step"; src.write_text("brep")   # brandless: --from is a direct path
     monkeypatch.setattr(G.freecad_runner, "run_template",
-                        lambda t, p, **kw: {"outputs": [str(tmp_path / "c.stl")], "freecad_version": "1.1.1"})
+                        lambda t, p, **kw: {"outputs": [str(Path(p["out_dir"]) / "c.stl")], "freecad_version": "1.1.1"})
     (tmp_path / "c.stl").write_text("m")
     def fake_route(root, brand, s, mode, seed, **kw):
         dest = repo / "outputs" / "3d" / f"{mode}_{seed}{Path(s).suffix}"
@@ -203,3 +203,25 @@ def test_run_cad_job_error_exits(tmp_path, monkeypatch):
 def test_replay_refuses_cad_sidecar():
     with pytest.raises(ValueError, match="cad"):
         _args_from_sidecar({"schema": 2, "kind": "cad", "modality": "cad"})
+
+
+def test_a_job_cannot_route_files_from_outside_its_folder(tmp_path, monkeypatch):
+    # an LLM-written FreeCAD script prints on the same stdout as the manifest, and a forged manifest moved an
+    # arbitrary file into outputs/ (2026-10 security review)
+    secret = tmp_path / "elsewhere" / "secret.stl"
+    secret.parent.mkdir()
+    secret.write_text("x")
+    monkeypatch.setattr(G.freecad_runner, "run_template", lambda t, p, **kw: {"outputs": [str(secret)]})
+    monkeypatch.setattr(G, "route_output", lambda *a, **k: pytest.fail("nothing may be routed"))
+    with pytest.raises(SystemExit):
+        G.run_cad(_cad(mode="primitive"), tmp_path, argparse.ArgumentParser())
+    assert secret.exists()
+
+
+
+def test_a_freecad_job_listing_a_missing_file_is_one_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(G.freecad_runner, "run_template",
+                        lambda t, p, **kw: {"outputs": [str(Path(p["out_dir"]) / "ghost.step")]})
+    with pytest.raises(SystemExit) as e:
+        G.run_cad(_cad(formats="step"), tmp_path, argparse.ArgumentParser())
+    assert e.value.code == 1 and "cad failed: FreeCAD listed ghost.step" in capsys.readouterr().err

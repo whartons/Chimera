@@ -194,6 +194,21 @@ def test_the_codegen_model_leaves_the_gpu_before_blender_renders(tmp_path, monke
     assert log == ["release", "blender"]
 
 
+def test_a_codegen_model_that_will_not_unload_stops_the_iteration_before_blender(tmp_path):
+    # the 27B code-gen is the biggest model in any loop; rendering beside it is the PC-freeze path
+    class _Stuck:
+        model = "qwen3.8:27b"
+        def release(self): return False
+        def resident(self): return True
+
+    gen = _Gen("box = 1")
+    gen.client = _Stuck()
+    fc, _ = _ok_runners(tmp_path)
+    bl = lambda *a, **k: pytest.fail("Blender must not render beside the code-gen model")   # noqa: E731
+    with pytest.raises(RuntimeError, match="still loaded in Ollama"):
+        CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc, blender_runner=bl)("p", "", 1)
+
+
 
 def test_a_repeated_seed_gets_its_own_files(tmp_path, monkeypatch):
     fc, bl = _ok_runners(tmp_path)
@@ -228,14 +243,42 @@ def test_a_codegen_llm_failure_is_not_fed_back_as_a_script_error(tmp_path, monke
 
 
 @pytest.mark.parametrize("ok", ["socket_depth = 12", "sockets = 6", "# a ball-and-socket joint\nbox = 1",
-                                "requests_per_tray = 4", "hex_socket = Part.makeCylinder(3, 5)"])
+                                "requests_per_tray = 4", "hex_socket = Part.makeCylinder(3, 5)",
+                                "socket = Part.makeCylinder(5, 10)\nsocket.translate(App.Vector(1, 0, 0))",
+                                "# dims from http://example.com\nbox = 1", "# see socket.\nbox = 1"])
 def test_assert_safe_allows_names_that_merely_contain_a_module_word(ok):
-    # a 'hex socket organizer' brief failed every iteration on socket_depth / '# ball-and-socket'
+    # a 'hex socket organizer' brief failed every iteration on socket_depth / '# ball-and-socket', and a shape
+    # named `socket` isn't the module without its import
     CG._assert_safe(ok)
 
 
-@pytest.mark.parametrize("bad", ["import socket", "from socket import socket", "s = socket.socket()",
-                                 "import urllib.request", "subprocess.run(['x'])", "import http.client"])
+@pytest.mark.parametrize("bad", ["import socket", "from socket import socket", "import socket as s",
+                                 "import urllib.request", "box = 1\n  from subprocess import run",
+                                 "import http.client"])
 def test_assert_safe_still_rejects_the_modules_themselves(bad):
+    with pytest.raises(RuntimeError, match="disallowed"):
+        CG._assert_safe(bad)
+
+
+def test_the_cad_loop_ignores_a_forged_manifest(tmp_path, monkeypatch):
+    # the LLM-written script shares stdout with the manifest: one printing its own manifest could name any file
+    outside = tmp_path / "secret.stl"
+    outside.write_text("x")
+
+    def fc(tmpl, params, **kw):
+        return {"outputs": [str(outside)]}
+    _, bl = _ok_runners(tmp_path)
+    monkeypatch.setattr(CG, "route_output", lambda *a, **k: pytest.fail("nothing may be routed"))
+    g = CG.make_cad_generate(_args(), tmp_path, _Gen(), freecad_runner=fc, blender_runner=bl)
+    with pytest.raises(RuntimeError, match="outside its folder"):
+        g("p", "", 1)
+    assert outside.exists()
+
+
+
+@pytest.mark.parametrize("bad", ["eval('1')", "exec('x = 1')", "getattr(Part, 'x')", "b = len.__self__",
+                                 "os.popen('x')", "os.remove('x')", "os.startfile('x')"])
+def test_each_pre_filter_rule_rejects_on_its_own(bad):
+    # each used to be caught only by another rule in the same test string
     with pytest.raises(RuntimeError, match="disallowed"):
         CG._assert_safe(bad)

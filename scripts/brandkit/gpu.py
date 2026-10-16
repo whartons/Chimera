@@ -62,7 +62,7 @@ def model_key(name):
     """An Ollama model name compared the way Ollama resolves it: case-insensitive, without the default
     registry prefix, ':latest' when untagged. A name written another way used to skip the GPU checks."""
     n = str(name or "").strip().lower()
-    for prefix in ("registry.ollama.ai/library/", "registry.ollama.ai/"):
+    for prefix in ("registry.ollama.ai/library/", "registry.ollama.ai/", "library/"):
         if n.startswith(prefix):
             n = n[len(prefix):]
             break

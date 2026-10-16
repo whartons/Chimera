@@ -47,6 +47,7 @@ def test_module_template_matches_canonical(module_copy, canonical):
 
 def test_every_module_template_is_guarded():
     # any modules/*/*.json not listed in PAIRS would silently escape the drift guard
-    found = {str(p.relative_to(ROOT)).replace("\\", "/") for p in ROOT.glob("modules/*/*.json")}
+    found = {str(p.relative_to(ROOT)).replace("\\", "/") for p in ROOT.glob("modules/*/*.json")
+             if not p.name.endswith(".local.json")}   # a private *.local.json (gitignored) isn't a template
     guarded = {m for m, _ in PAIRS}
     assert found == guarded, f"unguarded module templates: {found - guarded}"

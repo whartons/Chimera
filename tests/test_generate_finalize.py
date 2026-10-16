@@ -227,3 +227,25 @@ def test_finalize_texture_names_a_missing_brand_in_one_line(tmp_path):
     with pytest.raises(SystemExit) as e:
         G.run_finalize_texture(_ft(brand="nope"), tmp_path, argparse.ArgumentParser())
     assert e.value.code == 2
+
+
+
+def test_finalize_texture_without_views_or_auto_repaint_says_what_it_needs(capsys):
+    # crashed with AttributeError: 'NoneType' object has no attribute 'split'
+    with pytest.raises(SystemExit) as e:
+        G._validate_finalize(_ft(views=None), argparse.ArgumentParser())
+    assert e.value.code == 2 and "--views needs at least one image" in capsys.readouterr().err
+
+
+def test_auto_repaint_blames_blender_not_comfyui_when_blender_is_missing(tmp_path, monkeypatch, capsys):
+    import types
+    monkeypatch.setattr(G, "_resolve_asset", lambda *a, **k: tmp_path / "c.png")
+    monkeypatch.setattr(G, "ComfyClient", lambda url: types.SimpleNamespace(free=lambda: None))
+    monkeypatch.setattr(G.finalize_core, "repaint_views", lambda *a, **k: (_ for _ in ()).throw(
+        G.blender_runner.BlenderJobError("blender executable not found")))
+    args = _ft(auto_repaint=True, concept="c.png", subject="x", comfy_output_dir=str(tmp_path))
+    with pytest.raises(SystemExit) as e:
+        G._auto_repaint_views(args, tmp_path / "m.glb", 1, None, tmp_path, argparse.ArgumentParser())
+    err = capsys.readouterr().err
+    assert e.value.code == 1 and "finalize-texture failed: blender executable not found" in err
+    assert "ComfyUI" not in err

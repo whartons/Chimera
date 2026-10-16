@@ -111,3 +111,19 @@ brands/example-brand/**/*.local.json
 coverage.xml
 htmlcov/
 .pytest_cache/
+
+# Secret-bearing files under conventional names (never tracked; push protection and the pre-commit
+# detect-private-key hook catch key material, not these)
+.envrc
+.netrc
+.npmrc
+.pypirc
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials.json
+service-account*.json
+**/secrets.yaml
+**/secrets.yml

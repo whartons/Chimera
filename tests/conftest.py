@@ -24,12 +24,57 @@ def _no_live_ollama(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """No test opens a network connection. The opener guards here miss a test that patches urlopen globally
+    (a GPU check then reached the real Ollama) and a path without a seam (one test sent a GET to the
+    developer's ComfyUI, 2026-10 review), so connections are refused the way a CI box with nothing running
+    refuses them."""
+    import errno
+    import socket
+
+    def refuse(self, address, *a, **k):
+        raise ConnectionRefusedError(errno.ECONNREFUSED, f"tests don't open network connections ({address!r})")
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", lambda self, address: errno.ECONNREFUSED)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_git(monkeypatch):
+    """Sidecars record the pipeline's commit (provenance.git_provenance), and the tests that render end to
+    end ran git twice each: 0.6-4 s apiece under load. git commands get a fixed clean answer; a test that
+    fakes subprocess.run itself replaces this, and other commands run for real."""
+    import subprocess
+    real = subprocess.run
+
+    def run(cmd, *a, **k):
+        if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "git":
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n" if "rev-parse" in cmd else "", stderr="")
+        return real(cmd, *a, **k)
+    monkeypatch.setattr(subprocess, "run", run)
+
+
+@pytest.fixture(autouse=True)
 def _no_ollama_env(monkeypatch):
     """Ollama's own settings in the developer's shell (OLLAMA_NUM_PARALLEL, OLLAMA_KV_CACHE_TYPE, ...) change
-    how the GPU checks size a model, and Chimera's change which models a loop picks; tests set what they need."""
+    how the GPU checks size a model, and Chimera's change which models a loop picks and which keys it sends
+    (VS Code loads .env into test runs); tests set what they need."""
     for k in ("OLLAMA_HOST", "OLLAMA_NUM_PARALLEL", "OLLAMA_KV_CACHE_TYPE", "OLLAMA_FLASH_ATTENTION",
-              "OLLAMA_CONTEXT_LENGTH", "CHIMERA_KEEP_LLM_LOADED", "CHIMERA_LLM_TIER"):
+              "OLLAMA_CONTEXT_LENGTH", "CHIMERA_KEEP_LLM_LOADED", "CHIMERA_LLM_TIER",
+              "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+              *(f"CHIMERA_{role}_{k}" for role in ("LLM", "JUDGE", "CODEGEN", "REWRITER")
+                for k in ("BASE_URL", "MODEL", "API_KEY", "REASONING_EFFORT"))):
         monkeypatch.delenv(k, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_endpoint_preflight(request, monkeypatch):
+    """auto_generate checks before rendering that a local Ollama serves each role, and in tests no Ollama
+    answers (above), so a test running main() would stop there. Tests of the check itself are marked
+    `preflight`."""
+    if request.node.get_closest_marker("preflight"):
+        return
+    from scripts.agent import auto_generate
+    monkeypatch.setattr(auto_generate, "_endpoint_problems", lambda roles: [])
 
 
 @pytest.fixture(autouse=True)

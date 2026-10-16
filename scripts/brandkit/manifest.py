@@ -163,7 +163,8 @@ def load_manifest(path) -> BrandManifest:
     if not name or not str(name).strip():
         raise ManifestError("brand.yaml requires a non-empty 'name'")
     threed = _sub(Threed, data, "threed")
-    if str(threed.format).lower() not in ("glb", "stl", "obj"):
+    # null means the default, as it does for every other field (and generate.py reads it as glb)
+    if threed.format is not None and str(threed.format).lower() not in ("glb", "stl", "obj"):
         raise ManifestError(f"'threed.format' must be glb, stl or obj (got {threed.format!r})")
     return BrandManifest(
         name=str(name),

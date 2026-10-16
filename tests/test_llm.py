@@ -384,7 +384,7 @@ def test_client_for_role_falls_back_to_the_callers_default_endpoint(monkeypatch)
 from scripts.agent.llm import LOCAL_TIERS, local_tier, local_model_checks  # noqa: E402
 
 
-@pytest.mark.parametrize("gb, tier", [(31.8, "large"), (22.0, "large"), (21.9, "medium"), (11.0, "medium"),
+@pytest.mark.parametrize("gb, tier", [(31.8, "large"), (28.0, "large"), (27.9, "medium"), (23.99, "medium"), (11.0, "medium"),
                                       (10.9, "small"), (4.0, "small"), (None, "medium")])
 def test_local_tier_follows_the_gpu_size(monkeypatch, gb, tier):
     monkeypatch.delenv("CHIMERA_LLM_TIER", raising=False)
@@ -448,3 +448,69 @@ def test_codegen_retrying_a_rejected_first_script_says_why():
             return "```python\nbox = 1\n```"
     LLMCadGenerator(_C()).generate_script("a mug", fix_feedback="The previous script failed: disallowed 'socket'")
     assert seen[0].startswith("Create a parametric FreeCAD script for: a mug.") and "disallowed 'socket'" in seen[0]
+
+
+
+# --- 2026-10 test review --------------------------------------------------------------------------------
+from tests.test_gpu import _OLLAMA, _ollama, _server  # noqa: E402
+
+
+def test_a_resident_model_never_asks_for_room():
+    tags = {**_OLLAMA, ("GET", "/api/tags"): {"models": [{"name": "qwen3-vl:8b-instruct", "size": 6 * 2**30}]}}
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
+    asked = []
+    c.make_room = lambda need: asked.append(need) or False     # a full card would refuse a NEW load
+    c._ensure_room(_opener=_server(tags, []))                   # already loaded: nothing to make room for
+    assert asked == []
+
+
+def test_a_length_cutoff_without_a_reasoning_field_retries_with_thinking_off():
+    bodies, seq = [], iter([{"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
+                            {"choices": [{"message": {"content": "ok"}}]}])
+
+    class _R:
+        def __init__(self, p): self.b = json.dumps(p).encode()
+        def read(self): return self.b
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def open_(req, timeout=None):
+        bodies.append(json.loads(req.data))
+        return _R(next(seq))
+    c = LLMClient(base_url="http://x/v1", model="m")
+    assert c.chat([{"role": "user", "content": "x"}], _opener=open_) == "ok"
+    assert bodies[1]["reasoning_effort"] == "none"
+
+
+def test_resident_never_probes_a_remote_server():
+    log = []
+    assert LLMClient(base_url="https://api.example.com/v1", model="m").resident(_opener=_server(_OLLAMA, log)) is False
+    assert log == []
+
+
+def test_release_says_false_when_the_model_will_not_leave(monkeypatch):
+    import scripts.agent.llm as L
+    monkeypatch.setattr(L, "_UNLOAD_WAIT", 0.3)                  # release() takes no clock seam
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
+    assert c.release(_opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], [], forgets=False)) is False
+
+
+def test_a_withheld_key_is_mentioned(monkeypatch, capsys):
+    # a v0.5 setup (OpenRouter + OPENAI_API_KEY) got HTTP 401 on every iteration, after the render, silently
+    from scripts.agent.llm import client_for_role
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    c = client_for_role("judge", cli_base="https://openrouter.ai/api/v1", cli_model="m")
+    err = capsys.readouterr().err
+    assert c.api_key == "" and "openrouter.ai" in err and "OPENAI_API_KEY isn't sent there" in err
+    client_for_role("judge", cli_base="https://api.openai.com/v1", cli_model="m")      # the key goes: no note
+    client_for_role("judge", cli_base="http://127.0.0.1:11434/v1", cli_model="m")     # local Ollama: no note
+    assert capsys.readouterr().err == ""
+
+
+def test_the_code_gen_prompt_states_what_the_cad_loop_checks():
+    # live 2026-10-16: a "hex socket organizer" brief cut its sockets into the tray's empty cavity (nothing
+    # removed, 0 of 4 iterations), then added rims floating in the cavity (7 pieces); with the one-solid rule
+    # and the cut rule stated, the first iteration came out right
+    from scripts.agent.llm import _CAD_SYSTEM
+    assert "ONE connected solid" in _CAD_SYSTEM and "never into an existing cavity" in _CAD_SYSTEM
+    assert "App.Vector" in _CAD_SYSTEM and "a Matrix has no `.rotate`" in _CAD_SYSTEM

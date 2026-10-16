@@ -557,3 +557,47 @@ def test_a_failed_probe_of_a_local_ollama_is_retried():
     assert c.release(_opener=_ollama(models, [])) is True
     assert c.resident(_opener=_ollama([], [])) is False and c.resident(_opener=_ollama(models, [])) is True
     assert LLMClient(base_url="https://api.example.com/v1", model="m").resident() is False
+
+
+
+# --- 2026-10 test review: behaviours a deleted line didn't fail ----------------------------------------
+def test_a_failed_nvidia_smi_is_not_a_size(monkeypatch):
+    # return code 18 with a version line: the old test passed only because "560.35" fails int()
+    monkeypatch.setattr(gpu, "_nvidia_smi_gb", _real_smi)
+    monkeypatch.setattr(gpu.subprocess, "run", lambda argv, **kw: gpu.subprocess.CompletedProcess(
+        argv, 18, stdout="Failed to initialize NVML: Driver/library version mismatch\nNVML library version: 560\n",
+        stderr=""))
+    assert gpu._nvidia_smi_gb() is None
+
+
+def test_the_cache_follows_ollama_context_length_capped_at_the_trained_context(monkeypatch):
+    # an undersized estimate is the PC-freeze path
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    base = gpu._kv_cache_bytes(_JUDGE_SHOW)                      # Ollama's 32k default
+    monkeypatch.setenv("OLLAMA_CONTEXT_LENGTH", "131072")
+    assert gpu._kv_cache_bytes(_JUDGE_SHOW) == 4 * base
+    monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH")
+    huge = {**_JUDGE_SHOW, "parameters": "num_ctx 1048576"}      # more than the model's 262144
+    assert gpu._kv_cache_bytes(huge) == 8 * base
+
+
+def test_unload_others_waits_for_each_model_to_leave():
+    now, sleep = _clock()
+    stuck = _ollama([{"name": "other:latest", "size_vram": 18 * 2**30}], [], forgets=False)
+    assert gpu.unload_others("http://o", keep=(), _opener=stuck, _sleep=sleep, _clock=now) == []
+
+
+def test_keep_loaded_accepts_the_documented_spellings(monkeypatch):
+    for v in ("true", "YES", " on "):
+        monkeypatch.setenv("CHIMERA_KEEP_LLM_LOADED", v)
+        assert gpu.keep_llms_loaded(), v
+
+
+def test_any_loopback_address_is_local():
+    assert gpu.is_local("http://127.0.0.2:11434")
+
+
+def test_model_names_match_however_ollama_spells_them():
+    assert gpu.same_model("library/qwen3-vl:8b-instruct", "qwen3-vl:8b-instruct")
+    assert gpu.same_model("registry.ollama.ai/library/QWEN3.8:27b", "qwen3.8:27b")
+    assert gpu.same_model("mymodel", "mymodel:latest")

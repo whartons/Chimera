@@ -53,15 +53,18 @@ def brand_name_ok(name) -> bool:
 
 
 def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4, *,
-                 keep_existing=False) -> Path:
+                 keep_existing=False, producer="ComfyUI") -> Path:
     """Relocate a finished render into its outputs folder, grouped by media type. With a brand it
     goes to brands/<brand>/outputs/<media>/<brand>_<mode>_<seed>; brandless (brand falsy) it goes to
     the global outputs/<media>/<mode>_<seed> — both gitignored. Idempotent + lock-retry.
     `keep_existing` (replay) never replaces a file: a replay keeps the recorded seed, so it used to
     overwrite the very render and sidecar it reproduced, which is permanent for gitignored brand
-    outputs. It takes the next free name instead (`<stem>_replay`, `<stem>_replay2`, ...)."""
+    outputs. It takes the next free name instead (`<stem>_replay`, `<stem>_replay2`, ...).
+    `producer` names the app that reported the file, for the error when it isn't there."""
     src = Path(src)
     if not src.is_file():
+        if producer != "ComfyUI":
+            raise NoOutputError(f"{producer} listed {src.name} as an output, but the file isn't there")
         raise NoOutputError(f"ComfyUI reported {src.name}, but it isn't in its output folder (is --comfy-output-dir "
                             "ComfyUI's output folder?)")
     stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"

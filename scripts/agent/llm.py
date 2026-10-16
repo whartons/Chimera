@@ -40,8 +40,11 @@ class LLMConfigError(RuntimeError):
 # every tier: the lighter Qwen 3.5 9B built none of the CAD test parts, so a smaller card runs the 27B partly
 # on the CPU instead (slower, still right). The 2026-10 measurements (34-case judge set, CAD parts) are in
 # modules/agent/self-correction.md.
+# The large tier starts at 32 GB cards (they report about 31.8 GiB): beside ComfyUI's image model a 24 GB card has
+# no room for the 27B judge (about 22 GB with its context cache), so ComfyUI would have to empty itself before every
+# judgment, and with the desktop's own few GB in use the room never came (2026-10 review).
 LOCAL_TIERS = {
-    "large": {"min_gb": 22, "judge": ("qwen3.8:27b", "none"), "codegen": ("qwen3.8:27b", "none"),
+    "large": {"min_gb": 28, "judge": ("qwen3.8:27b", "none"), "codegen": ("qwen3.8:27b", "none"),
               "rewriter": ("qwen3.8:27b", "none")},
     "medium": {"min_gb": 11, "judge": ("qwen3-vl:8b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
                "rewriter": ("qwen3-vl:8b-instruct", None)},
@@ -53,8 +56,8 @@ UNKNOWN_GPU_TIER = "medium"   # no GPU size readable (no ComfyUI, no nvidia-smi)
 
 def local_tier(gpu_gb=None, override=None):
     """The local-model tier: an explicit choice (--llm-tier, else $CHIMERA_LLM_TIER; 'auto' means pick), else
-    the largest tier whose minimum the GPU meets, else UNKNOWN_GPU_TIER. Thresholds sit just under the nominal
-    sizes, since a 24 GB card reports 23.99 GiB."""
+    the largest tier whose minimum the GPU meets, else UNKNOWN_GPU_TIER. Thresholds sit under the nominal sizes,
+    since a card reports a little less (a 32 GB card about 31.8 GiB, a 12 GB card about 11.99)."""
     name = (override or os.environ.get("CHIMERA_LLM_TIER") or "").strip().lower()
     if name and name != "auto":
         if name not in LOCAL_TIERS:
@@ -254,9 +257,10 @@ class LLMClient:
         need = gpu.vram_need(root, self._ollama_name(), _opener=_opener)
         if not need:
             return   # Ollama doesn't have the model, so the request fails without loading anything
-        # ComfyUI can't see the models already resident in Ollama either (another role's, say), so the room
-        # it reports must cover them too
-        need += sum(v for _, v in loaded)
+        # On Windows ComfyUI can't see the models already resident in Ollama either (another role's, say), so
+        # the room it reports must cover them too. Elsewhere the driver's free figure already counts them.
+        if sys.platform == "win32":
+            need += sum(v for _, v in loaded)
         if self.make_room(need) is False:
             raise LLMError(f"not loading {self.model}: the GPU has no room for it (about {need / 2**30:.0f} GB "
                            "with the models Ollama already holds) even after asking ComfyUI to unload its "
@@ -310,6 +314,15 @@ def client_for_role(role, *, cli_base=None, cli_model=None, cli_reasoning=None,
                       shared_base=shared_cli_base or os.environ.get("CHIMERA_LLM_BASE_URL"))
     effort = (cli_reasoning or os.environ.get(pre + "_REASONING_EFFORT") or shared_cli_reasoning
               or os.environ.get("CHIMERA_LLM_REASONING_EFFORT") or (None if chosen else default_reasoning))
+    if base and not key and not gpu.is_local(base):
+        # keys stay with their own host since v0.6.0: a v0.5 setup (OpenRouter + OPENAI_API_KEY) now got HTTP
+        # 401 on every iteration, after the render, with nothing said
+        held = [env for env in _VENDOR_KEYS.values() if os.environ.get(env)]
+        if os.environ.get("CHIMERA_LLM_API_KEY"):
+            held.append("CHIMERA_LLM_API_KEY (it follows only the shared endpoint)")
+        if held:
+            print(f"note: [{role}] no API key goes to {_origin(base)[1]}: {', '.join(held)} isn't sent there. If "
+                  f"it needs one, set {pre}_API_KEY (or CHIMERA_LLM_API_KEY for a shared endpoint)", file=sys.stderr)
     try:
         client = LLMClient(base_url=base, api_key=key or "", model=model, timeout=timeout, reasoning_effort=effort)
         client.from_default = not chosen   # the run says which models it fell back to
@@ -346,8 +359,11 @@ _CAD_SYSTEM = (
     "Build geometry as Part objects added to `doc` (e.g. `o = doc.addObject('Part::Feature','X'); "
     "o.Shape = <shape>`), OR set a module global `RESULT` to the list of shapes to export "
     "(e.g. `RESULT = [my_solid]` where my_solid is a Part shape from makeBox/cut/fuse). Use millimetres. "
-    "Prefer booleans/fillets for a manufacturable single solid. Output ONLY one ```python code block``` "
-    "and no prose."
+    "The part must come out as ONE connected solid (pieces that don't touch fail the check): every feature you "
+    "fuse on must overlap the body, not float in an open cavity or above it. A cut only removes material that "
+    "is there: cut recesses, sockets and holes into solid material (before hollowing a body, or into a floor or "
+    "block thick enough to hold them), never into an existing cavity, where they vanish. "
+    "Output ONLY one ```python code block``` and no prose."
 )
 
 

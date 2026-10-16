@@ -29,14 +29,14 @@ FreeCAD script -> `cad --mode script` -> Blender contact-sheet render -> form ju
 
 Judge backends (--backend): `api` (default — a provider-agnostic, OpenAI-compatible LLM judge; with no
 --judge-*/--llm-* flags or CHIMERA_* env it uses Chimera's local Ollama model for the GPU's tier (Qwen 3.8
-27B on 24 GB+, Qwen3-VL 8B on 12-24 GB, Qwen3-VL 4B below), else point it at OpenAI, Anthropic's
+27B on 32 GB cards, Qwen3-VL 8B on 12-24 GB, Qwen3-VL 4B below), else point it at OpenAI, Anthropic's
 OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible server — a thinking model must run with
 thinking off, or it returns empty content; see .env.example / scripts/agent/llm.py) or `local` (the
 optional ComfyUI-QwenVL judge node). --comfy-output-dir routes
 ComfyUI renders and is where the local judge drops verdicts; required except for `--pipeline cad
 --backend api` (no ComfyUI).
 """
-import argparse, datetime, sys
+import argparse, datetime, sys, urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -47,8 +47,8 @@ from scripts.agent.rubric import build_rubric
 from scripts.agent.render_generate import make_render_generate
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit.comfy import ComfyClient
-from scripts.brandkit.manifest import load_manifest, default_manifest
-from scripts.brandkit.outputs import route_output, run_graph_to_file, write_sidecar
+from scripts.brandkit.manifest import ManifestError, load_manifest, default_manifest
+from scripts.brandkit.outputs import brand_name_ok, route_output, run_graph_to_file, write_sidecar
 from scripts.brandkit import gpu
 from scripts.brandkit.comfy import DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.provenance import git_provenance
@@ -177,6 +177,36 @@ def _clear_other_ollama_models(llms):
                      "app using it, then retry")
 
 
+def _endpoint_problems(roles):
+    """[(role, message)] for each role a local Ollama can't serve: Ollama not answering, or the model not
+    pulled. Checked before anything renders: v0.6 made a local model the default judge, and a run with Ollama
+    down rendered every iteration (3D meshes and Blender included) and only then failed at the judge. A local
+    server that isn't Ollama (LM Studio, vLLM) is left alone unless it sits at Ollama's address or port."""
+    out = []
+    for role, llm in roles:
+        if llm is None or not gpu.is_local(llm.base_url):
+            continue
+        root = gpu.ollama_root(llm.base_url)
+        if gpu.is_ollama(root):
+            if not any(gpu.same_model(n, llm.ollama_name) for n in gpu.pulled_models(root)):
+                out.append((role, f"Ollama at {root} doesn't have the {role} model {llm.model}: run "
+                                  f"`ollama pull {llm.model}`"))
+        elif root == gpu.ollama_root() or urllib.parse.urlsplit(root).port == 11434:
+            out.append((role, f"the {role} model {llm.model} runs on Ollama at {root}, which isn't answering: "
+                              "start Ollama, or point the role elsewhere (see --llm-tier and --judge-base-url)"))
+    return out
+
+
+def _release_all(clients):
+    """Unload each client's local model; the models Ollama still holds afterwards (none with
+    CHIMERA_KEEP_LLM_LOADED=1, which keeps them on purpose)."""
+    for c in clients:
+        c.release()
+    if gpu.keep_llms_loaded():
+        return []
+    return [c.model for c in clients if getattr(c, "resident", None) and c.resident()]
+
+
 def _same_llm(a, b):
     """True when two role clients run the same model on the same server (the large tier's code-gen and judge)."""
     ma, mb = getattr(a, "model", None), getattr(b, "model", None)
@@ -192,9 +222,7 @@ def _hand_gpu_back(generate, clients):
         return generate
 
     def wrapped(*args, **kwargs):
-        for c in live:
-            c.release()
-        stuck = [] if gpu.keep_llms_loaded() else [c.model for c in live if getattr(c, "resident", None) and c.resident()]
+        stuck = _release_all(live)
         if stuck:
             raise RuntimeError(f"{', '.join(stuck)} is still loaded in Ollama, so not rendering beside it "
                                "(ComfyUI can't see that memory); `python scripts/generate.py free` unloads it")
@@ -212,6 +240,9 @@ def _print_summary(result):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):   # a name outside the console's code page crashed a piped run
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(prog="auto_generate.py",
                                  description="Headless self-correction loop (generate, VLM-judge, refine).")
     ap.add_argument("--brand", default=None,
@@ -296,7 +327,7 @@ def main():
                     help="(image/mesh3d) use an LLM to rewrite prompts from the judge's FIX feedback instead "
                          "of the templated expander; falls back to templated on any LLM error")
     ap.add_argument("--llm-tier", dest="llm_tier", choices=["auto", "large", "medium", "small"], default=None,
-                    help="Chimera's local Ollama models for roles you haven't configured. large (24 GB+ GPU): Qwen 3.8 "
+                    help="Chimera's local Ollama models for roles you haven't configured. large (32 GB cards): Qwen 3.8 "
                          "27B for every role; medium (12-24 GB): Qwen3-VL 8B judge and rewriter; small (under 12 GB): "
                          "Qwen3-VL 4B judge and rewriter. Code-gen is Qwen 3.8 27B in every tier (partly on the CPU "
                          "below 24 GB). Default auto, from the GPU's memory (else $CHIMERA_LLM_TIER)")
@@ -330,9 +361,18 @@ def main():
 
     if args.max_iters is None:
         args.max_iters = 3 if args.pipeline in ("mesh3d", "cad") else 4
+    if args.brand and not brand_name_ok(args.brand):
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.')")
+    try:
+        seeds = _run_seeds(args.seeds, args.max_iters)
+    except ValueError:
+        ap.error(f"--seeds takes whole numbers separated by commas (got {args.seeds!r})")
 
     repo_root = Path(__file__).resolve().parents[2]
-    m = _resolve_manifest(repo_root, args.brand)
+    try:
+        m = _resolve_manifest(repo_root, args.brand)
+    except ManifestError as e:   # a brand you don't have, or a brand.yaml mistake: one line, like generate.py
+        ap.error(f"brand {args.brand!r}: {e}")
     mesh_textured = False
     if args.pipeline == "mesh3d":
         from scripts.brandkit import threed as threed_filler
@@ -375,8 +415,19 @@ def main():
         size = f"{gpu_gb:.0f} GB GPU" if gpu_gb else ("chosen" if args.llm_tier not in (None, "auto") else "GPU size unknown")
         print(f"[agent] local models, {tier} tier ({size}): {', '.join(fallen_back)} (--llm-tier to change)",
               file=sys.stderr)
+    problems = _endpoint_problems([("judge", judge_llm), ("code-gen", codegen_llm), ("rewriter", rewriter_llm)])
+    for role, msg in problems:
+        if role == "rewriter":   # optional: the templated expander takes over on any rewriter error
+            print(f"warning: {msg}; --rewrite-prompts falls back to the templated expander", file=sys.stderr)
+    fatal = [msg for role, msg in problems if role != "rewriter"]
+    if fatal:
+        ap.error("; ".join(fatal))
+    # the hand-back protects a GPU this machine shares: an image run on a remote ComfyUI renders elsewhere, so
+    # unloading local models before each render (or refusing to render beside a stuck one) gains nothing
+    shares_gpu = gpu.is_local(args.comfy_url) or args.pipeline != "image"
     _share_gpu(client, [codegen_llm, judge_llm, rewriter_llm])
-    _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm])
+    if shares_gpu:
+        _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm])
 
     if rewriter_llm is not None:
         from scripts.agent.llm import LLMExpander
@@ -407,13 +458,13 @@ def main():
         judge = GeometryAwareJudge(build_judge())
     else:
         rubric = None  # run_loop builds the image rubric
-        generate = _hand_gpu_back(_make_generate(args, repo_root, m, client), [judge_llm, rewriter_llm])
+        generate = _hand_gpu_back(_make_generate(args, repo_root, m, client),
+                                  [judge_llm, rewriter_llm] if shares_gpu else [])
         judge = build_judge()
 
     try:
         result = run_loop(expander=expander, judge=judge, generate=generate, manifest=m,
-                          subject=args.subject, rubric=rubric, max_iters=args.max_iters,
-                          seeds=_run_seeds(args.seeds, args.max_iters))
+                          subject=args.subject, rubric=rubric, max_iters=args.max_iters, seeds=seeds)
 
         _print_summary(result)
         _write_run_sidecar(result, args, repo_root)
@@ -422,11 +473,16 @@ def main():
             from scripts.agent.finalize import finalize_winner
             # build_judge() here is the UN-wrapped judge (the loop wrapped it in GeometryAwareJudge for
             # shape; texture quality is color/material, not geometry).
-            for llm in (judge_llm, rewriter_llm):   # the finalize repaint renders through ComfyUI too
-                if llm is not None:
-                    llm.release()
-            finalize_winner(result, args, repo_root=repo_root, manifest=m,
-                            judge=build_judge(), client=client)
+            # the finalize repaint renders through ComfyUI too: not beside a model that won't unload (skipped,
+            # not failed: finalize never costs the run its already-good shape)
+            stuck = _release_all([c for c in (judge_llm, rewriter_llm) if c is not None])
+            if stuck:
+                print(f"[finalize] skipped: {', '.join(stuck)} is still loaded in Ollama and ComfyUI can't see that "
+                      "memory. `python scripts/generate.py free` unloads it; then texture the winner with "
+                      "`python scripts/generate.py finalize-texture --auto-repaint`", file=sys.stderr)
+            else:
+                finalize_winner(result, args, repo_root=repo_root, manifest=m,
+                                judge=build_judge(), client=client)
     finally:
         # leave the GPU clean for whatever runs next, even on failure (Ollama would otherwise keep a
         # 27B codegen model resident for ~5 minutes; see LLMClient.release)

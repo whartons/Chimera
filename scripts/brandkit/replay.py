@@ -28,10 +28,35 @@ _FILE_INPUTS = ("asset", "from_image", "from_video")
 REPLAY_MODES = {"image": ("txt2img", "logo", "product", "relight"), "video": ("i2v",),
                 "audio": ("music", "sfx", "foley"), "3d": ("image",)}
 _INPUT_KIND = {"asset": "images", "from_image": "images", "from_video": "video"}
+# What replay will upload as an input: what ComfyUI's image and video loaders read, wider than the output
+# routing table (a .gif logo, a .jfif photo, an .m4v clip were refused although generate.py took them)
+_INPUT_EXTS = {"images": _MEDIA_DIRS["images"] | {".gif", ".jfif", ".jpe", ".avif", ".heic", ".heif"},
+               "video": _MEDIA_DIRS["video"] | {".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".ts"}}
+# Typed inputs: a hand-edited or damaged sidecar fails with the field named, not with a traceback mid-render
+_NUMBER_INPUTS = ("length", "fps", "width", "height", "duration", "bpm", "octree")
+_TEXT_INPUTS = ("subject", "asset", "variant", "model", "from_image", "from_video", "keyscale", "lyrics",
+                "upscale_model", "camera", "quality", "format")
 
 
 def _file_name(value) -> str:
     return str(value).replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _check_inputs(data, inp):
+    for k in _NUMBER_INPUTS:
+        v = inp.get(k)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
+            raise ValueError(f"inputs.{k} {v!r} isn't a number")
+    for k in _TEXT_INPUTS:
+        if inp.get(k) is not None and not isinstance(inp[k], str):
+            raise ValueError(f"inputs.{k} {inp[k]!r} isn't text")
+    if data.get("model") is not None and not isinstance(data["model"], str):
+        raise ValueError(f"model {data['model']!r} isn't a file name")
+    if data["modality"] != "3d" and not (inp.get("subject") or "").strip():
+        raise ValueError("the sidecar records no inputs.subject")
+    fmt = inp.get("format") or data.get("format")
+    if fmt is not None and str(fmt).lower() not in ("glb", "stl", "obj"):
+        raise ValueError(f"format {fmt!r} isn't glb, stl or obj")
 
 
 def resolve_model_used(args, m):
@@ -54,8 +79,8 @@ def resolve_sidecar_inputs(args, m, fmt=None):
     3d export format."""
     inputs = {k: getattr(args, k, None) for k in SIDECAR_INPUT_KEYS}
     for k in _FILE_INPUTS:   # sidecars get shared and committed: no local folder layout or user name
-        if inputs.get(k) and _unsafe_path(inputs[k]):
-            inputs[k] = _file_name(inputs[k])
+        if inputs.get(k):    # a relative path keeps its folders, with '/' so a sidecar made on Windows replays elsewhere
+            inputs[k] = _file_name(inputs[k]) if _unsafe_path(inputs[k]) else str(inputs[k]).replace("\\", "/")
     if args.modality == "image" and image_filler.family(resolve_model_used(args, m)) != "zimage":
         inputs["variant"] = None   # only Z-Image reads it
     if args.modality == "3d" and threed_filler.family(threed_filler.resolved_model(m, args.model)) != "hunyuan3d":
@@ -95,7 +120,10 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
     renders on the local default ComfyUI unless `comfy_url` is passed, and refuses a brand that isn't a
     folder name or a file input that is absolute or climbs with '..' (a crafted sidecar used those to upload
     any local file to a URL of its choosing, 2026-10 audit)."""
-    if data.get("schema", 1) < 2:
+    schema = data.get("schema", 1)
+    if not isinstance(schema, int) or isinstance(schema, bool):
+        raise ValueError(f"schema {schema!r} isn't a number")
+    if schema < 2:
         raise ValueError("sidecar is schema-1 (pre-enriched); replay needs schema>=2 — "
                          "re-render once to upgrade it.")
     if data.get("kind") == "agent-run":
@@ -107,8 +135,10 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
     if data.get("kind") == "cad":
         raise ValueError("cad sidecars aren't replayable (headless FreeCAD geometry, not a "
                          "ComfyUI render)")
-    modality = data["modality"]
+    modality = data.get("modality")
     inp = data.get("inputs") or {}
+    if "brand" not in data:
+        raise ValueError("the sidecar has no brand field (null for a brandless render)")
     brand = data["brand"]
     if modality not in REPLAY_MODES:
         raise ValueError(f"modality {modality!r} isn't one replay renders ({', '.join(REPLAY_MODES)})")
@@ -121,13 +151,14 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None,
         raise ValueError(f"brand {brand!r} is not a brand folder name")
     if not isinstance(inp, dict):
         raise ValueError("the sidecar's inputs block isn't a mapping")
+    _check_inputs(data, inp)
     for k in _FILE_INPUTS:
         if inp.get(k) is None:
             continue
         if _unsafe_path(inp[k]):
             raise ValueError(f"inputs.{k} {inp[k]!r} is not a plain relative file name; put the file in the "
                              "brand folder (or the current folder, brandless) and name it in the sidecar")
-        if "." + str(inp[k]).rsplit(".", 1)[-1].lower() not in _MEDIA_DIRS[_INPUT_KIND[k]]:
+        if "." + str(inp[k]).rsplit(".", 1)[-1].lower() not in _INPUT_EXTS[_INPUT_KIND[k]]:
             # replay uploads it to ComfyUI: a sidecar naming '.env' would have sent that file
             kind = "an image" if _INPUT_KIND[k] == "images" else "a video"
             raise ValueError(f"inputs.{k} {inp[k]!r} isn't {kind} file")
@@ -191,6 +222,33 @@ def _clip(text, n=160):
     return text if len(text) <= n else text[:n - 3] + "..."
 
 
+def _without_music_extras(text, inputs):
+    """A music prompt without the BPM and key Stable Audio 3 appends to its brief (it has no inputs for them;
+    ACE-Step takes them as settings), so a cross-family replay compares the words the user wrote."""
+    if text is None or not isinstance(inputs, dict):
+        return text
+    extras = ", ".join(e for e in (f"{inputs['bpm']} BPM" if inputs.get("bpm") else "",
+                                   f"in {inputs['keyscale']}" if inputs.get("keyscale") else "") if e)
+    if extras and text == extras:
+        return ""
+    return text[:-len(extras) - 2] if extras and text.endswith(", " + extras) else text
+
+
+def _is_acestep(model):
+    return "acestep" in (model or "").lower()
+
+
+def replay_notes(expect):
+    """What replay can't check for this sidecar, printed without stopping it: sidecars from before v0.6.0 have
+    no settings record, so a template default changed since (a sampler setting, say) can't be seen."""
+    prov = expect.get("provenance") or {}
+    if prov.get("graph_values"):
+        return []
+    checked = "the model, prompts and graph structure" if prov.get("graph_signature") else "the model and prompts"
+    return [f"this sidecar predates Chimera v0.6.0's record of render settings, so replay checks only {checked}; "
+            "a setting such as steps or size may differ from the original"]
+
+
 def replay_drift(expect, *, model, wf, modality, mode, model_override=None):
     """What a replay would render differently from the recorded one (pure). `expect` is the sidecar,
     `model`/`wf` the replay's resolved model and built graph. Returns human-readable lines; [] means
@@ -205,7 +263,11 @@ def replay_drift(expect, *, model, wf, modality, mode, model_override=None):
     if not overridden and recorded and model != recorded:
         out.append(f"model: recorded {recorded}, would now load {model}")
     pos, neg = graph_prompts(wf, modality, mode)
-    texts = [("prompt", pos, expect.get("prompt"))]
+    then_pos = expect.get("prompt")
+    if overridden and modality == "audio" and mode == "music":   # SA3 <-> ACE-Step: BPM/key move in or out
+        inputs = expect.get("inputs") or {}
+        pos, then_pos = _without_music_extras(pos, inputs), _without_music_extras(then_pos, inputs)
+    texts = [("prompt", pos, then_pos)]
     if not overridden:
         texts.append(("negative", neg, expect.get("negative")))
     for label, now, then in texts:
@@ -218,4 +280,8 @@ def replay_drift(expect, *, model, wf, modality, mode, model_override=None):
                        "removes nodes, such as a LoRA)")
         if prov.get("graph_values") and graph_values(wf, modality, mode) != prov["graph_values"]:
             out.append("render settings changed (e.g. the brand's size, steps, guidance, LoRA or watermark)")
+        if not prov.get("graph_values") and modality == "audio" and mode == "music" and _is_acestep(model):
+            # the one known change older sidecars can't show: every ACE-Step render before v0.6.0 used 1.73
+            out.append("ACE-Step's sampling shift is now 3 (Comfy's own ACE-Step 1.5 setting); renders before "
+                       "v0.6.0 used 1.73, so this take would come out different")
     return out

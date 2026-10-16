@@ -181,7 +181,8 @@ def test_cad_pipeline_judge_is_geometry_gated(monkeypatch):
               "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--pipeline", "cad", "--backend", "api", "--subject",
-                                      "a fan rotor", "--llm-base-url", "http://x/v1", "--llm-model", "Z"])
+                                      "a fan rotor", "--llm-base-url", "http://x/v1", "--llm-model", "Z",
+                                      "--llm-tier", "small"])   # no GPU-size probe of a real ComfyUI
     with pytest.raises(_Stop):
         AG.main()
     assert isinstance(captured["judge"], AG.GeometryAwareJudge)
@@ -199,7 +200,7 @@ def test_run_seeds_are_fresh_per_run_unless_given(capsys):
 
 
 
-@pytest.mark.parametrize("gpu_gb, tier", [(31.8, "large"), (23.99, "large"), (16.0, "medium"), (11.99, "medium"),
+@pytest.mark.parametrize("gpu_gb, tier", [(31.8, "large"), (23.99, "medium"), (16.0, "medium"), (11.99, "medium"),
                                           (8.0, "small"), (None, "medium")])
 def test_the_default_judge_is_a_local_ollama_model_sized_to_the_gpu(monkeypatch, capsys, gpu_gb, tier):
     # chosen on a 32 GB card, but forks have less: the local models come in tiers picked from the GPU's memory
@@ -330,3 +331,131 @@ def test_the_loop_will_not_start_beside_a_model_ollama_will_not_unload(monkeypat
                         lambda root: [("other-tool:latest", 18 * 2**30), ("qwen3-vl:8b-instruct", 6 * 2**30)])
     with pytest.raises(SystemExit, match="other-tool:latest"):
         AG._clear_other_ollama_models([judge])
+
+
+
+# --- 2026-10 third review: main() wiring --------------------------------------------------------------
+import types  # noqa: E402
+
+
+def _main_capture(monkeypatch, argv, **patch):
+    class Stop(Exception):
+        pass
+    cap = {}
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: types.SimpleNamespace(
+        role=role, model="m", base_url="http://x/v1", release=lambda: None, make_room=None, resident=lambda: False))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: types.SimpleNamespace(base=url))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: cap.update(kw) or (_ for _ in ()).throw(Stop()))
+    monkeypatch.setattr(AG, "make_render_generate", lambda *a, **k: (lambda *x: "s"))
+    monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
+    for k, v in patch.items():
+        monkeypatch.setattr(AG, k, v)
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", *argv])
+    with pytest.raises(Stop):
+        AG.main()
+    return cap
+
+
+def test_main_clears_other_ollama_models_before_the_first_render(monkeypatch):
+    seen = []
+    _main_capture(monkeypatch, ["--subject", "x", "--comfy-output-dir", "/tmp/o", "--llm-tier", "small"],
+                  _clear_other_ollama_models=lambda llms: seen.append([getattr(c, "role", None) for c in llms]))
+    assert seen == [[None, "judge", None]]
+
+
+def test_mesh3d_hands_the_gpu_back_before_each_render(monkeypatch):
+    roles = []
+    _main_capture(monkeypatch, ["--pipeline", "mesh3d", "--subject", "x", "--comfy-output-dir", "/tmp/o",
+                                "--llm-tier", "small"],
+                  _hand_gpu_back=lambda gen, clients: roles.extend(c.role for c in clients if c) or gen)
+    assert roles == ["judge"]
+
+
+def test_main_passes_fresh_seeds_for_every_iteration(monkeypatch):
+    # the loop's fixed 1000+i seeds made a second run overwrite the first run's winner
+    cap = _main_capture(monkeypatch, ["--subject", "x", "--comfy-output-dir", "/tmp/o", "--llm-tier", "small"])
+    assert cap["seeds"] and len(cap["seeds"]) == cap["max_iters"]
+
+
+def test_a_hosted_judge_still_clears_the_local_default_ollama(monkeypatch):
+    unloaded = []
+    monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: unloaded.append((root, set(keep))) or [])
+    monkeypatch.setattr(AG.gpu, "loaded_models", lambda root: [])
+    AG._clear_other_ollama_models([types.SimpleNamespace(base_url="https://api.openai.com/v1",
+                                                         ollama_name="gpt-4o:latest")])
+    assert unloaded == [("http://127.0.0.1:11434", set())]
+
+
+def test_an_image_run_on_a_remote_comfyui_leaves_local_models_alone(monkeypatch):
+    # the render happens on another machine's GPU: unloading local models before each render gains nothing,
+    # and refusing to render beside a stuck one would stop a run that can't overcommit anything here
+    cleared, handed = [], []
+    real_hand = AG._hand_gpu_back
+    _main_capture(monkeypatch, ["--subject", "x", "--comfy-output-dir", "/tmp/o", "--llm-tier", "small",
+                                "--comfy-url", "http://10.0.0.5:8188"],
+                  _clear_other_ollama_models=lambda llms: cleared.append(llms),
+                  _hand_gpu_back=lambda gen, clients: handed.append(list(clients)) or real_hand(gen, clients))
+    assert cleared == [] and handed == [[]]
+
+
+def test_simple_mistakes_are_one_line_errors(monkeypatch, capsys):
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: pytest.fail("nothing may run"))
+    for extra, msg in ((["--brand", "no-such-brand"], "brand 'no-such-brand'"),
+                       (["--seeds", "7,x"], "--seeds takes whole numbers"),
+                       (["--brand", ".hidden"], "isn't a brand folder name")):
+        monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "x", "--comfy-output-dir", "/tmp/o",
+                                          *extra])
+        with pytest.raises(SystemExit) as e:
+            AG.main()
+        assert e.value.code == 2 and msg in capsys.readouterr().err, extra
+
+
+@pytest.mark.preflight
+def test_the_endpoint_check_finds_a_stopped_ollama_and_an_unpulled_model(monkeypatch):
+    llm = LLM.LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: False)
+    [(role, msg)] = AG._endpoint_problems([("judge", llm)])
+    assert role == "judge" and "isn't answering" in msg
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: True)
+    monkeypatch.setattr(AG.gpu, "pulled_models", lambda root, **k: ["qwen3.8:27b"])
+    [(_, msg)] = AG._endpoint_problems([("judge", llm)])
+    assert "ollama pull qwen3-vl:8b-instruct" in msg
+    monkeypatch.setattr(AG.gpu, "pulled_models", lambda root, **k: ["library/qwen3-vl:8b-instruct"])
+    assert AG._endpoint_problems([("judge", llm)]) == []
+
+
+@pytest.mark.preflight
+def test_the_endpoint_check_leaves_other_servers_alone(monkeypatch):
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: False)
+    lm_studio = LLM.LLMClient(base_url="http://127.0.0.1:1234/v1", model="m")
+    hosted = LLM.LLMClient(base_url="https://api.example.com/v1", model="m")
+    assert AG._endpoint_problems([("judge", lm_studio), ("code-gen", hosted), ("rewriter", None)]) == []
+
+
+@pytest.mark.preflight
+def test_a_judge_ollama_cannot_serve_stops_the_run_before_anything_renders(monkeypatch, capsys):
+    # with Ollama down the run rendered every iteration (3D meshes and Blender too) and failed at each judging
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: False)
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: pytest.fail("nothing may render"))
+    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms: pytest.fail("nor unload anything"))
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "x", "--comfy-output-dir", "/tmp/o",
+                                      "--llm-tier", "small"])
+    with pytest.raises(SystemExit) as e:
+        AG.main()
+    assert e.value.code == 2 and "isn't answering" in capsys.readouterr().err
+
+
+@pytest.mark.preflight
+def test_a_missing_rewriter_model_only_warns(monkeypatch, capsys):
+    # --rewrite-prompts falls back to the templated expander on any rewriter error, so the run goes on
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: True)
+    monkeypatch.setattr(AG.gpu, "pulled_models", lambda root, **k: ["qwen3-vl:4b-instruct"])
+    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms: None)
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
+    monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))
+    monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "x", "--comfy-output-dir", "/tmp/o",
+                                      "--llm-tier", "small", "--rewrite-prompts", "--rewriter-model", "other"])
+    with pytest.raises(_Stop):
+        AG.main()
+    assert "ollama pull other" in capsys.readouterr().err

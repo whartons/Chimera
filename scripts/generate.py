@@ -34,8 +34,8 @@ from scripts.brandkit import video as video_filler
 from scripts.brandkit import audio as audio_filler
 from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
-from scripts.brandkit.outputs import (NoOutputError, comfy_output_path, fresh_output_name, route_output,
-                                      select_output, write_sidecar)
+from scripts.brandkit.outputs import (NoOutputError, brand_name_ok, comfy_output_path, fresh_output_name,
+                                      route_output, select_output, write_sidecar)
 from scripts.brandkit.provenance import git_provenance  # re-exported; historical home was here
 from scripts.brandkit.sidecar import build_meta
 
@@ -50,6 +50,7 @@ from scripts.brandkit.replay import SIDECAR_INPUT_KEYS  # noqa: E402,F401 (re-ex
 from scripts.brandkit.replay import (  # noqa: E402
     args_from_sidecar as _args_from_sidecar,
     replay_drift,
+    replay_notes,
     resolve_model_used as _resolve_model_used,
     resolve_sidecar_inputs as _resolve_sidecar_inputs,
 )
@@ -64,24 +65,70 @@ from scripts.brandkit.dcc_cli import (  # noqa: E402
 )
 
 
+def _jpeg_size(f):
+    """(width, height) from a JPEG's frame header (what Pillow reports), or None."""
+    f.seek(2)
+    while True:
+        b = f.read(1)
+        while b and b != b"\xff":
+            b = f.read(1)
+        while b == b"\xff":
+            b = f.read(1)
+        if not b:
+            return None
+        marker = b[0]
+        if marker == 0x01 or 0xD0 <= marker <= 0xD8:   # markers without a length
+            continue
+        seg = f.read(2)
+        if len(seg) < 2:
+            return None
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):   # a start-of-frame
+            data = f.read(5)
+            return (struct.unpack(">H", data[3:5])[0], struct.unpack(">H", data[1:3])[0]) if len(data) == 5 else None
+        f.seek(struct.unpack(">H", seg)[0] - 2, 1)
+
+
+def _header_size(path):
+    """(width, height) read from a PNG, GIF, WebP or JPEG header without Pillow; None for anything else."""
+    with open(path, "rb") as f:
+        head = f.read(30)
+        if head[:8] == b"\x89PNG\r\n\x1a\n" and len(head) >= 24:
+            return struct.unpack(">II", head[16:24])
+        if head[:6] in (b"GIF87a", b"GIF89a") and len(head) >= 10:
+            return struct.unpack("<HH", head[6:10])
+        if head[:4] == b"RIFF" and head[8:12] == b"WEBP" and len(head) == 30:
+            kind = head[12:16]
+            if kind == b"VP8 ":    # lossy: 14-bit sizes after the frame tag and start code
+                w, h = struct.unpack("<HH", head[26:30])
+                return w & 0x3FFF, h & 0x3FFF
+            if kind == b"VP8L":    # lossless: 14-bit width-1 and height-1 after the signature byte
+                bits = int.from_bytes(head[21:25], "little")
+                return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+            if kind == b"VP8X":    # extended: 24-bit canvas width-1 and height-1
+                return int.from_bytes(head[24:27], "little") + 1, int.from_bytes(head[27:30], "little") + 1
+        if head[:2] == b"\xff\xd8":
+            return _jpeg_size(f)
+    return None
+
+
 def _image_size(path):
-    """(width, height) of a logo image, or None if it can't be determined. Uses Pillow when
-    available (png/jpg/webp/bmp/tiff/gif); otherwise falls back to a PNG-header read so PNG logos
-    still work with no third-party deps. None -> callers use a canvas-proportional geometry
-    estimate (correct SIZE on-graph, only the corner offset is approximate)."""
+    """(width, height) of a logo or source image, or None if it can't be determined. Uses Pillow when
+    available (png/jpg/webp/bmp/tiff/gif), else reads the PNG/GIF/WebP/JPEG header itself, so the graph
+    (the watermark canvas, the logo size) is the same with or without Pillow and a replay on the other
+    kind of install reports no drift. None -> callers use a canvas-proportional geometry estimate
+    (correct SIZE on-graph, only the corner offset is approximate)."""
     try:
         from PIL import Image
         with Image.open(path) as im:
             return im.size
     except ImportError:
-        pass                       # no Pillow -> PNG-header fallback below
+        pass                       # no Pillow -> header read below
     except Exception:
         return None                # Pillow present but the file isn't a readable image
-    with open(path, "rb") as f:
-        head = f.read(24)
-    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
-        return None                # not a PNG, or a truncated one -> approximate geometry
-    return struct.unpack(">II", head[16:24])
+    try:
+        return _header_size(path)
+    except (OSError, struct.error):
+        return None                # unreadable or truncated -> approximate geometry
 
 
 def _add_common(sp):
@@ -105,6 +152,9 @@ def _prepare_image(args, m, brand_dir, client, ap):
            "upscale": args.upscale,
            "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
     if args.mode == "relight":
+        if args.model and image_filler.family(args.model) != "flux2":
+            print(f"note: relight is a FLUX.2 edit, so it renders on {image_filler.DEFAULT_RELIGHT_MODEL}, not "
+                  f"{args.model}", file=sys.stderr)
         # relight (FLUX.2 ReferenceLatent edit): --asset is the source still to relight. Search the
         # usual input locations incl. prior renders; brandless -> treat --asset as a direct path.
         asset_path = _resolve_asset(brand_dir, args.asset,
@@ -114,12 +164,13 @@ def _prepare_image(args, m, brand_dir, client, ap):
         if sz:   # relight renders at the source's native size -> true watermark canvas
             fkw["canvas"] = sz
     if args.mode in ("logo", "product"):
-        subdir = "logos" if args.mode == "logo" else "products"
+        # a product shot may start from one of the brand's own renders (the image -> video -> 3D chain)
+        subdirs = ("logos",) if args.mode == "logo" else ("products", "outputs/images")
         # only LOGO mode may fall back to logo.default; product must not silently pick up a
         # products/ file that happens to share the logo's filename
         logo_fallback = (m.logo.default or "").split("/")[-1] if args.mode == "logo" else None
         asset_name = args.asset or logo_fallback or None
-        asset_path = _resolve_asset(brand_dir, asset_name, (subdir,), ap, f"{args.mode} --asset")
+        asset_path = _resolve_asset(brand_dir, asset_name, subdirs, ap, f"{args.mode} --asset")
         fkw["asset"] = client.upload_image(asset_path)
         if args.mode == "product":
             sz = _image_size(asset_path)
@@ -142,8 +193,11 @@ def _prepare_video(args, m, brand_dir, client, ap):
         video_filler.check_options(m, model=model, camera=camera, quality=getattr(args, "quality", None),
                                    upscale=args.upscale)
     except ValueError as e:
-        ap.error(str(e))
-    path = _resolve_asset(brand_dir, args.from_image, ("products", "references"), ap, "video --from-image")
+        replaying = getattr(args, "expect", None) is not None and "--camera" in str(e)
+        ap.error(f"{e} (replay can't add a camera move: replay a Fun Camera render's sidecar, or pick another "
+                 "--model)" if replaying else str(e))
+    path = _resolve_asset(brand_dir, args.from_image, ("products", "references", "outputs/images"), ap,
+                          "video --from-image")
     r = video_filler.resolved_settings(m, model=model, camera=camera, length=args.length)
     wan = video_filler.is_wan(r["model"])
     if wan and args.audio:
@@ -194,7 +248,7 @@ def _clip_timing(path):
     in its own sidecar (no dependencies; and right for Wan's 16 fps clips, which the 25 fps fallback below
     used to speed up); otherwise probe with PyAV (the [video] extra); (None,)*4 if neither works."""
     try:
-        inp = json.loads(Path(path).with_suffix(".json").read_text(encoding="utf-8")).get("inputs") or {}
+        inp = json.loads(Path(path).with_suffix(".json").read_text(encoding="utf-8-sig")).get("inputs") or {}
     except (OSError, ValueError, AttributeError):
         inp = {}
     fps, length = inp.get("fps"), inp.get("length")
@@ -221,6 +275,9 @@ def _prepare_audio(args, m, brand_dir, client, ap):
         elif lyrics and args.duration is not None and args.duration < audio_filler.LYRICS_SECONDS:
             print(f"warning: a {args.duration:g} s clip may come out instrumental: ACE-Step didn't sing in 20 s "
                   f"and did in {audio_filler.LYRICS_SECONDS:g} s", file=sys.stderr)
+        if lyrics and getattr(args, "expect", None) is None:
+            print("note: ACE-Step sings on most seeds but not every one: if this render comes out instrumental, "
+                  "try another --seed", file=sys.stderr)
         return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
                 "keyscale": args.keyscale, "model": model, "lyrics": lyrics}
     if args.mode == "sfx":
@@ -235,9 +292,11 @@ def _prepare_audio(args, m, brand_dir, client, ap):
     if (fr is None or dur is None) and (args.fps is None or args.duration is None):
         print(f"warning: could not probe {path.name}; using frame_rate={frame_rate} duration={duration}"
               " (pass --fps/--duration to override)", file=sys.stderr)
+    # a replay passes the recorded size too (the watermark canvas), so it needn't probe the clip again
     return {"mode": "foley", "from_video": client.upload_video(path),
             "frame_rate": frame_rate, "duration": duration, "fps": frame_rate,
-            "width": w or 768, "height": h or 512, "model": model}
+            "width": getattr(args, "width", None) or w or 768, "height": getattr(args, "height", None) or h or 512,
+            "model": model}
 
 
 def _prepare_3d(args, m, brand_dir, client, ap):
@@ -384,6 +443,10 @@ def run(args, repo_root, ap):
                     print(f"{e} (the GLB is at {dest})", file=sys.stderr); sys.exit(1)
         model_used = _resolve_model_used(args, m)
         inputs = _resolve_sidecar_inputs(args, m, fmt)
+        if args.modality == "audio" and args.mode == "foley":
+            # the timing and size actually used (probed, or read from the clip's sidecar): a replay without
+            # PyAV, or of a clip whose sidecar has gone, used to fall back to 25 fps / 5 s and fail as drift
+            inputs.update(fps=fkw["fps"], duration=fkw["duration"], width=fkw["width"], height=fkw["height"])
         meta = build_meta(modality=args.modality, mode=args.mode, brand=args.brand, seed=seed,
                           model=model_used, watermark=do_watermark, comfy_url=args.comfy_url,
                           wf=wf, inputs=inputs,
@@ -417,9 +480,15 @@ def _run_comfy(args, repo_root, ap):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):   # a name outside the console's code page crashed a piped run
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(prog="generate.py")
+    from scripts.brandkit import __version__
+    ap.add_argument("--version", action="version", version=f"chimera {__version__}")
     sub = ap.add_subparsers(dest="modality", required=True)
-    img = sub.add_parser("image"); _add_common(img)
+    img = sub.add_parser("image", help="text-to-image, product mockups, logo overlays and relighting "
+                                      "(Qwen-Image-2.1 by default)"); _add_common(img)
     img.add_argument("--subject", required=True)
     img.add_argument("--mode", choices=["txt2img", "logo", "product", "relight"], default="txt2img")
     img.add_argument("--asset", default=None)
@@ -435,10 +504,11 @@ def main():
                      help=f"override the upscaler (default {image_filler.DEFAULT_UPSCALE_MODEL}, in "
                           "models/diffusion_models/; an ESRGAN model such as 4x-UltraSharp.pth, in "
                           "models/upscale_models/, selects the ESRGAN pass)")
-    vid = sub.add_parser("video"); _add_common(vid)
+    vid = sub.add_parser("video", help="image-to-video (Wan 2.2 by default; --model ltx23 for synced audio)")
+    _add_common(vid)
     vid.add_argument("--subject", required=True)
     vid.add_argument("--from-image", dest="from_image", required=True,
-                     help="start frame: a file in brands/<brand>/products/ or references/")
+                     help="start frame: a file in brands/<brand>/products|references/ or outputs/images/")
     vid.add_argument("--mode", choices=["i2v"], default="i2v")
     vid.add_argument("--model", default=None,
                      help="video model: wan22 (default; steady camera, silent) | ltx23 (built-in synced audio), "
@@ -466,7 +536,8 @@ def main():
     vid.add_argument("--upscale-model", dest="upscale_model", default=None,
                      help=f"override the latent upscaler (default {video_filler.DEFAULT_VIDEO_UPSCALE_MODEL}; "
                           "must be in ComfyUI models/latent_upscale_models/)")
-    aud = sub.add_parser("audio"); _add_common(aud)
+    aud = sub.add_parser("audio", help="music, sound effects and video foley (Stable Audio 3 by default; "
+                                      "--model acestep sings --lyrics)"); _add_common(aud)
     aud.add_argument("--mode", choices=["music", "sfx", "foley"], default="music",
                      help="music: a track (Stable Audio 3); sfx: a sound effect (Stable Audio 3); foley: "
                           "synced sound for an existing video")
@@ -486,7 +557,7 @@ def main():
                           "[Chorus] on their own lines. Renders at least 40 s unless --duration says otherwise (a 20 s "
                           "clip came out instrumental). From a file: --lyrics \"$(cat song.txt)\"")
     aud.add_argument("--fps", type=float, default=None, help="(foley; default = source fps)")
-    td = sub.add_parser("3d"); _add_common(td)
+    td = sub.add_parser("3d", help="image-to-3D mesh (TRELLIS.2, a textured GLB, by default)"); _add_common(td)
     td.add_argument("--mode", choices=["image"], default="image")
     td.add_argument("--from-image", dest="from_image", required=True,
                     help="source image: a file in brands/<brand>/products|references/ or outputs/images/")
@@ -586,8 +657,9 @@ def main():
     rp.add_argument("sidecar", help="path to a schema-2 sidecar .json")
     rp.add_argument("--seed", type=int, default=None, help="override the recorded seed")
     rp.add_argument("--comfy-output-dir", default=None,
-                    help="route the result into the brand folder + write a fresh sidecar, beside the original "
-                         "as <name>_replay (omit to just re-render and print the raw ComfyUI filename)")
+                    help="route the result into the outputs folder for its media type + write a fresh sidecar, "
+                         "as <name>_replay so the original stays (omit to just re-render and print the raw "
+                         "ComfyUI filename)")
     rp.add_argument("--comfy-url", default=None,
                     help=f"ComfyUI to render on (default {DEFAULT_COMFY_URL}; the sidecar's recorded URL is not "
                          "trusted, since sidecars get shared)")
@@ -615,6 +687,9 @@ def main():
     uc.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     uc.add_argument("--no-network", action="store_true", help="skip the GitHub release lookup")
     args = ap.parse_args()
+    if getattr(args, "brand", None) and not brand_name_ok(args.brand):
+        # before anything renders: route_output refuses it afterwards, leaving the render in ComfyUI's folder
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.')")
 
     repo_root = Path(__file__).resolve().parents[1]
     _check_repo_layout(repo_root, ap)
@@ -653,7 +728,7 @@ def main():
         return
     if args.modality == "replay":
         try:
-            data = json.loads(Path(args.sidecar).read_text(encoding="utf-8"))
+            data = json.loads(Path(args.sidecar).read_text(encoding="utf-8-sig"))   # PowerShell 5.1 adds a BOM
         except (OSError, ValueError) as e:   # missing, unreadable, or not JSON (e.g. the render itself)
             ap.error(f"cannot read {args.sidecar} as a sidecar: {e}")
         if not isinstance(data, dict):
@@ -669,6 +744,8 @@ def main():
         if rec and not args.comfy_url and rec.rstrip("/") != rargs.comfy_url.rstrip("/"):
             print(f"note: the render used ComfyUI at {rec}; replaying on {rargs.comfy_url} "
                   "(pass --comfy-url to change)", file=sys.stderr)
+        for note in replay_notes(data):
+            print(f"note: {note}", file=sys.stderr)
         print(f"replaying {args.sidecar} (modality={rargs.modality} mode={rargs.mode} "
               f"brand={rargs.brand} seed={rargs.seed} model={rargs.model})", flush=True)
         _run_comfy(rargs, repo_root, ap)

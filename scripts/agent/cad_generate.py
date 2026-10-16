@@ -12,6 +12,8 @@ from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
 from scripts.agent.llm import LLMError
 from scripts.agent.loop import SeedNames
 from scripts.brandkit import montage  # noqa: F401 (seam: tests patch montage.contact_sheet here)
+from scripts.brandkit import gpu
+from scripts.brandkit.dcc import job_outputs
 from scripts.brandkit.outputs import route_output
 from scripts.brandkit.freecad import run_template as fc_run
 from scripts.brandkit.blender import run_template as bl_run
@@ -27,11 +29,11 @@ _BL_TIMEOUT = 1800
 # NOT a security boundary: only point --pipeline cad at an LLM you trust, on a machine you accept it
 # touching. A rejected script just fails that iteration and the loop retries.
 _FORBIDDEN = re.compile(
-    # a networking/process module is out when imported or used, not when a name merely contains the word: a
-    # 'hex socket organizer' brief (socket_depth, '# ball-and-socket') failed every iteration. script_exec's
-    # import allowlist stops `import os, socket` regardless.
-    r"\b(?:import|from)\s+(?:subprocess|socket|importlib|requests|urllib|httpx|http)\b"
-    r"|\b(?:subprocess|socket|importlib|requests|urllib|httpx)\s*\."
+    # a networking/process module is out when a line imports it, not when a name merely contains the word: a
+    # 'hex socket organizer' brief (a `socket` shape, '# ball-and-socket', 'from http://...' in a comment) failed
+    # every iteration. Without the import the name isn't the module, and script_exec's import allowlist stops
+    # `import os, socket` and the like regardless.
+    r"^[ \t]*(?:import|from)[ \t]+(?:subprocess|socket|importlib|requests|urllib|httpx|http)\b"
     r"|\b(shutil\s*\.\s*rmtree|os\s*\.\s*(system|popen|remove|unlink|rmdir|"
     r"startfile|environ)|http\.client|__import__|eval\s*\(|exec\s*\(|open\s*\(|"
     r"getattr\s*\(|\.\s*unlink\s*\()"
@@ -39,7 +41,7 @@ _FORBIDDEN = re.compile(
     # as do __class__/__mro__/__subclasses__ chains and frame objects. Any dunder ATTRIBUTE but .__init__
     # is out, plus the dangerous bare names; dunder strings ('__main__') stay fine.
     r"|\.\s*__(?!init__)\w+__|\b__(builtins|loader|spec|globals|code|closure|class|dict|mro|bases|subclasses)__"
-    r"|\b(f_globals|f_locals|f_back|gi_frame|tb_frame|cr_frame)\b")
+    r"|\b(f_globals|f_locals|f_back|gi_frame|tb_frame|cr_frame)\b", re.MULTILINE)
 
 
 def _assert_safe(script: str):
@@ -81,9 +83,12 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
         state["first"] = False
         # off the GPU before Blender renders (and a --backend local judge loads in ComfyUI): neither can see
         # a resident Ollama model's memory on Windows, and a 27B codegen holds about 20 GB
-        release = getattr(getattr(generator, "client", None), "release", None)
-        if release is not None:
-            release()
+        client = getattr(generator, "client", None)
+        if getattr(client, "release", None) is not None:
+            client.release()
+            if not gpu.keep_llms_loaded() and getattr(client, "resident", None) is not None and client.resident():
+                raise RuntimeError(f"the code-gen model {client.model} is still loaded in Ollama, so not rendering "
+                                   "beside it; `python scripts/generate.py free` unloads it")
         try:
             _assert_safe(script)   # the loop execs LLM-authored scripts — reject obvious escapes
         except RuntimeError:
@@ -100,7 +105,8 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
                                       {"script": str(sp), "out_dir": str(tmp), "stem": stem,
                                        "formats": ["stl"], "restrict": True},
                                       freecad_bin=args.freecad_bin, timeout=fc_timeout)
-            stl = next((o for o in cad_mani.get("outputs", []) if str(o).lower().endswith(".stl")), None)
+            # the LLM-written script prints on the same stdout as the manifest: take outputs from its own folder only
+            stl = next((o for o in job_outputs(cad_mani, tmp, RuntimeError) if o.lower().endswith(".stl")), None)
             if not stl:
                 raise RuntimeError("cad code-gen produced no STL")
             # 3. render a 4-view contact sheet (Blender) for the judge — shared eval stage

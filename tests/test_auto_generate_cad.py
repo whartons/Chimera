@@ -11,15 +11,17 @@ def _run(argv, monkeypatch):
     AG.main()
 
 
-def test_image_requires_comfy_output_dir(monkeypatch):
-    with pytest.raises(SystemExit):
+def test_image_requires_comfy_output_dir(monkeypatch, capsys):
+    with pytest.raises(SystemExit) as e:
         _run(["--subject", "a rover"], monkeypatch)   # no --comfy-output-dir
+    assert e.value.code == 2 and "--comfy-output-dir is required" in capsys.readouterr().err
 
 
 def test_cad_local_requires_comfy_output_dir(monkeypatch):
     # cad + local Qwen judge still needs comfy-output-dir (the judge writes there)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as e:
         _run(["--pipeline", "cad", "--subject", "a mug", "--backend", "local"], monkeypatch)
+    assert e.value.code == 2
 
 
 def test_cad_api_with_no_llm_config_uses_chimeras_local_models(monkeypatch):
@@ -41,9 +43,13 @@ def test_cad_api_with_no_llm_config_uses_chimeras_local_models(monkeypatch):
     assert (calls["judge"]["default_model"], calls["judge"]["default_reasoning"]) == small["judge"]
 
 
-def test_assistant_backend_still_gated(monkeypatch):
-    with pytest.raises(SystemExit):
+def test_assistant_backend_still_gated(monkeypatch, capsys):
+    # refused before anything runs: with the gate deleted the whole loop ran and the old test still passed
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: pytest.fail("the loop must not run"))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: pytest.fail("no ComfyUI client either"))
+    with pytest.raises(SystemExit) as e:
         _run(["--subject", "x", "--backend", "assistant", "--comfy-output-dir", "/tmp/o"], monkeypatch)
+    assert e.value.code == 2 and "agent's own vision" in capsys.readouterr().err
 
 
 

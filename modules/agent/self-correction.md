@@ -22,7 +22,7 @@ not individually sidecar'd, so the loop is **not** per-iteration replayable.
 |---|---|
 | `rubric.py` | `Rubric` + `build_rubric(manifest, subject)` — composes a scorable checklist from the brand (subject, style, palette, negative). `rubric.as_prompt()` renders the numbered **MET / NOT-MET → PASS/FAIL → `score: 0-1`** instructions a judge follows. With a brand, the subject criterion judges the object itself and the brand wins any styling conflict; a FIX may never contradict another criterion. Palette colors are named for the judge (`color_words`: `#1c1f22` → `near-black (#1c1f22)`), since a VLM can't read hex. |
 | `expander.py` | `PromptExpander` ABC + `TemplatedExpander` — wraps `build_prompt(manifest, subject)` for the on-brand `(positive, negative)`. On a correction pass it applies the judge's `FIX: add …; avoid …` directives (`parse_fixes` reads either order, `remove …`, `none needed`), after `brand_guard` drops contradictions: never add a trait an avoid term or the brand's negative names, never avoid the brand's own style or palette. |
-| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, `4 out of 5` / `7` / `85` rescaled to 0–1, NOT-MET lines → issues; a criterion whose status is NOT-MET fails the verdict even under an "Overall: PASS"; never raises). The status is the first MET / NOT-MET word on a criterion's line or a table cell holding only it, in any common form (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `| 2 | … | NOT-MET |`, `1 NOT-MET` in a summary), while `NOT MET: none` and a MET reason that mentions "unmet" don't count. |
+| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, `4 out of 5` / `7` / `85` rescaled to 0–1, NOT-MET lines → issues; a criterion whose status is NOT-MET fails the verdict even under an "Overall: PASS"; never raises). A status counts as a table cell holding only it, a count (`1 NOT-MET`), or the first status word on a criterion's line (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `Status: NOT-MET`, typographic dashes too); a line that only says nothing is unmet (`NOT MET: none`, `No NOT-MET criteria.`, a MET reason on its own line, an echoed instruction) doesn't count. |
 | `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best-scoring candidate after the cap, with full per-iteration history. In branded runs it also drops the subject styling the judge flagged from the subject **and** the rubric (`correct_subject`; the object phrase is kept), so later passes aren't judged against the off-brand words. |
 
 The judge's **PASS/FAIL verdict is authoritative** for stopping the loop — a single
@@ -82,7 +82,7 @@ panel) — all behind the same `Judge` seam, so it drops straight into `run_loop
 
 `auto_generate.py` runs the **same** `run_loop` with a VLM judge in place of the assistant's
 vision. By **default** (`--backend api`) that judge is a local **Ollama** model sized to your GPU:
-**`qwen3.8:27b`** with thinking off on a 24 GB+ card, `qwen3-vl:8b-instruct` on 12–24 GB and
+**`qwen3.8:27b`** with thinking off on a 32 GB card, `qwen3-vl:8b-instruct` on 12–24 GB and
 `qwen3-vl:4b-instruct` below that ([Local models by GPU tier](#local-models-by-gpu-tier)). With no
 `--judge-*` / `--llm-*` flag and no `CHIMERA_*` variable set, it calls `http://127.0.0.1:11434/v1` (or
 `$OLLAMA_HOST`), and any of those settings replaces that default. A judge you choose should be a
@@ -242,7 +242,7 @@ backend** earns that fail→pass cleanly: three independent vision passes yield 
 precise fixes. The **local Qwen3-VL-8B judge** writes noisier fixes, and it can miss fine geometry (it
 passed a fan rotor whose blades floated free of the hub; the geometry gate now catches that). With
 v0.6.0's brand-precedence rubric, tolerant FIX parsing and subject correction, it converges on brand misses
-like the one above. (The 8B is now the medium tier's judge. On a 24 GB+ card the default is Qwen 3.8 27B,
+like the one above. (The 8B is now the medium tier's judge. On a 32 GB card the default is Qwen 3.8 27B,
 which caught the fine-perception cases the 8B missed in the
 [benchmark](#measured-on-the-rtx-5090-2026-10-15).) Choose the backend per job: `auto_generate.py` with the
 default local Ollama judge for hands-off batches, and the assistant consensus backend (an interactive agent following
@@ -318,13 +318,15 @@ three tiers picked from the GPU's memory, and smaller cards get lighter judges a
 
 | Tier | GPU memory | Judge | Rewriter (`--rewrite-prompts`) | CAD code-gen (`--pipeline cad`) |
 |---|---|---|---|---|
-| **large** | 24 GB+ | `qwen3.8:27b` (thinking off) | `qwen3.8:27b` | `qwen3.8:27b` |
+| **large** | 32 GB | `qwen3.8:27b` (thinking off) | `qwen3.8:27b` | `qwen3.8:27b` |
 | **medium** | 12–24 GB | `qwen3-vl:8b-instruct` | `qwen3-vl:8b-instruct` (the judge's model, so nothing extra loads) | `qwen3.8:27b`, partly on the CPU |
 | **small** | under 12 GB | `qwen3-vl:4b-instruct` | `qwen3-vl:4b-instruct` | `qwen3.8:27b`, mostly on the CPU (slow; point `--codegen-*` at a hosted model if you have one) |
 
 - **How the tier is picked.** The GPU's total memory comes from ComfyUI (`/system_stats`) when it answers,
-  else from a time-limited `nvidia-smi`. The cut-offs in code are 22 and 11 GiB, since a 24 GB card reports
-  23.99 GiB. If neither answers, the run takes the medium tier and says so.
+  else from a time-limited `nvidia-smi`. The cut-offs in code are 28 and 11 GiB, since a card reports a
+  little less than its size (a 32 GB card about 31.8 GiB, a 12 GB card 11.99). A 24 GB card gets the medium
+  tier: beside ComfyUI's image model it has no room for the 27B judge (about 22 GB with its context), so every
+  judgment would wait on ComfyUI emptying itself. If neither answers, the run takes the medium tier and says so.
 - **Choosing one.** `--llm-tier auto|large|medium|small`, or `CHIMERA_LLM_TIER` (the flag wins; `auto` picks
   from the GPU). Anything you configure for a role still beats its tier model, in the usual order: role flag >
   `CHIMERA_<ROLE>_*` > shared `--llm-*` > `CHIMERA_LLM_*` > tier. Each setting resolves on its own, so a base
@@ -344,6 +346,12 @@ three tiers picked from the GPU's memory, and smaller cards get lighter judges a
 
 - **No configuration needed.** The CAD loop (`--pipeline cad`) used to stop and ask for
   `CHIMERA_LLM_BASE_URL`; with nothing set it now runs on the tier's models, as does `--rewrite-prompts`.
+- **Checked before anything renders.** A role on a local Ollama needs Ollama answering and the model pulled.
+  If not, the run stops before the first render with the fix (start Ollama, or the `ollama pull` command)
+  rather than rendering every iteration and failing at each judging. A missing rewriter model only warns,
+  since the templated expander takes over. A local server that isn't Ollama (LM Studio, vLLM) is left alone
+  unless it sits at Ollama's address or port. A role pointed at a hosted endpoint that gets no API key (an
+  `OPENAI_API_KEY` goes only to `api.openai.com`) prints a note saying which variable to set.
 
 ### Measured on the RTX 5090 (2026-10-15)
 
@@ -567,7 +575,9 @@ Qwen3-VL judge node is used instead (and ComfyUI runs only for judging).
 > allowlist (`script_exec.py restrict=True`) behind a host-side denylist, which also rejects dunder-attribute
 > walks (`.__globals__`, `.__class__`, `__subclasses__`, frame objects such as `f_globals`), and `FreeCADCmd`
 > starts without credential-named environment variables (any name containing `KEY`, `TOKEN`, `SECRET`,
-> `PASSW`, `CREDENTIAL` or `AUTH`), so a script can't read your API keys. It is still **not a sandbox**: Python
+> `PASS`, `CREDENTIAL` or `AUTH`, proxies, webhooks and `*_URL` / `*_URI` connection strings), so a script
+> can't read your API keys, and only files in the job's own folder count as its output. It is still **not a
+> sandbox**: Python
 > object internals can reach `os`, and FreeCAD's own `Part.export`/`doc.saveAs` can write files. Point
 > `--pipeline cad` only at a code-gen model you trust, on a machine you accept it touching.
 
@@ -634,8 +644,9 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
 - **Before a model loads** (judge, rewriter, CAD codegen), the client asks ComfyUI, which does see its own
   memory, how much of the card it leaves free. If that is less than the model needs (its weights plus its
   context cache, read from Ollama: a 192k-token context adds about 13.5 GB to a 27B model, more with
-  `OLLAMA_NUM_PARALLEL` above 1), plus whatever Ollama already holds (ComfyUI can't see that either), ComfyUI
-  unloads its models (`/free`) and the loop waits up to 30 s for the memory. A model bigger than the card always
+  `OLLAMA_NUM_PARALLEL` above 1), plus, on Windows, whatever Ollama already holds (ComfyUI can't see that
+  there either; Linux and macOS drivers count it), ComfyUI unloads its models (`/free`) and the loop waits up
+  to 30 s for the memory. A model bigger than the card always
   gets ComfyUI emptied, and Ollama puts the overflow on the CPU. If the room never comes, or ComfyUI stops
   answering after showing a full card, the model is **not** loaded: the iteration fails with "the GPU has no
   room for it". The check reads a local CUDA card only (an Apple mps or CPU ComfyUI reports system RAM, so the
@@ -643,9 +654,12 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
 - **Before every render** (ComfyUI and, in the CAD loop, Blender) and **when the run ends**, even on failure,
   the loops unload their own resident models (`LLMClient.release`, Ollama's `keep_alive: 0`) and wait until
   Ollama lists them as gone; a model that won't unload stops that iteration rather than render beside it. The
-  CAD loop's code-gen unloads itself before Blender renders.
+  CAD loop's code-gen unloads itself before Blender renders, and `--finalize` is skipped (with the command to
+  run it later) when the judge won't unload before its repaint.
 - **Before the first render**, they unload Ollama models the run didn't load (another tool's, or an earlier
   run's), printing which.
+- **An image loop on a remote ComfyUI** (`--comfy-url` another machine) skips both: nothing renders on this
+  machine's GPU. The mesh3d and CAD loops keep them, since Blender renders locally.
 
 The checks apply to a "local" endpoint: `localhost`, `127.x`, `::1`, or the bind-all `0.0.0.0` / `::` (so
 `OLLAMA_HOST=0.0.0.0` works, read the way Ollama reads it: port 11434 when none is given). This machine's LAN

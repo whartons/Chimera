@@ -207,3 +207,6 @@ def test_color_words_names_purples_oranges_pinks_and_slate():
     from scripts.agent.rubric import color_words
     assert [color_words(c).split(" (")[0] for c in ("#800080", "#FFA500", "#FFC0CB", "#708090", "#FFD700")] == [
         "dark purple", "orange", "pink", "blue-grey", "gold"]
+    # the pink/purple fix then named coral and salmon 'pink' and magenta 'purple' (2026-10 review)
+    assert [color_words(c).split(" (")[0] for c in ("#ff6b6b", "#fa8072", "#ff00ff", "#ff69b4", "#8a2be2")] == [
+        "coral", "coral", "magenta", "pink", "purple"]

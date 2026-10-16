@@ -82,24 +82,24 @@ _JOIN = re.compile(r"\s+(and|or)\s+", re.IGNORECASE)
 _ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.IGNORECASE)
 
 
+_PAIR = re.compile(r"\b(?:between|among|amongst|both|either)\b", re.IGNORECASE)
+
+
 def _pieces(clause):
-    """A clause's terms: split at commas, and at 'and' / 'or' between short items ('wings and horns') or
-    before a verb ('add X and avoid Y'), but not inside a longer phrase: 'gaps between blades and hub' is one
-    term (split, its 'hub' was cut from the subject, 2026-10 review)."""
+    """A clause's terms: split at commas and at 'and' / 'or' ('red paint and chrome trim', 'add X and avoid Y'),
+    except inside a pair ('gaps between blades and hub' is one term: split, its 'hub' was cut from the subject,
+    2026-10 review)."""
     out = []
     for chunk in clause.split(","):
         parts = _JOIN.split(chunk)                          # [text, conj, text, conj, text, ...]
-        texts = parts[0::2]
-        if len(texts) == 1 or all(len(t.split()) <= 2 for t in texts):
-            out.extend(texts)
-            continue
-        cur = texts[0]
-        for conj, t in zip(parts[1::2], texts[1:], strict=True):
-            if _AVOID_VERB.match(t.strip()) or _ADD_VERB.match(t.strip()):
+        cur = parts[0]
+        for conj, t in zip(parts[1::2], parts[2::2], strict=True):
+            verb = _AVOID_VERB.match(t.strip()) or _ADD_VERB.match(t.strip())
+            if _PAIR.search(cur) and not verb:
+                cur = f"{cur} {conj} {t}"
+            else:
                 out.append(cur)
                 cur = t
-            else:
-                cur = f"{cur} {conj} {t}"
         out.append(cur)
     return out
 

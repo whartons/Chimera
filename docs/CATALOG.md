@@ -251,8 +251,8 @@ enhancer**, and its sound-effects mode powers `audio --mode sfx`.
 
 ComfyUI core-native (no extra node pack); 8-step turbo, KSampler euler, cfg 1.0.
 Generates stingers/loops from genre/style tags, and sings `--lyrics` when given (section
-tags such as `[Verse 1]` / `[Chorus]`); a lyric render is at least 40 s, since a 20 s clip
-came out instrumental. The model also does voice cloning and remix, which Chimera doesn't
+tags such as `[Verse 1]` / `[Chorus]`); a lyric render is at least 40 s, since 20 s clips came
+out instrumental, and even at 40 s about one seed in six or seven plans an instrumental. The model also does voice cloning and remix, which Chimera doesn't
 wire up. Output: `.mp3` (SaveAudioMP3, V0).
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
@@ -360,7 +360,7 @@ for the texturing routes (Blender/Substance, or a cu126 env) and the re-visit pa
 - **API node:** Gemini (e.g. 3.1 Flash-Lite) is supported by the built-in LLM node.
 - **Quantized loading:** `ComfyUI-GGUF` to fit large models in VRAM.
 
-**Agent loop models (self-correction): local Ollama models by GPU tier — Qwen 3.8 27B on 24 GB+ (cloud OpenAI-compatible also works)**
+**Agent loop models (self-correction): local Ollama models by GPU tier — Qwen 3.8 27B on 32 GB cards (cloud OpenAI-compatible also works)**
 
 The judge, prompt rewriter and CAD code-gen for the self-correction loop (generate → judge → refine).
 **Default:** served by **Ollama** over its OpenAI-compatible `/v1` endpoint (`--backend api`,
@@ -376,7 +376,7 @@ See [`../modules/agent/self-correction.md`](../modules/agent/self-correction.md#
 
 | Tier (GPU memory) | Judge | Rewriter | CAD code-gen |
 |---|---|---|---|
-| large (24 GB+) | `qwen3.8:27b`, thinking off | `qwen3.8:27b` | `qwen3.8:27b` |
+| large (32 GB) | `qwen3.8:27b`, thinking off | `qwen3.8:27b` | `qwen3.8:27b` |
 | medium (12–24 GB) | `qwen3-vl:8b-instruct` | `qwen3-vl:8b-instruct` | `qwen3.8:27b`, partly on the CPU |
 | small (under 12 GB) | `qwen3-vl:4b-instruct` | `qwen3-vl:4b-instruct` | `qwen3.8:27b`, mostly on the CPU |
 

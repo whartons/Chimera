@@ -135,8 +135,8 @@ repeat. It runs two ways:
   LLM** (`scripts/agent/llm.py` — any OpenAI-compatible endpoint: **Gemini / OpenAI / Anthropic /
   OpenRouter / local Ollama**, configurable via `CHIMERA_LLM_*`) writes + revises the script across
   iterations. It runs with **no configuration**: code-gen is **Qwen 3.8 27B** on a local Ollama in every GPU
-  tier, and the judge is `--backend api`, the default, on the tier's local model (Qwen 3.8 27B on 24 GB+, a
-  Qwen3-VL 8B or 4B on smaller cards; `--llm-tier` to choose). `--backend local` uses the optional ComfyUI
+  tier, and the judge is `--backend api`, the default, on the tier's local model (Qwen 3.8 27B on 32 GB cards, a
+  Qwen3-VL 8B or 4B on smaller ones; `--llm-tier` to choose). `--backend local` uses the optional ComfyUI
   Qwen3-VL judge node instead. With `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
   [`../agent/self-correction.md`](../agent/self-correction.md#local-models-by-gpu-tier) for the tiers and
   the code-gen measurements, and
@@ -166,8 +166,9 @@ strong coder recovers in a couple of iterations.
 > with a host-side denylist (which also rejects dunder-attribute walks such as `.__globals__`,
 > `.__class__`, `__subclasses__` and frame objects) **plus** restricted builtins + an import allowlist
 > (`script_exec.py restrict=True`). Every `cad` job's `FreeCADCmd` also starts without credential-named
-> environment variables (any name containing `KEY`, `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `AUTH`), so
-> a script can't read your API keys. It is a best-effort speed bump, still **not** a sandbox (Python object
+> environment variables (any name containing `KEY`, `TOKEN`, `SECRET`, `PASS`, `CREDENTIAL` or `AUTH`, plus
+> proxies, webhooks and `*_URL` / `*_URI` connection strings), so a script can't read your API keys, and only
+> files in the job's own folder are taken as its output. It is a best-effort speed bump, still **not** a sandbox (Python object
 > internals can reach `os`, and FreeCAD's own file I/O is reachable), so point it only at a code-gen model
 > you trust. This is a first-party CLI capability, *not* an MCP tool, so the per-tool gates below don't
 > apply; the gated MCP `execute_code` is the separate GUI path.

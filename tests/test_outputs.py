@@ -254,3 +254,30 @@ def test_comfy_output_path_refuses_an_empty_or_dot_name(tmp_path):
 def test_a_replay_name_ignores_case_like_windows_does(tmp_path):
     (tmp_path / "Example_txt2img_9.png").write_bytes(b"orig")
     assert outputs._unused_stem(tmp_path, "example_txt2img_9") == "example_txt2img_9_replay"
+
+
+
+# --- 2026-10 test review --------------------------------------------------------------------------------
+def test_plain_name_refuses_an_ntfs_stream_name():
+    assert not outputs.plain_name("rover.png:hidden")
+
+
+def test_a_longer_seed_does_not_count_as_taken(tmp_path):
+    (tmp_path / "b_txt2img_70.png").write_bytes(b"x")
+    assert outputs._unused_stem(tmp_path, "b_txt2img_7") == "b_txt2img_7"
+
+
+def test_run_graph_to_file_refuses_a_history_name_outside_the_output_dir(tmp_path):
+    class C:
+        def queue_prompt(self, w): return "pid"
+        def wait(self, pid, max_wait=None): return {"pid": {}}
+        def output_files_by_node(self, pid, history=None): return [("9", "notes.docx", "../..", "output")]
+    wf = {"9": {"class_type": "SaveImage", "_meta": {"title": "brand:save"}, "inputs": {"filename_prefix": "a"}}}
+    with pytest.raises(outputs.NoOutputError, match="outside"):
+        outputs.run_graph_to_file(C(), wf, tmp_path)
+
+
+def test_route_output_names_the_app_that_listed_a_missing_file(tmp_path):
+    # a Blender or FreeCAD job used to be reported as ComfyUI's, with a --comfy-output-dir hint
+    with pytest.raises(outputs.NoOutputError, match="Blender listed ghost.png as an output"):
+        route_output(tmp_path, "b", tmp_path / "ghost.png", "mesh", 1, producer="Blender")

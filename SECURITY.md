@@ -1,6 +1,6 @@
 # Security Policy
 
-Chimera is **orchestration glue** for [ComfyUI](https://github.com/comfyanonymous/ComfyUI):
+Chimera is **orchestration glue** for [ComfyUI](https://github.com/Comfy-Org/ComfyUI):
 brand-aware Python (`scripts/`), sanitized workflow templates (`workflows/templates/`), and docs.
 It ships **no model weights and runs no bundled binaries** — the security surface is the Python
 CLI plus the third-party ComfyUI node packs and MCP bridges a user chooses to install.
@@ -29,10 +29,11 @@ These are practices the repo already follows — they're the reason it's safe to
   fixes the pack's own code; its dependencies still resolve when you install it. Per-pack verdicts,
   exclusions, and the pinned commits live in [`docs/CATALOG.md`](docs/CATALOG.md) and each module's
   `models.md` (e.g. [`modules/video/models.md`](modules/video/models.md)).
-- **No pickle / `torch.load` RCE paths.** Audio (HunyuanVideo-Foley), 3D, and the VLM judge use
-  **only registered ComfyUI nodes + `.safetensors` weights — never a pack's bundled CLI scripts**,
+- **No pickle / `torch.load` RCE paths.** Audio (HunyuanVideo-Foley), 3D, and the optional ComfyUI judge
+  node use **only registered ComfyUI nodes + `.safetensors` weights — never a pack's bundled CLI scripts**,
   which can deserialize arbitrary pickles (remote code execution). See
-  [`modules/audio/`](modules/audio/).
+  [`modules/audio/`](modules/audio/). The default agent judge runs on a local Ollama model instead (see
+  [`modules/agent/self-correction.md`](modules/agent/self-correction.md)).
 - **Prompts stay local by default.** Text encoders run **in-graph and offline** (e.g. LTX-2.3's local Gemma
   encoder); cloud encoder nodes that exfiltrate prompts to an external endpoint
   (`GemmaAPITextEncode`) and `trust_remote_code` prompt-enhancers are **explicitly excluded** —

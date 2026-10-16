@@ -56,3 +56,21 @@ def test_no_finalize_no_tail_call(monkeypatch, tmp_path):
     _run(["--pipeline", "mesh3d", "--subject", "a mug", "--comfy-output-dir", str(tmp_path)],
          monkeypatch)
     assert "hit" not in seen
+
+
+
+def test_finalize_is_skipped_beside_a_model_that_will_not_unload(monkeypatch, tmp_path, capsys):
+    # the repaint renders through ComfyUI, which can't see the memory a stuck Ollama model holds
+    import scripts.agent.llm as LLM
+    seen = {}
+    _wire_main(monkeypatch, tmp_path, seen)
+
+    class Stuck:
+        model, base_url = "qwen3.8:27b", "http://127.0.0.1:11434/v1"
+        def release(self): return False
+        def resident(self): return True
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: Stuck())
+    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms: None)
+    _run(["--pipeline", "mesh3d", "--mesh-model", "hunyuan21", "--subject", "a mug", "--finalize",
+          "--comfy-output-dir", str(tmp_path), "--llm-tier", "small"], monkeypatch)
+    assert "hit" not in seen and "[finalize] skipped" in capsys.readouterr().err

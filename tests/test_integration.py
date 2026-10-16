@@ -576,3 +576,95 @@ def test_3d_stl_without_an_output_dir_says_it_stays_a_glb(monkeypatch, tmp_path,
     monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
     generate.run(_3d_args(seed=5), repo, _StubAp())
     assert "ComfyUI's GLB only" in capsys.readouterr().err
+
+
+
+# --- 2026-10 third review -----------------------------------------------------------------------------
+def test_run_refuses_a_history_name_outside_the_output_dir(monkeypatch, tmp_path, capsys):
+    repo = _tmp_repo(tmp_path)
+
+    class Hostile(FakeComfy):
+        def output_files_by_node(self, pid): return [("999", "secret.png", "../outside", "output")]
+    monkeypatch.setattr(generate, "ComfyClient", Hostile)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (tmp_path / "outside").mkdir(); (tmp_path / "outside" / "secret.png").write_bytes(b"S")
+    with pytest.raises(SystemExit):
+        generate.run(_img_args(seed=1, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    assert (tmp_path / "outside" / "secret.png").exists() and "outside" in capsys.readouterr().err
+
+
+def test_run_applies_the_default_free_before(monkeypatch, tmp_path):
+    repo, freed = _tmp_repo(tmp_path), []
+
+    class C(FakeComfy):
+        def free(self, **k): freed.append(1)
+    monkeypatch.setattr(generate, "ComfyClient", C)
+    monkeypatch.setattr(generate, "_default_free_before", lambda args, m: True)   # e.g. a FLUX.2 or video job
+    generate.run(_img_args(seed=2, free_before=None), repo, _StubAp())
+    assert freed == [1]
+
+
+def test_a_foley_sidecar_records_the_timing_it_used(monkeypatch, tmp_path):
+    # probed at 30 fps / 7.2 s; replayed where the probe can't run, the old record fell back to 25 fps / 5 s
+    repo = _tmp_repo(tmp_path)
+    shutil.copy(ROOT / "workflows" / "templates" / "brand-audio-foley.json",
+                repo / "workflows" / "templates" / "brand-audio-foley.json")
+    clip = repo / "brands" / "b" / "references" / "clip.mp4"
+    clip.parent.mkdir(parents=True); clip.write_bytes(b"v")
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (30.0, 7.2, 640, 360))
+
+    class C(FakeComfy):
+        def upload_video(self, p): return "clip.mp4"
+        def output_files_by_node(self, pid): return [("999", "out.mp4", "", "output")]
+    monkeypatch.setattr(generate, "ComfyClient", C)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir(); (comfyout / "out.mp4").write_bytes(b"A")
+    generate.run(_img_args(modality="audio", mode="foley", subject="footsteps", from_video="clip.mp4", seed=3,
+                           comfy_output_dir=str(comfyout)), repo, _StubAp())
+    side = next((repo / "brands" / "b" / "outputs").rglob("b_foley_3.json"))
+    inputs = json.loads(side.read_text(encoding="utf-8"))["inputs"]
+    assert {k: inputs[k] for k in ("fps", "duration", "width", "height")} == \
+        {"fps": 30.0, "duration": 7.2, "width": 640, "height": 360}
+
+
+def test_replay_reads_a_sidecar_saved_with_a_bom_and_says_what_an_old_one_cannot_check(monkeypatch, tmp_path,
+                                                                                       capsys):
+    sidecar = tmp_path / "s.json"
+    sidecar.write_text(json.dumps({"schema": 2, "modality": "image", "mode": "txt2img", "brand": "b", "seed": 7,
+                                   "inputs": {"subject": "x"}}), encoding="utf-8-sig")   # PowerShell 5.1 adds a BOM
+    captured = {}
+    monkeypatch.setattr(generate, "run", lambda args, repo_root, ap: captured.update(seed=args.seed))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(sidecar)])
+    generate.main()
+    assert captured == {"seed": 7} and "predates Chimera v0.6.0" in capsys.readouterr().err
+
+
+def test_a_sidecar_missing_a_key_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    p = tmp_path / "s.json"
+    p.write_text(json.dumps({"schema": 2, "modality": "image", "mode": "txt2img", "seed": 7}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(p)])
+    with pytest.raises(SystemExit) as e:
+        generate.main()
+    assert e.value.code == 2 and "cannot replay" in capsys.readouterr().err
+
+
+def test_a_brand_that_is_not_a_folder_name_stops_before_anything_renders(monkeypatch, capsys):
+    # route_output refused it after the render, leaving the file in ComfyUI's folder
+    monkeypatch.setattr(generate, "ComfyClient", lambda *a, **k: pytest.fail("nothing may reach ComfyUI"))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "image", "--brand", ".hidden", "--subject", "x"])
+    with pytest.raises(SystemExit) as e:
+        generate.main()
+    assert e.value.code == 2 and "isn't a brand folder name" in capsys.readouterr().err
+
+
+def test_main_escapes_what_the_console_cannot_encode(monkeypatch):
+    # a piped run on Windows (cp1252) crashed on a non-Latin brand name after the job was queued
+    import io
+    import scripts.brandkit.scaffold as scaffold
+    out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(scaffold, "lint_brand", lambda root, brand: [("ok", f"{brand} \u2192 fine")])
+    monkeypatch.setattr(sys, "argv", ["generate.py", "lint", "--brand", "\u6771\u4eac-brand"])
+    with pytest.raises(SystemExit):
+        generate.main()
+    out.flush()
+    assert b"\\u2192" in out.buffer.getvalue()

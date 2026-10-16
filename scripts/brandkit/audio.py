@@ -15,8 +15,9 @@ DEFAULT_FOLEY_MODEL = "hunyuanvideo_foley_fp8_e4m3fn.safetensors"
 ALIASES = {"sa3": SA3_MODEL, "stable-audio-3": SA3_MODEL, "acestep": ACESTEP_MODEL, "ace-step": ACESTEP_MODEL}
 SFX_DURATION = 4.0      # seconds, when --duration isn't given (a sound effect, not a track)
 SA3_MIN_SECONDS = 1.0   # EmptyLatentAudio's minimum; a shorter --duration failed validation in ComfyUI
-# ACE-Step 1.5 sang six lines of lyrics in a 40 s clip (from 2 s in) but not at all in 20 s, whatever the tag
-# format (2026-10 listening test), so a lyric render gets at least this long unless --duration says otherwise
+# ACE-Step 1.5 never sang six lines of lyrics in a 20 s clip and sang them in 40 s on most seeds (5-6 of 7;
+# 2026-10, by ear and by transcription), whatever the tag format, so a lyric render gets at least this long
+# unless --duration says otherwise. Some seeds plan an instrumental regardless: try another seed.
 LYRICS_SECONDS = 40.0
 _SA3_MODE = {"music": "Music", "sfx": "SFX"}   # the enhancer's system prompt per Chimera mode
 

@@ -105,7 +105,7 @@ def test_agent_run_sidecar_refused():
     bad = {"schema": 2, "kind": "agent-run", "modality": "image", "mode": "agent",
            "brand": "example-brand", "subject": "an armored rover", "agent": True,
            "iterations": 2, "passed": True, "final_score": 0.97, "winning_seed": 7}
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="agent-run"):   # refused as what it is, not by its mode
         _args_from_sidecar(bad)
 
 
@@ -404,3 +404,94 @@ def test_replay_refuses_an_inputs_block_that_is_not_a_mapping():
     s["inputs"] = ["primary.png"]
     with pytest.raises(ValueError, match="mapping"):
         _args_from_sidecar(s)
+
+
+
+# --- 2026-10 third review -----------------------------------------------------------------------------
+import re  # noqa: E402
+
+import scripts.brandkit.replay as R  # noqa: E402
+
+ACE = "acestep_v1.5_xl_turbo_bf16.safetensors"
+SA3 = "stable_audio_3_medium.safetensors"
+
+
+def _sc(**over):
+    d = {"schema": 2, "modality": "image", "mode": "txt2img", "brand": None, "seed": 7,
+         "model": "qwen_image_2.1_int8.safetensors", "inputs": {"subject": "a rover"}}
+    d.update(over)
+    return d
+
+
+@pytest.mark.parametrize("name", ["logo.gif", "ref.jfif", "ref.avif", "photo.HEIC"])
+def test_replay_takes_the_image_inputs_generate_took(name):
+    R.args_from_sidecar(_sc(mode="product", inputs={"subject": "a rover", "asset": name}))
+
+
+@pytest.mark.parametrize("name", ["clip.m4v", "clip.mpg", "clip.wmv"])
+def test_replay_takes_the_video_inputs_generate_took(name):
+    R.args_from_sidecar(_sc(modality="audio", mode="foley", inputs={"subject": "steps", "from_video": name}))
+
+
+@pytest.mark.parametrize("over, msg", [
+    ({"schema": "2"}, "schema '2' isn't a number"),
+    ({"inputs": {"subject": 7}}, "inputs.subject 7 isn't text"),
+    ({"inputs": {}}, "records no inputs.subject"),
+    ({"inputs": {"subject": "x", "duration": "8"}}, "inputs.duration '8' isn't a number"),
+    ({"inputs": {"subject": "x", "length": True}}, "inputs.length True isn't a number"),
+    ({"model": ["x"]}, "isn't a file name"),
+    ({"modality": "3d", "mode": "image", "inputs": {"from_image": "r.png", "format": "fbx"}}, "format 'fbx'"),
+])
+def test_a_damaged_sidecar_is_refused_with_the_field_named(over, msg):
+    # these crashed mid-render (or after a whole 3D render, for 'fbx') instead of "cannot replay"
+    with pytest.raises(ValueError, match=re.escape(msg)):
+        R.args_from_sidecar(_sc(**over))
+
+
+def test_a_sidecar_without_a_brand_field_says_so():
+    d = _sc()
+    del d["brand"]
+    with pytest.raises(ValueError, match="no brand field"):
+        R.args_from_sidecar(d)
+
+
+def test_cross_family_music_replay_compares_the_words_not_the_bpm_and_key(monkeypatch):
+    # Stable Audio 3 appends explicit BPM/key to its brief (ACE-Step takes them as settings): "prompt changed"
+    monkeypatch.setattr(R, "graph_prompts", lambda wf, mo, md: ("a heroic sting, 120 BPM, in E minor", ""))
+    ace = {"model": ACE, "prompt": "a heroic sting", "inputs": {"bpm": 120, "keyscale": "E minor"}}
+    assert R.replay_drift(ace, model=SA3, wf={}, modality="audio", mode="music", model_override="sa3") == []
+    monkeypatch.setattr(R, "graph_prompts", lambda wf, mo, md: ("a heroic sting", ""))
+    sa3 = {**ace, "model": SA3, "prompt": "a heroic sting, 120 BPM, in E minor"}
+    assert R.replay_drift(sa3, model=ACE, wf={}, modality="audio", mode="music", model_override="acestep") == []
+    monkeypatch.setattr(R, "graph_prompts", lambda wf, mo, md: ("a sad sting", ""))
+    assert R.replay_drift(sa3, model=ACE, wf={}, modality="audio", mode="music", model_override="acestep")
+
+
+def test_an_acestep_sidecar_from_before_v060_reports_the_shift_change(monkeypatch):
+    monkeypatch.setattr(R, "graph_prompts", lambda wf, mo, md: ("a song", ""))
+    monkeypatch.setattr(R, "graph_values", lambda wf, mo, md: "v1")
+    old = {"model": ACE, "prompt": "a song", "negative": ""}          # no settings record: made before v0.6.0
+    assert any("1.73" in d for d in R.replay_drift(old, model=ACE, wf={}, modality="audio", mode="music"))
+    new = {**old, "provenance": {"graph_values": "v1"}}               # v0.6.0+ records (and checks) the settings
+    assert R.replay_drift(new, model=ACE, wf={}, modality="audio", mode="music") == []
+    assert R.replay_drift({**old, "model": SA3}, model=SA3, wf={}, modality="audio", mode="music") == []
+
+
+def test_replay_notes_say_what_an_old_sidecar_cannot_check():
+    assert R.replay_notes({"provenance": {"graph_values": "abc"}}) == []
+    assert "the model and prompts" in R.replay_notes({})[0]
+    assert "graph structure" in R.replay_notes({"provenance": {"graph_signature": "x"}})[0]
+
+
+def test_an_agent_run_sidecar_is_refused_as_such():
+    with pytest.raises(ValueError, match="agent-run"):
+        R.args_from_sidecar({"schema": 2, "kind": "agent-run", "modality": "image", "mode": "agent", "brand": "b",
+                             "seed": 1})
+
+
+def test_cross_family_music_replay_with_no_recorded_prompt_or_an_empty_brief(monkeypatch):
+    monkeypatch.setattr(R, "graph_prompts", lambda wf, mo, md: ("120 BPM", ""))
+    rec = {"model": ACE, "inputs": {"bpm": 120}}                       # no prompt recorded: nothing to compare
+    assert R.replay_drift(rec, model=SA3, wf={}, modality="audio", mode="music", model_override="sa3") == []
+    rec["prompt"] = ""                                                  # an empty brief: SA3's is the BPM alone
+    assert R.replay_drift(rec, model=SA3, wf={}, modality="audio", mode="music", model_override="sa3") == []

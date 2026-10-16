@@ -68,7 +68,8 @@ python scripts/generate.py image \
 | `relight` | FLUX.2 `ReferenceLatent` edit that keeps the composition ([below](#relighting-a-still-while-keeping-its-composition---mode-relight)) | — |
 
 - `--mode logo --asset logo.png` — provide the logo filename via `--asset`.
-- `--mode product --asset product.png` — provide the product image via `--asset`.
+- `--mode product --asset product.png` — provide the product image via `--asset`: a file in the brand's
+  `products/`, else one of its renders in `outputs/images/`.
 
 ### Fidelity variants (`--variant`, Z-Image only)
 

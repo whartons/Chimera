@@ -105,7 +105,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 > (use STL for the Blender bridge). The CAD self-correction loop runs both assistant-driven (`--mode
 > script`) and **fully autonomous** (`auto_generate.py --pipeline cad` — a provider-agnostic LLM writes +
 > revises the script; `scripts/agent/llm.py`, built + **live-validated** against a local Ollama endpoint.
-> Its local models come in GPU tiers: **Qwen 3.8 27B** for every role on 24 GB+, a **Qwen3-VL 8B / 4B** judge
+> Its local models come in GPU tiers: **Qwen 3.8 27B** for every role on 32 GB cards, a **Qwen3-VL 8B / 4B** judge
 > and rewriter on smaller cards, and the 27B code-gen in every tier).
 
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
@@ -117,7 +117,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 | Audio — music + sfx | **Stable Audio 3 Medium** (+ Qwen3.5-2B prompt enhancer) | Comfy-Org · core-native · Stability Community License · ACE-Step 1.5 XL Turbo via `--model acestep` |
 | Audio — foley | **HunyuanVideo-Foley** | phazei · 48 kHz synced |
 | 3D | **TRELLIS.2** (`trellis_2_int8_convrot`, textured PBR GLB) | Comfy-Org · MIT · core in ComfyUI 0.40 · Pixal3D and Hunyuan3D 2.1 (shape only) via `--model` |
-| Agent loop (judge · rewriter · CAD code-gen) | **Qwen 3.8 27B** (Ollama `qwen3.8:27b`) on 24 GB+; Qwen3-VL 8B / 4B Instruct judge + rewriter on 12–24 GB / under 12 GB | Qwen via Ollama · tier picked from the GPU's memory (`--llm-tier`) · swap a role via `CHIMERA_<ROLE>_MODEL` |
+| Agent loop (judge · rewriter · CAD code-gen) | **Qwen 3.8 27B** (Ollama `qwen3.8:27b`) on 32 GB cards; Qwen3-VL 8B / 4B Instruct judge + rewriter on 12–24 GB / under 12 GB | Qwen via Ollama · tier picked from the GPU's memory (`--llm-tier`) · swap a role via `CHIMERA_<ROLE>_MODEL` |
 
 Weights are **never committed** — referenced by name + source; see CATALOG for files, destinations, sizes, and licenses.
 
@@ -137,7 +137,8 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (927 tests local; 920 pass in CI — the 7 `[images]`/pillow-gated tests skip or are uncollected without that extra,
+py3.12 (1043 tests, all run locally and on the Linux leg, which installs the `[images]` extra; 1035 on Windows,
+which stays on `[dev]` so the 8 Pillow-gated tests skip there and the no-Pillow paths are proven;
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
 
