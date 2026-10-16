@@ -108,6 +108,21 @@ def test_lyrics_reach_ace_step_and_nothing_else():
         check_options(m, "sfx", lyrics="la la")
 
 
+def test_a_lyric_render_gets_room_to_sing_and_ace_step_runs_comfys_schedule():
+    # ACE-Step sang in 40 s and not at all in 20 s; the brand's stinger length (8 s) would never sing
+    from scripts.brandkit.audio import LYRICS_SECONDS, music_seconds
+    m = load_manifest(FIX)
+    wf = build(ROOT, m, positive="anthem", negative="", seed=3, mode="music", model="acestep", lyrics="[Verse 1]\nla")
+    assert find_node_by_title(wf, "brand:tags")[1]["inputs"]["duration"] == LYRICS_SECONDS
+    assert find_node_by_title(wf, "brand:latent")[1]["inputs"]["seconds"] == LYRICS_SECONDS
+    assert music_seconds(m) == m.audio.music_duration                       # no lyrics: the brand's length
+    short = build(ROOT, m, positive="anthem", negative="", seed=3, mode="music", model="acestep", lyrics="la",
+                  duration=20.0)
+    assert find_node_by_title(short, "brand:tags")[1]["inputs"]["duration"] == 20.0   # an explicit length wins
+    # the shift every Comfy ACE-Step 1.5 template uses (Chimera's graph had 1.73)
+    assert find_node_by_title(wf, "brand:model_sampling")[1]["inputs"]["shift"] == 3.0
+
+
 def test_music_sidecars_record_the_lyrics_and_replay_sends_them_back():
     from scripts.brandkit.sidecar import relevant_inputs
     from scripts.brandkit.replay import args_from_sidecar

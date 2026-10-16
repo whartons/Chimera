@@ -15,6 +15,9 @@ DEFAULT_FOLEY_MODEL = "hunyuanvideo_foley_fp8_e4m3fn.safetensors"
 ALIASES = {"sa3": SA3_MODEL, "stable-audio-3": SA3_MODEL, "acestep": ACESTEP_MODEL, "ace-step": ACESTEP_MODEL}
 SFX_DURATION = 4.0      # seconds, when --duration isn't given (a sound effect, not a track)
 SA3_MIN_SECONDS = 1.0   # EmptyLatentAudio's minimum; a shorter --duration failed validation in ComfyUI
+# ACE-Step 1.5 sang six lines of lyrics in a 40 s clip (from 2 s in) but not at all in 20 s, whatever the tag
+# format (2026-10 listening test), so a lyric render gets at least this long unless --duration says otherwise
+LYRICS_SECONDS = 40.0
 _SA3_MODE = {"music": "Music", "sfx": "SFX"}   # the enhancer's system prompt per Chimera mode
 
 
@@ -70,7 +73,7 @@ def _build_music(repo_root, manifest, *, positive, seed, duration=None, bpm=None
                  keyscale=None, model=None, lyrics=None, **opts) -> dict:
     a = manifest.audio
     model = resolved_model(manifest, "music", model)
-    duration = duration if duration is not None else a.music_duration
+    duration = duration if duration is not None else music_seconds(manifest, lyrics)
     bpm = bpm if bpm is not None else a.music_bpm
     keyscale = keyscale or a.music_keyscale
     wf = _load(repo_root, "brand-audio-music.json")
@@ -114,6 +117,13 @@ def _build_foley(repo_root, manifest, *, positive, negative, seed, watermark=Fal
         inject_foley_watermark(wf, manifest=manifest, logo_name=watermark_logo,
                                canvas=(width or 768, height or 512), logo_px=logo_px)
     return wf
+
+
+def music_seconds(manifest, lyrics=None):
+    """A music render's length when --duration isn't given: the brand's music_duration, raised to
+    LYRICS_SECONDS when there are lyrics (a stinger-length clip came out instrumental)."""
+    d = manifest.audio.music_duration
+    return max(d, LYRICS_SECONDS) if lyrics else d
 
 
 def check_options(manifest, mode, *, model=None, duration=None, lyrics=None):

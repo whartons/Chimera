@@ -1,6 +1,6 @@
 {
   "1":  {"class_type": "UNETLoader", "_meta": {"title": "brand:unet"}, "inputs": {"unet_name": "acestep_v1.5_xl_turbo_bf16.safetensors", "weight_dtype": "default"}},
-  "2":  {"class_type": "ModelSamplingAuraFlow", "_meta": {"title": "brand:model_sampling"}, "inputs": {"model": ["1", 0], "shift": 1.73}},
+  "2":  {"class_type": "ModelSamplingAuraFlow", "_meta": {"title": "brand:model_sampling"}, "inputs": {"model": ["1", 0], "shift": 3.0}},
   "3":  {"class_type": "DualCLIPLoader", "_meta": {"title": "brand:clip"}, "inputs": {"clip_name1": "qwen_0.6b_ace15.safetensors", "clip_name2": "qwen_4b_ace15.safetensors", "type": "ace", "device": "default"}},
   "4":  {"class_type": "VAELoader", "_meta": {"title": "brand:vae"}, "inputs": {"vae_name": "ace_1.5_vae.safetensors"}},
   "5":  {"class_type": "TextEncodeAceStepAudio1.5", "_meta": {"title": "brand:tags"}, "inputs": {"clip": ["3", 0], "tags": "PLACEHOLDER_TAGS", "lyrics": "", "seed": 42, "bpm": 100, "duration": 8.0, "timesignature": "4", "language": "en", "keyscale": "C minor", "generate_audio_codes": true, "cfg_scale": 2.0, "temperature": 0.85, "top_p": 0.9, "top_k": 0, "min_p": 0.0}},

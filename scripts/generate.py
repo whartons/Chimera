@@ -214,8 +214,15 @@ def _prepare_audio(args, m, brand_dir, client, ap):
     except ValueError as e:
         ap.error(str(e))
     if args.mode == "music":
+        lyrics = getattr(args, "lyrics", None)
+        if lyrics and args.duration is None and getattr(args, "expect", None) is None:
+            print(f"note: --lyrics renders {audio_filler.music_seconds(m, lyrics):g} s (ACE-Step didn't sing in a "
+                  "20 s clip); pass --duration to change it", file=sys.stderr)
+        elif lyrics and args.duration is not None and args.duration < audio_filler.LYRICS_SECONDS:
+            print(f"warning: a {args.duration:g} s clip may come out instrumental: ACE-Step didn't sing in 20 s "
+                  f"and did in {audio_filler.LYRICS_SECONDS:g} s", file=sys.stderr)
         return {"mode": "music", "duration": args.duration, "bpm": args.bpm,
-                "keyscale": args.keyscale, "model": model, "lyrics": getattr(args, "lyrics", None)}
+                "keyscale": args.keyscale, "model": model, "lyrics": lyrics}
     if args.mode == "sfx":
         return {"mode": "sfx", "duration": args.duration, "model": model}
     # foley: locate + upload the source video, probe its fps/duration/size
@@ -470,13 +477,14 @@ def main():
     aud.add_argument("--from-video", dest="from_video", default=None,
                      help="foley source: a file in brands/<brand>/outputs|references|products/")
     aud.add_argument("--duration", type=float, default=None,
-                     help="seconds (default: music = brand audio.music_duration; sfx = 4, at least 1; foley = "
-                          "the clip)")
+                     help="seconds (default: music = brand audio.music_duration, at least 40 with --lyrics; sfx = "
+                          "4, at least 1; foley = the clip)")
     aud.add_argument("--bpm", type=int, default=None, help="(music)")
     aud.add_argument("--keyscale", default=None, help="(music)")
     aud.add_argument("--lyrics", default=None,
-                     help="(music, --model acestep) words for ACE-Step to sing; section tags like [verse] and "
-                          "[chorus] on their own lines. From a file: --lyrics \"$(cat song.txt)\"")
+                     help="(music, --model acestep) words for ACE-Step to sing; section tags like [Verse 1] and "
+                          "[Chorus] on their own lines. Renders at least 40 s unless --duration says otherwise (a 20 s "
+                          "clip came out instrumental). From a file: --lyrics \"$(cat song.txt)\"")
     aud.add_argument("--fps", type=float, default=None, help="(foley; default = source fps)")
     td = sub.add_parser("3d"); _add_common(td)
     td.add_argument("--mode", choices=["image"], default="image")

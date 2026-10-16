@@ -114,10 +114,12 @@ loop's FreeCAD process and the MCP approval gates.
   - **Briefs:** sound effects use the subject alone (no brand music tags). For music, an explicit
     `--bpm` / `--keyscale` joins the brief, since SA3 has no tempo or key inputs.
   - **Template:** `workflows/templates/brand-audio-sa3.json`.
-- **`audio --model acestep --lyrics "..."`**: words for ACE-Step to sing, with `[verse]` / `[chorus]` tags.
+- **`audio --model acestep --lyrics "..."`**: words for ACE-Step to sing, with `[Verse 1]` / `[Chorus]` tags.
   ACE-Step was kept as the vocals option, but Chimera sent it empty lyrics, so every render was instrumental.
-  Sidecars record the lyrics, so replay sings them again; `--lyrics` with Stable Audio 3 or a non-music mode is
-  an error.
+  Lyrics need room: in a listening test ACE-Step sang six lines in a 40 s clip and none in 20 s, so a lyric
+  render is at least 40 s unless `--duration` says otherwise (shorter prints a warning). Sidecars record the
+  lyrics, so replay sings them again; `--lyrics` with Stable Audio 3 or a non-music mode is an error. The
+  ACE-Step graph's sampler shift is now 3, as in Comfy's ACE-Step 1.5 templates (it was 1.73).
 - **`replay --model <file>`** re-runs a recorded render on a different model with the same subject and seed,
   e.g. to run old brand work back on a newer model. Only the prompt is compared, and settings that belong to
   the old model family (Wan or LTX clip timing, a Z-Image variant, a Hunyuan3D octree) give way to the new

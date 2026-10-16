@@ -256,6 +256,16 @@ def test_prepare_audio_music_maps(tmp_path):
                    "lyrics": None}
 
 
+def test_lyrics_say_how_long_they_render(tmp_path, capsys):
+    args = _args_ns(modality="audio", mode="music", duration=None, bpm=None, keyscale=None, brand="b",
+                    model="acestep", lyrics="[Verse 1]\nla")
+    generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())
+    assert "--lyrics renders 40 s" in capsys.readouterr().err
+    args.duration = 15.0
+    generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())
+    assert "may come out instrumental" in capsys.readouterr().err
+
+
 def test_prepare_passes_a_replay_pinned_model_to_the_video_and_audio_fillers(tmp_path):
     args = _args_ns(modality="audio", mode="music", duration=6.0, bpm=120, keyscale="C major", brand="b",
                     model="acestep_v1.5_xl_turbo_bf16.safetensors")

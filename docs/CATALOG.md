@@ -251,8 +251,9 @@ enhancer**, and its sound-effects mode powers `audio --mode sfx`.
 
 ComfyUI core-native (no extra node pack); 8-step turbo, KSampler euler, cfg 1.0.
 Generates stingers/loops from genre/style tags, and sings `--lyrics` when given (section
-tags such as `[verse]` / `[chorus]`). The model also does voice cloning and remix, which
-Chimera doesn't wire up. Output: `.mp3` (SaveAudioMP3, V0).
+tags such as `[Verse 1]` / `[Chorus]`); a lyric render is at least 40 s, since a 20 s clip
+came out instrumental. The model also does voice cloning and remix, which Chimera doesn't
+wire up. Output: `.mp3` (SaveAudioMP3, V0).
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|

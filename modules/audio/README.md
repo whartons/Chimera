@@ -44,10 +44,13 @@ The brief is the brand's `audio.music_tags` plus `--subject`.
 - **Stable Audio 3** has no tempo or key inputs, so an explicit `--bpm` / `--keyscale` joins the brief
   (e.g. "…, 128 BPM, in A minor"). The brand's ACE-tuned `music_bpm` / `music_keyscale` defaults don't.
 - **ACE-Step** (`--model acestep`) takes the brief as `TextEncodeAceStepAudio1.5` tags, and uses BPM / key
-  directly. **`--lyrics`** gives it words to sing, with section tags such as `[verse]` and `[chorus]` on their
-  own lines; without it ACE-Step makes an instrumental. From a file: `--lyrics "$(cat song.txt)"` (PowerShell:
-  `--lyrics (Get-Content song.txt -Raw)`). The sidecar records the lyrics, so a replay sings them again.
-  `--lyrics` with Stable Audio 3, sfx or foley is an error.
+  directly. **`--lyrics`** gives it words to sing, with section tags such as `[Verse 1]` and `[Chorus]` on
+  their own lines; without it ACE-Step makes an instrumental. From a file: `--lyrics "$(cat song.txt)"`
+  (PowerShell: `--lyrics (Get-Content song.txt -Raw)`). The sidecar records the lyrics, so a replay sings them
+  again. `--lyrics` with Stable Audio 3, sfx or foley is an error.
+- **Lyrics need room.** In the 2026-10 listening test ACE-Step sang six lines in a 40 s clip (from 2 s in) and
+  didn't sing at all in 20 s, with either tag style. So with `--lyrics` and no `--duration` Chimera renders at
+  least 40 s (the brand's `music_duration` if that is longer), and a shorter `--duration` prints a warning.
 - **Stable Audio 3 renders at least 1 s** (ComfyUI's minimum); a shorter `--duration` is an error before
   anything is queued. Render 1 s and trim it.
 
@@ -132,7 +135,7 @@ The graph uses:
 1. **`UNETLoader`** — loads `acestep_v1.5_xl_turbo_bf16.safetensors` from
    `models/diffusion_models/`.
 2. **`ModelSamplingAuraFlow`** — wraps the model for the AuraFlow sampler
-   schedule (shift 1.73).
+   schedule (shift 3, as in every Comfy ACE-Step 1.5 template; Chimera had 1.73 until 2026-10).
 3. **`DualCLIPLoader`** — loads **both** `qwen_0.6b_ace15.safetensors` and
    `qwen_4b_ace15.safetensors` with `type: ace` (both are required; the loader
    will fail if either is missing).
