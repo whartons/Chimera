@@ -531,13 +531,25 @@ def test_the_context_cache_counts_parallel_slots_and_needs_flash_attention_to_sh
     assert gpu._kv_cache_bytes(_JUDGE_SHOW) > 3 * one
 
 
-def test_room_counts_the_models_ollama_already_holds():
-    # ComfyUI can't see Ollama's resident models either: a second model needs room beside them
+def test_room_counts_the_models_ollama_already_holds_on_windows(monkeypatch):
+    # on Windows ComfyUI can't see Ollama's resident models either: a second model needs room beside them
+    monkeypatch.setattr(sys, "platform", "win32")
     asked = []
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
     c.make_room = asked.append
     c._ensure_room(_opener=_server(_TAGS, []))
     assert asked[0] > 6_100_000_000 + 20_000_000_000 + 6 * 2**30   # the two resident models + its own need
+
+
+def test_elsewhere_the_room_is_just_the_models_own_need(monkeypatch):
+    # Linux and macOS drivers report device-wide free memory, resident models included: adding them again made a
+    # second local model wait 30 s and fall back (2026-10 review)
+    monkeypatch.setattr(sys, "platform", "linux")
+    asked = []
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c.make_room = asked.append
+    c._ensure_room(_opener=_server(_TAGS, []))
+    assert 0 < asked[0] < 6_100_000_000 + 20_000_000_000
 
 
 def test_no_room_check_when_ollama_is_down_or_lacks_the_model():
