@@ -22,6 +22,16 @@ All notable changes to Chimera are documented here. The format follows
   - Dependabot also updates the pre-commit hooks, with Actions and hooks grouped into one PR each.
 
 ### Changed
+- **blender_mcp → `dbbf836`** (v1.0.2 +3, re-audited): large responses such as screenshots and renders were cut off
+  when the socket's send buffer filled; the bundled manual and API docs now cover Blender 5.2; the MCP SDK is
+  locked below 2. Install the add-on from the same commit. Checked live on Blender 5.2.2 LTS: the add-on from
+  this commit answers the bridge, and a full-window screenshot arrives in one piece.
+- **Reference host apps:** Blender 5.2.2 LTS (the 5.1 line reached end of life on 2026-07-14) and Ollama 0.40.5.
+  Re-checked live: the CAD loop (code-gen, FreeCAD, the Blender 5.2.2 render and the judge; PASS on the first
+  try) and the image loop on Ollama 0.40.5.
+- **ComfyUI-LTXVideo stays at `15d09ab`** until our STG fix lands upstream. `44c8a36` was re-audited and is clean,
+  but it changes none of the three nodes Chimera uses and adds two dependencies; the weekly report shows the
+  hold instead of a warning, until upstream moves past the re-audit.
 - **ruff is pinned to one minor**, 0.17.x, in the `[dev]` extra, `requirements-dev.txt` and the pre-commit hook
   (which was on 0.15.16), so a new ruff can't break CI unannounced.
 - The host apps' reference versions are listed in `docs/STACK.md` §7, and a test keeps the report's table in step.

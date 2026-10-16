@@ -15,7 +15,9 @@ in [`STACK.md`](STACK.md) (pins in §3–§4, host apps in §7).
 | **The update report**, Mondays 14:00 UTC, refreshed in one "🔄 Weekly update report" issue | [`update-check.yml`](../.github/workflows/update-check.yml), [`update_report.py`](../scripts/update_report.py) | ⚠️ under *Security advisories*: see [Event-driven](#event-driven). ⚠️ pins behind upstream, ℹ️ newer host-app releases and a release line past its end of life: the next monthly window. |
 | **The comfyui-mcp security gate**, Mondays 13:00 UTC: a Claude routine on the maintainer's claude.ai account that deep-scans a new comfyui-mcp release before it can be adopted, opens a bump PR only after a clean scan, and keeps the HOLD issue current, commenting only when something about the hold changes | claude.ai routine | Read its PR, or its comment on the HOLD issue, when one appears. |
 
-The report never moves a pin. It flags a security advisory when its version range covers the version we run,
+The report never moves a pin. A pin held on purpose (`GIT_HOLDS` and `NPM_HOLDS` in the script) shows as held,
+with the reason, and warns again once upstream moves past the commit it was re-audited up to. It flags a
+security advisory when its version range covers the version we run,
 or, when it gives no range the script can read, when it was published after the pinned commit (or in the
 last five weeks, for a host app). comfyui-mcp shows as *held by policy* while it stays below npm's latest on
 purpose.

@@ -28,8 +28,12 @@ GIT_PACKS = [
     ("ComfyUI_IPAdapter_plus", "cubiq", "ComfyUI_IPAdapter_plus", "a0f451a"),
     ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "78bf023"),
 ]
+# git packs held behind upstream on purpose: (commit re-audited up to, why). The report stays quiet until upstream
+# moves past the audited commit. LTXVideo: 44c8a36 changes nothing Chimera uses and adds two dependencies, and
+# still needs our STG patch, so it moves once our fix lands upstream.
+GIT_HOLDS = {"Lightricks/ComfyUI-LTXVideo": ("44c8a36", "until our STG fix, Lightricks/ComfyUI-LTXVideo#580, lands")}
 # blender_mcp lives on Blender's Gitea (not GitHub) — checked via the Gitea compare API.
-GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "4309a396")]
+GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "dbbf836a")]
 NPM_PACKS = [("comfyui-mcp (MCP bridge)", "comfyui-mcp", "0.18.0")]
 # npm packages held below their latest on purpose, with the issue that tracks why (comfyui-mcp: default-on
 # self-update and panel auto-install; the weekly security routine re-scans new releases there)
@@ -40,9 +44,9 @@ COMFY_REF = "0.40.0"   # the reference build documented in docs/STACK.md / SETUP
 # The host apps besides ComfyUI that Chimera is validated against (docs/STACK.md §7 — keep in sync): (name,
 # reference version, GitHub repo for releases + security advisories, endoflife.date product for end of life)
 HOST_APPS = [
-    ("Ollama", "0.40.4", "ollama/ollama", None),
+    ("Ollama", "0.40.5", "ollama/ollama", None),
     ("FreeCAD", "1.1.4", "FreeCAD/FreeCAD", None),
-    ("Blender", "5.1.2", None, "blender"),
+    ("Blender", "5.2.2", None, "blender"),
     ("Node.js", "24", None, "nodejs"),
     ("Python (CI)", "3.12", None, "python"),
 ]
@@ -110,6 +114,15 @@ def check_git_pack(name, owner, repo, pin):
         if ahead == 0:
             return ("ok", f"**{name}** — pin `{pin}` is current with `{branch}`.")
         newest = (cmp.get("commits") or [{}])[-1].get("sha", "")[:7]
+        hold = GIT_HOLDS.get(f"{owner}/{repo}")
+        if hold:
+            audited, why = hold
+            since = _gh(f"/repos/{owner}/{repo}/compare/{audited}...{branch}").get("ahead_by", 0)
+            if since == 0:
+                return ("info", f"**{name}** — held at `{pin}` {why}; `{branch}` (`{newest}`, {ahead} commit(s) "
+                                f"ahead) was re-audited up to `{audited}`.")
+            return ("warn", f"**{name}** — held at `{pin}` {why}, but `{branch}` has **{since} new commit(s)** "
+                            f"since the re-audit at `{audited}` (newest `{newest}`). RE-AUDIT them (see UPDATING.md).")
         return ("warn", f"**{name}** — pin `{pin}` is **{ahead} commit(s) behind** `{branch}` "
                         f"(newest `{newest}`). RE-AUDIT the diff before bumping (see UPDATING.md).")
     except Exception as e:

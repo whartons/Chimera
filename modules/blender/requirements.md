@@ -26,10 +26,10 @@ Python packages need to be installed separately; the addon ships its own depende
 |---|---|
 | **Server** | `lab/blender_mcp` |
 | **Source** | Gitea — `projects.blender.org/lab/blender_mcp` |
-| **Pinned ref** | commit `4309a39646e644261624bfcd2bca669b343b7621` (`v1.0.0` +5) |
+| **Pinned ref** | commit `dbbf836ad4b1025f14a2b3b504c43903f39e0b04` (`v1.0.2` +3) |
 | **License** | GPL-3.0-or-later |
 | **Python deps** | `docutils`, `mcp[cli]` (**constrained `<2` at launch** — see Launcher), `pyyaml` — fetched automatically by `uv`, unpinned (the commit pin fixes only the server's own code) |
-| **Launcher** | `uvx --with "mcp[cli]~=1.12" --from "git+https://projects.blender.org/lab/blender_mcp@4309a39646e644261624bfcd2bca669b343b7621#subdirectory=mcp" blender-mcp` (server package is in the repo's `mcp/` subdir; the `--with` pins the MCP SDK to 1.x — upstream imports `mcp.server.fastmcp`, which SDK 2.x renamed, and does not bound the dep) |
+| **Launcher** | `uvx --with "mcp[cli]~=1.12" --from "git+https://projects.blender.org/lab/blender_mcp@dbbf836ad4b1025f14a2b3b504c43903f39e0b04#subdirectory=mcp" blender-mcp` (server package is in the repo's `mcp/` subdir; the `--with` pins the MCP SDK to 1.x — upstream imports `mcp.server.fastmcp`, which SDK 2.x renamed, and does not bound the dep) |
 | **Console script** | `blender-mcp` (module: `blmcp`) |
 | **Addon path** | `addon/blender_mcp_addon/` inside the pinned repo |
 | **Addon destination** | Blender's add-ons/extensions directory (installed via `Edit → Preferences → Add-ons → Install from Disk`) |
