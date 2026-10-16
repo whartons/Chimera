@@ -196,22 +196,27 @@ _DEFAULT_CTX = 32768                             # the context assumed when a mo
 _OFF = ("0", "false", "no", "off")
 
 
-def _kv_cache_bytes(show):
+def _kv_cache_bytes(show, unpinned_ctx=None):
     """The context cache Ollama allocates for a model, from /api/show: attention layers x KV heads x (key +
     value dims) x context x bytes per element, for each of OLLAMA_NUM_PARALLEL slots. A quantized cache type
     needs flash attention, so with OLLAMA_FLASH_ATTENTION off the cache stays f16. None when the
     architecture keys are missing.
 
-    The context is num_ctx when the model pins it, else OLLAMA_CONTEXT_LENGTH, else the model's trained length:
-    with neither set, Ollama 0.40 sizes the context to the VRAM it sees, up to that length. It gave the 8B judge
-    32k beside a loaded ComfyUI (2026-10-15) but 256k on a free card (2026-10-16: 16.3 GB resident, not 6.6),
-    so a 32k estimate let a medium- or small-tier judge load 7-8 GB more than the room asked of ComfyUI."""
+    The context is num_ctx when the model pins it, else OLLAMA_CONTEXT_LENGTH, else `unpinned_ctx` if given,
+    else the model's trained length: with neither set, Ollama 0.40 sizes the context to the VRAM it sees, up to
+    that length. It gave the 8B judge 32k beside a loaded ComfyUI (2026-10-15) but 256k on a free card
+    (2026-10-16: 16.3 GB resident, not 6.6), so a 32k estimate let a medium- or small-tier judge load 7-8 GB more
+    than the room asked of ComfyUI."""
     info = show.get("model_info") or {}
     arch = info.get("general.architecture")
-    layers, kv_heads = info.get(f"{arch}.block_count"), info.get(f"{arch}.attention.head_count_kv")
+    heads = info.get(f"{arch}.attention.head_count")
+    # no head_count_kv means one KV head per attention head (llama.cpp's default)
+    layers, kv_heads = info.get(f"{arch}.block_count"), info.get(f"{arch}.attention.head_count_kv") or heads
     if not layers or not kv_heads:
         return None
-    heads = info.get(f"{arch}.attention.head_count") or 1
+    if isinstance(heads, list):
+        heads = max(heads) or 1
+    heads = heads or 1
     key = info.get(f"{arch}.attention.key_length") or info.get(f"{arch}.embedding_length", 0) // heads
     dims = key + (info.get(f"{arch}.attention.value_length") or key)
     interval = info.get(f"{arch}.full_attention_interval")
@@ -223,7 +228,8 @@ def _kv_cache_bytes(show):
         per_token = kv_heads * layers * dims
     trained = info.get(f"{arch}.context_length")
     m = re.search(r"\bnum_ctx\s+(\d+)", show.get("parameters") or "")
-    ctx = int(m.group(1)) if m else (int(os.environ.get("OLLAMA_CONTEXT_LENGTH") or 0) or trained or _DEFAULT_CTX)
+    ctx = int(m.group(1)) if m else (int(os.environ.get("OLLAMA_CONTEXT_LENGTH") or 0) or unpinned_ctx or trained
+                                     or _DEFAULT_CTX)
     ctx = min(ctx, trained or ctx)
     fa_off = os.environ.get("OLLAMA_FLASH_ATTENTION", "").strip().lower() in _OFF
     per_elem = 2.0 if fa_off else _KV_BYTES.get(os.environ.get("OLLAMA_KV_CACHE_TYPE", "").strip().lower(), 2.0)
@@ -234,10 +240,11 @@ def _kv_cache_bytes(show):
     return int(per_token * ctx * per_elem * slots)
 
 
-def vram_need(root, model, _opener=urllib.request.urlopen):
-    """Bytes of GPU memory `model` takes once loaded in Ollama: its weights plus its context cache (from
-    /api/show; a 192k-token context added 13.5 GB to an 18.7 GB model) plus compute buffers. Falls back to
-    the file size x 1.2 + 2 GB when the cache can't be sized; None when Ollama doesn't list the model."""
+def vram_need_range(root, model, _opener=urllib.request.urlopen):
+    """(floor, full) bytes of GPU memory `model` takes once loaded in Ollama: its weights plus its context cache
+    (from /api/show) plus compute buffers, `full` at the context Ollama may give it (see _kv_cache_bytes) and
+    `floor` at a 32k context when nothing pins one (the same figure when something does). Falls back to the
+    file size x 1.2 + 2 GB for both when the cache can't be sized; None when Ollama doesn't list the model."""
     try:
         models = _call(root + "/api/tags", _opener=_opener).get("models") or []
     except Exception:
@@ -247,15 +254,25 @@ def vram_need(root, model, _opener=urllib.request.urlopen):
     if size is None:
         return None
     try:
-        kv = _kv_cache_bytes(_call(root + "/api/show", {"model": model}, timeout=20, _opener=_opener))
+        show = _call(root + "/api/show", {"model": model}, timeout=20, _opener=_opener)
+        full, floor = _kv_cache_bytes(show), _kv_cache_bytes(show, unpinned_ctx=_DEFAULT_CTX)
     except Exception:
-        kv = None
-    if kv is None:
-        return int(size * 1.2) + 2 * _GB
-    return int(size * 1.1) + kv + int(1.5 * _GB)
+        full = floor = None
+    if full is None or floor is None:
+        return (int(size * 1.2) + 2 * _GB,) * 2
+    base = int(size * 1.1) + int(1.5 * _GB)
+    return base + floor, base + full
 
 
-def make_room(comfy_client, need_bytes, *, wait=30.0, poll=1.0, _sleep=time.sleep, _clock=time.monotonic):
+def vram_need(root, model, _opener=urllib.request.urlopen):
+    """Bytes of GPU memory `model` takes once loaded in Ollama at the largest context it may get (the `full`
+    figure of vram_need_range); None when Ollama doesn't list the model."""
+    r = vram_need_range(root, model, _opener=_opener)
+    return r[1] if r else None
+
+
+def make_room(comfy_client, need_bytes, *, floor_bytes=None, wait=30.0, poll=1.0, _sleep=time.sleep,
+              _clock=time.monotonic):
     """Before a local Ollama model loads: when ComfyUI reports less than `need_bytes` of the card free
     (outside its own cache), ask it to unload its models (POST /free) and wait, up to `wait` seconds, for
     the memory to come back. True once there is room; False if it never came, or if ComfyUI stopped
@@ -269,24 +286,31 @@ def make_room(comfy_client, need_bytes, *, wait=30.0, poll=1.0, _sleep=time.slee
 
     A model bigger than the card needs ComfyUI emptied rather than trimmed, so it always asks ComfyUI to
     unload, and the target is capped at the card minus 3 GB for the desktop. Past that, Ollama's own fitting
-    puts the overflow on the CPU, which is safe once nothing it can't see holds the card."""
+    puts the overflow on the CPU, which is safe once nothing it can't see holds the card.
+
+    `floor_bytes` is the model's need at the smallest context Ollama would give it (32k when nothing pins one,
+    vram_need_range): Ollama sizes an unpinned context to the room it sees, so once ComfyUI has emptied (it
+    holds under 1 GB) and the floor fits, the load is safe without the full-context figure. Without that, a
+    full-context estimate near the card's size (an f16 cache at 256k) refused every judge load whenever the
+    desktop, a browser or OBS held more than 3 GB (2026-10 review)."""
     def card():
         dev = _cuda_device(comfy_client)
         if dev is None:
             return None
-        return (dev.get("vram_free") or 0) - (dev.get("torch_vram_free") or 0), dev["vram_total"]
+        free = (dev.get("vram_free") or 0) - (dev.get("torch_vram_free") or 0)
+        return free, dev["vram_total"], dev.get("torch_vram_total")   # the last: ComfyUI's own reservation
     try:
         seen = card()
     except Exception:
         return None
     if seen is None:
         return None
-    free, total = seen
+    free, total, _ = seen
     capped = need_bytes > total - 3 * _GB
-    need_bytes = min(need_bytes, total - 3 * _GB)
-    if free >= need_bytes and not capped:
+    target = min(need_bytes, total - 3 * _GB)
+    if free >= target and not capped:
         return True
-    why = ("is bigger than the card's free memory" if capped else f"needs about {need_bytes / _GB:.1f} GB")
+    why = ("is bigger than the card's free memory" if capped else f"needs about {target / _GB:.1f} GB")
     print(f"[gpu] ComfyUI leaves {free / _GB:.1f} GB of the card free and the local LLM {why}: asking ComfyUI "
           "to unload its models first", file=sys.stderr)
     try:
@@ -297,7 +321,9 @@ def make_room(comfy_client, need_bytes, *, wait=30.0, poll=1.0, _sleep=time.slee
     while _clock() < deadline:
         _sleep(poll)
         try:
-            if card()[0] >= need_bytes:
+            free, _, held = card()
+            emptied = held is not None and held < _GB
+            if free >= target or (floor_bytes is not None and emptied and free >= floor_bytes):
                 return True
         except Exception:
             pass   # a busy or wedged ComfyUI: keep waiting until the deadline, then refuse

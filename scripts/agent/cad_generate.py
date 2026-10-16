@@ -75,10 +75,12 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
         except LLMError:
             raise
         except Exception as exc:
-            state["error"] = str(exc)[-1500:]
+            if state.get("stage") == "script":   # a Blender timeout or a locked file isn't the script's failure
+                state["error"] = str(exc)[-1500:]
             raise
 
     def _generate_once(pos, seed, feedback, tag):
+        state["stage"] = "codegen"
         script = generator.generate_script(args.subject, fix_feedback=feedback)
         state["first"] = False
         # off the GPU before Blender renders (and a --backend local judge loads in ComfyUI): neither can see
@@ -90,6 +92,7 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
                 # an LLMError, like the GPU's "no room": the script didn't fail, so code-gen isn't told it did
                 raise LLMError(f"the code-gen model {client.model} is still loaded in Ollama, so not rendering "
                                "beside it; `python scripts/generate.py free` unloads it")
+        state["stage"] = "script"   # from here to the STL, a failure is the script's (pre-filter, FreeCAD, outputs)
         try:
             _assert_safe(script)   # the loop execs LLM-authored scripts — reject obvious escapes
         except RuntimeError:
@@ -110,6 +113,7 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
             stl = next((o for o in job_outputs(cad_mani, tmp, RuntimeError) if o.lower().endswith(".stl")), None)
             if not stl:
                 raise RuntimeError("cad code-gen produced no STL")
+            state["stage"] = "render"
             # 3. render a 4-view contact sheet (Blender) for the judge — shared eval stage
             mani, sheet_tmp = eval_contact_sheet(
                 stl, tmp, stem, template=eval_tmpl, samples=args.samples, res=args.res,

@@ -116,7 +116,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **1071 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **1080 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -271,7 +271,7 @@ high: on a smaller card, take the route in the last column (the agent loop picks
 | music / sfx | Stable Audio 3 Medium | ~14 GB of weights | ComfyUI's offloading |
 | foley | HunyuanVideo-Foley (fp8) | ~12–16 GB peak | it already offloads between passes (`force_offload`, on by default) |
 | 3D | TRELLIS.2 (int8) | ~8 GB of weights, 12–15 GB at its busiest: a 16–24 GB card is enough | `--model hunyuan21` (shape only, ~8–10 GB peak) with a lower `--octree`, or ComfyUI's offloading |
-| agent loop | Qwen 3.8 27B for every role (32 GB+ cards) | 16.5 GB as the judge (at a 32k context) | automatic: a Qwen3-VL 8B judge on 12–24 GB (6.6 GB at a 32k context; Ollama gives it up to its full 256k, 16 GB, when the card has room), 4B under 12 GB (4.4 GB at 32k); CAD code-gen stays the 27B, partly on the CPU (`--llm-tier` to choose) |
+| agent loop | Qwen 3.8 27B for every role (32 GB+ cards) | 16.5 GB as the judge (a q4_0 cache at a 32k context) | automatic: a Qwen3-VL 8B judge on 12–24 GB (6.6 GB at 32k; Ollama gives it up to its full 256k, 16 GB, when the card has room), 4B under 12 GB (4.4 GB at 32k); sizes with `OLLAMA_KV_CACHE_TYPE=q4_0`, see [SETUP](docs/SETUP.md#local-models-for-the-self-correction-loops); CAD code-gen stays the 27B, partly on the CPU (`--llm-tier` to choose) |
 
 A lighter quantized file of the same model can be named with `--model <file>` or pinned in a brand; GGUF files
 need the `ComfyUI-GGUF` pack's loader nodes (see each module's `models.md`). NVFP4's speed-up needs an RTX

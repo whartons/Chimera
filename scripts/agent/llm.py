@@ -163,11 +163,18 @@ class LLMClient:
         scheme, host, _ = _origin(self.base_url)
         if self.api_key and scheme == "http" and not gpu.is_local(self.base_url):
             print(f"warning: the LLM API key goes to {host} unencrypted (http://); use https", file=sys.stderr)
-        # set by the agent loops: frees ComfyUI's VRAM before this model loads in a local Ollama (gpu.make_room)
+        # set by the agent loops: frees ComfyUI's VRAM before this model loads in a local Ollama (gpu.make_room),
+        # called as make_room(full_bytes, floor_bytes)
         self.make_room = None
+        self._planned = None   # the full-context bytes the room check planned for, checked after the load
 
     def chat(self, messages, *, max_tokens=2048, temperature=0.4, _opener=urllib.request.urlopen) -> str:
         self._ensure_room(_opener)
+        content = self._chat(messages, max_tokens, temperature, _opener)
+        self._check_planned(_opener)
+        return content
+
+    def _chat(self, messages, max_tokens, temperature, _opener) -> str:
         try:
             return self._chat_once(messages, max_tokens, temperature, self.reasoning_effort, _opener)
         except _ThinkingExhausted as first:
@@ -254,17 +261,34 @@ class LLMClient:
         loaded = gpu.loaded_models(root, _opener=_opener)
         if any(gpu.same_model(n, self._ollama_name()) for n, _ in loaded):
             return
-        need = gpu.vram_need(root, self._ollama_name(), _opener=_opener)
+        need = gpu.vram_need_range(root, self._ollama_name(), _opener=_opener)
         if not need:
             return   # Ollama doesn't have the model, so the request fails without loading anything
+        floor, full = need
+        self._planned = full
         # On Windows ComfyUI can't see the models already resident in Ollama either (another role's, say), so
         # the room it reports must cover them too. Elsewhere the driver's free figure already counts them.
-        if sys.platform == "win32":
-            need += sum(v for _, v in loaded)
-        if self.make_room(need) is False:
-            raise LLMError(f"not loading {self.model}: the GPU has no room for it (about {need / 2**30:.0f} GB "
-                           "with the models Ollama already holds) even after asking ComfyUI to unload its "
-                           "models. Close other GPU apps or run `python scripts/generate.py free`, then retry.")
+        held = sum(v for _, v in loaded) if sys.platform == "win32" else 0
+        if self.make_room(full + held, floor + held) is False:
+            raise LLMError(f"not loading {self.model}: the GPU has no room for it even after asking ComfyUI to "
+                           f"unload its models (it needs about {(floor + held) / 2**30:.0f} GB at a 32k context"
+                           f"{', with the models Ollama already holds' if held else ''}). Close other GPU apps or "
+                           "run `python scripts/generate.py free`, then retry.")
+
+    def _check_planned(self, _opener=urllib.request.urlopen):
+        """After a load the room check sized, warn when Ollama took more than planned. The estimate reads Ollama's
+        settings (OLLAMA_KV_CACHE_TYPE, OLLAMA_CONTEXT_LENGTH, OLLAMA_FLASH_ATTENTION) from Chimera's own
+        environment, so a server started with others is the one way it can still come out low."""
+        planned, self._planned = self._planned, None
+        if not planned or not self._ollama:
+            return
+        size = next((v for n, v in gpu.loaded_models(gpu.ollama_root(self.base_url), _opener=_opener)
+                     if gpu.same_model(n, self._ollama_name())), 0)
+        if size > planned:
+            print(f"warning: Ollama loaded {self.model} at {size / 2**30:.1f} GB, more than the {planned / 2**30:.1f} "
+                  "GB the GPU check planned for. Chimera reads OLLAMA_KV_CACHE_TYPE, OLLAMA_CONTEXT_LENGTH and "
+                  "OLLAMA_FLASH_ATTENTION from its own environment: set them where Ollama runs too (as user "
+                  "environment variables, say), so the check sizes models right", file=sys.stderr)
 
     def resident(self, _opener=urllib.request.urlopen) -> bool:
         """True when this client's model is loaded in a local Ollama."""

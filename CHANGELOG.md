@@ -325,8 +325,9 @@ loop's FreeCAD process and the MCP approval gates.
   `# ball-and-socket` comment failed the pre-filter, so a "hex socket organizer" brief failed every iteration;
   it now rejects only a line that imports one of those modules (a shape named `socket`, or `# dims from
   http://…`, is fine, and restricted scripts can't import them anyway). A rejected first script's reason now
-  reaches the retry, an LLM or GPU error is no longer reported to code-gen as a script failure, and a code-gen
-  model that won't unload stops the iteration before Blender renders beside it. The code-gen prompt now
+  reaches the retry, an LLM, GPU or Blender error (a render timeout, a locked file) is no longer reported to
+  code-gen as a script failure, and a code-gen model that won't unload stops the iteration before Blender renders
+  beside it. The code-gen prompt now
   states what the loop checks: the part must be one connected solid, and a cut only removes material that is
   there. In a live run on that organizer brief, the model had cut its sockets into the tray's empty cavity
   (nothing removed, 0 of 4 iterations), then added rims floating in the cavity (7 pieces); with both rules
@@ -381,18 +382,26 @@ loop's FreeCAD process and the MCP approval gates.
   the hand-off assumed 32k (9.1 and 6.1 GB), so beside a loaded ComfyUI they would have overcommitted the card:
   the PC-freeze path. The estimate now assumes the full trained context unless one is pinned, counts the cache
   only on a hybrid model's attention layers (Qwen 3.8 keeps one every 4th layer), and sizes a missing
-  `value_length` from the key length: 17.9 GB for the 8B, 15.0 for the 4B, 24.5 for the 27B. Re-checked live on
-  each tier (the 8B now asks ComfyUI to unload first, where before it would have loaded beside it).
+  `value_length` from the key length: with a q4_0 cache, 17.9 GB for the 8B, 15.0 for the 4B, 24.5 for the 27B.
+  Re-checked live on each tier (the 8B now asks ComfyUI to unload first, where before it would have loaded beside
+  it); measured on the 27B, the cache grew 0.72 GB from a 32k to a 128k context, under the estimate's 1.8. With
+  Ollama's default f16 cache the full-context figure can exceed the card, so the check also accepts once
+  ComfyUI has emptied and the model fits at a 32k context (Ollama sizes the context to the room it sees):
+  otherwise every judge load was refused whenever the desktop or a browser held 3 GB. After a load, the loop
+  warns when Ollama took more than planned, since the check reads Ollama's settings from Chimera's own
+  environment; SETUP.md says where to set them.
 - **`chimera update-check` called a ComfyUI ahead of the latest release outdated** (0.41.1 against the v0.41.0
-  release; ComfyUI tags versions before it publishes them as releases). It now compares version numbers, and both
-  update checks query `Comfy-Org/ComfyUI` directly (the old path only answered through a redirect).
+  release; ComfyUI tags versions before it publishes them as releases). It now compares version numbers (`0.41`
+  equals `v0.41.0`, and a release candidate comes before its release), and both update checks query
+  `Comfy-Org/ComfyUI` directly (the old path only answered through a redirect).
 - **A brand name that isn't a folder name is refused before anything renders** (`generate.py` and
   `auto_generate.py`). It was refused only when routing the output, after the GPU work, leaving the file in
   ComfyUI's folder.
 - **The GPU hand-off fits more setups:** `--finalize` is skipped with the command to run it later, rather than
-  repainting beside a judge that won't unload; and the models Ollama already holds
-  count toward the room asked of ComfyUI on Windows only (Linux and macOS drivers already include them, so a
-  second local model waited 30 s and fell back).
+  repainting beside a judge that won't unload; the models Ollama already holds count toward the room asked of
+  ComfyUI on Windows only (Linux and macOS drivers already include them, so a second local model waited 30 s and
+  fell back); and an image run on a ComfyUI at a non-loopback address, which the room check doesn't cover, warns
+  about another app's model that won't unload instead of stopping.
 
 ### Changed
 - **The agent loops run on local Ollama models sized to your GPU, with nothing to configure.**

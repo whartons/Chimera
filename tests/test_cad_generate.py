@@ -291,3 +291,27 @@ def test_each_pre_filter_rule_rejects_on_its_own(bad):
     # each used to be caught only by another rule in the same test string
     with pytest.raises(RuntimeError, match="disallowed"):
         CG._assert_safe(bad)
+
+
+def test_a_blender_failure_is_not_reported_to_code_gen_as_a_script_failure(tmp_path):
+    # "The previous script failed: Blender timed out after 1800 s" sent code-gen rewriting a script that was fine
+    gen = _Gen("box = 1")
+    fc, _ = _ok_runners(tmp_path)
+
+    def bl(*a, **k):
+        raise RuntimeError("blender job timed out after 1800s")
+    g = CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc, blender_runner=bl)
+    with pytest.raises(RuntimeError, match="timed out"):
+        g("p", "", 1)
+    with pytest.raises(RuntimeError):
+        g("P1", "", 2)
+    assert "previous script failed" not in (gen.calls[-1][1] or "")
+    # a FreeCAD failure still is: that's the script's own
+    def bad_fc(*a, **k):
+        raise RuntimeError("FreeCAD: Part.OCCError: Shape is null")
+    g = CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=bad_fc, blender_runner=bl)
+    with pytest.raises(RuntimeError):
+        g("p", "", 3)
+    with pytest.raises(RuntimeError):
+        g("P1", "", 4)
+    assert "The previous script failed: FreeCAD: Part.OCCError" in gen.calls[-1][1]

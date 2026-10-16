@@ -245,7 +245,7 @@ def test_the_loop_lets_local_llms_make_room_on_a_local_comfyui(monkeypatch):
         return seen[role]
     monkeypatch.setattr(LLM, "client_for_role", client_for)
     monkeypatch.setattr(AG, "ComfyClient", lambda url: types.SimpleNamespace(base=url))
-    monkeypatch.setattr(AG.gpu, "make_room", lambda client, need: made.append((client.base, need)))
+    monkeypatch.setattr(AG.gpu, "make_room", lambda client, need, floor_bytes=None: made.append((client.base, need)))
     monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
     monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))
     monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "a knight", "--comfy-output-dir", "/tmp/o"])
@@ -333,6 +333,17 @@ def test_the_loop_will_not_start_beside_a_model_ollama_will_not_unload(monkeypat
         AG._clear_other_ollama_models([judge])
 
 
+def test_an_image_run_on_a_non_local_comfyui_only_warns_about_a_model_that_will_not_unload(monkeypatch, capsys):
+    # the GPU checks cover a ComfyUI given as localhost / 127.0.0.1; one elsewhere (a hosted judge, say) was
+    # refused because another app's busy Ollama model wouldn't unload, though nothing rendered on this machine
+    import types
+    judge = types.SimpleNamespace(base_url="https://api.openai.com/v1", ollama_name="gpt-4o:latest")
+    monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: [])
+    monkeypatch.setattr(AG.gpu, "loaded_models", lambda root: [("other-tool:latest", 18 * 2**30)])
+    AG._clear_other_ollama_models([judge], strict=False)
+    assert "going on" in capsys.readouterr().err
+
+
 
 # --- 2026-10 third review: main() wiring --------------------------------------------------------------
 import types  # noqa: E402
@@ -359,7 +370,7 @@ def _main_capture(monkeypatch, argv, **patch):
 def test_main_clears_other_ollama_models_before_the_first_render(monkeypatch):
     seen = []
     _main_capture(monkeypatch, ["--subject", "x", "--comfy-output-dir", "/tmp/o", "--llm-tier", "small"],
-                  _clear_other_ollama_models=lambda llms: seen.append([getattr(c, "role", None) for c in llms]))
+                  _clear_other_ollama_models=lambda llms, strict=True: seen.append([getattr(c, "role", None) for c in llms]))
     assert seen == [[None, "judge", None]]
 
 
@@ -393,9 +404,10 @@ def test_a_comfyui_given_by_lan_address_still_gets_the_gpu_hand_back(monkeypatch
     real_hand = AG._hand_gpu_back
     _main_capture(monkeypatch, ["--subject", "x", "--comfy-output-dir", "/tmp/o", "--llm-tier", "small",
                                 "--comfy-url", "http://10.0.0.5:8188"],
-                  _clear_other_ollama_models=lambda llms: cleared.append(llms),
+                  _clear_other_ollama_models=lambda llms, strict=True: cleared.append((llms, strict)),
                   _hand_gpu_back=lambda gen, clients: handed.append([c.role for c in clients if c]) or real_hand(gen, clients))
     assert len(cleared) == 1 and handed == [["judge"]]
+    assert cleared[0][1] is False      # the unload still runs; only a model that won't unload is let through
 
 
 def test_simple_mistakes_are_one_line_errors(monkeypatch, capsys):
@@ -437,7 +449,7 @@ def test_a_judge_ollama_cannot_serve_stops_the_run_before_anything_renders(monke
     # with Ollama down the run rendered every iteration (3D meshes and Blender too) and failed at each judging
     monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: False)
     monkeypatch.setattr(AG, "run_loop", lambda **kw: pytest.fail("nothing may render"))
-    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms: pytest.fail("nor unload anything"))
+    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms, strict=True: pytest.fail("nor unload anything"))
     monkeypatch.setattr(sys, "argv", ["auto_generate.py", "--subject", "x", "--comfy-output-dir", "/tmp/o",
                                       "--llm-tier", "small"])
     with pytest.raises(SystemExit) as e:
@@ -450,7 +462,7 @@ def test_a_missing_rewriter_model_only_warns(monkeypatch, capsys):
     # --rewrite-prompts falls back to the templated expander on any rewriter error, so the run goes on
     monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: True)
     monkeypatch.setattr(AG.gpu, "pulled_models", lambda root, **k: ["qwen3-vl:4b-instruct"])
-    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms: None)
+    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms, strict=True: None)
     monkeypatch.setattr(AG, "ComfyClient", lambda url: object())
     monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
     monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))

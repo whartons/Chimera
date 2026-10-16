@@ -70,7 +70,7 @@ def test_finalize_is_skipped_beside_a_model_that_will_not_unload(monkeypatch, tm
         def release(self): return False
         def resident(self): return True
     monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: Stuck())
-    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms: None)
+    monkeypatch.setattr(AG, "_clear_other_ollama_models", lambda llms, strict=True: None)
     _run(["--pipeline", "mesh3d", "--mesh-model", "hunyuan21", "--subject", "a mug", "--finalize",
           "--comfy-output-dir", str(tmp_path), "--llm-tier", "small"], monkeypatch)
     assert "hit" not in seen and "[finalize] skipped" in capsys.readouterr().err

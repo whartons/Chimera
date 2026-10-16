@@ -459,7 +459,7 @@ def test_a_resident_model_never_asks_for_room():
     tags = {**_OLLAMA, ("GET", "/api/tags"): {"models": [{"name": "qwen3-vl:8b-instruct", "size": 6 * 2**30}]}}
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
     asked = []
-    c.make_room = lambda need: asked.append(need) or False     # a full card would refuse a NEW load
+    c.make_room = lambda need, floor=None: asked.append(need) or False     # a full card would refuse a NEW load
     c._ensure_room(_opener=_server(tags, []))                   # already loaded: nothing to make room for
     assert asked == []
 

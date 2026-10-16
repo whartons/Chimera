@@ -151,14 +151,15 @@ def _share_gpu(client, llms):
         return
     for llm in llms:
         if llm is not None:
-            llm.make_room = lambda need: gpu.make_room(client, need)
+            llm.make_room = lambda need, floor=None: gpu.make_room(client, need, floor_bytes=floor)
 
 
-def _clear_other_ollama_models(llms):
+def _clear_other_ollama_models(llms, strict=True):
     """Before the first render, unload local Ollama models this run didn't load (another tool's, or an
     earlier run's): ComfyUI can't see their memory, so a render beside them can overcommit the card the way
     the judge did on 2026-10-15. Checks the run's own local endpoints and the default Ollama; honours
-    CHIMERA_KEEP_LLM_LOADED=1."""
+    CHIMERA_KEEP_LLM_LOADED=1. A model that won't unload stops the run unless `strict` is off (an image run on
+    a ComfyUI at a non-loopback address, which the GPU checks don't cover): then it only warns."""
     if gpu.keep_llms_loaded():
         return
     live = [llm for llm in llms if llm is not None and gpu.is_local(getattr(llm, "base_url", ""))]
@@ -171,7 +172,11 @@ def _clear_other_ollama_models(llms):
             print(f"[gpu] unloaded {name} ({vram / 2**30:.1f} GB) from Ollama before rendering: ComfyUI can't "
                   "see that memory, so rendering beside it could overcommit the card", file=sys.stderr)
         stuck = [n for n, _ in gpu.loaded_models(root) if not any(gpu.same_model(n, k) for k in keep)]
-        if stuck:
+        if stuck and not strict:
+            print(f"[gpu] warning: Ollama still holds {', '.join(stuck)}; going on, since the GPU checks only cover a "
+                  "ComfyUI given as localhost or 127.0.0.1 (if this ComfyUI is on this machine, use that address)",
+                  file=sys.stderr)
+        elif stuck:
             sys.exit(f"[gpu] Ollama still holds {', '.join(stuck)} and rendering beside it could overcommit the "
                      "card (ComfyUI can't see that memory): run `python scripts/generate.py free`, or close the "
                      "app using it, then retry")
@@ -424,8 +429,10 @@ def main():
         ap.error("; ".join(fatal))
     _share_gpu(client, [codegen_llm, judge_llm, rewriter_llm])
     # whatever the ComfyUI URL: one given by LAN address, host name or WSL IP may be this machine, and an
-    # unneeded hand-back only costs a judge reload, where a missing one can overcommit the card
-    _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm])
+    # unneeded hand-back only costs a judge reload, where a missing one can overcommit the card. Only a model
+    # that won't unload is let through for an image run on such a URL (Blender always renders here).
+    _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm],
+                               strict=gpu.is_local(args.comfy_url) or args.pipeline != "image")
 
     if rewriter_llm is not None:
         from scripts.agent.llm import LLMExpander

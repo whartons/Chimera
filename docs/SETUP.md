@@ -114,6 +114,14 @@ model that's missing.
 Any role can use a hosted OpenAI-compatible API instead: see [`.env.example`](../.env.example) and
 [Local models by GPU tier](../modules/agent/self-correction.md#local-models-by-gpu-tier).
 
+**Ollama's memory settings.** With nothing set, Ollama 0.40 gives a model up to its full context when the card has
+room (256k tokens for the Qwen judges) and keeps that cache in f16. On a smaller card, `OLLAMA_KV_CACHE_TYPE=q4_0`
+(with flash attention, Ollama's default) cuts the cache to about a quarter; the reference box runs it, and the
+measured sizes in these docs assume it. The loops' GPU check reads `OLLAMA_KV_CACHE_TYPE`,
+`OLLAMA_CONTEXT_LENGTH`, `OLLAMA_FLASH_ATTENTION` and `OLLAMA_NUM_PARALLEL` from Chimera's own environment, so set
+them where both see them (user environment variables on Windows, then restart the Ollama app). If they differ, the
+loop warns after a load that took more memory than it planned for.
+
 ## DCC / CAD bridges (Blender + FreeCAD)
 These add an assistant-driven bridge to a **live** Blender and FreeCAD (interactive, Phase 1). Both run
 100% locally over a loopback socket. **Headless automation also ships** — `generate.py render` (Blender)

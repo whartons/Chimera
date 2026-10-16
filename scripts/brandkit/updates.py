@@ -55,9 +55,13 @@ def _behind(running, latest):
     """True when the running ComfyUI is older than the latest release. ComfyUI Desktop can run a core version
     ahead of the latest GitHub release (0.41.1 when the latest release was v0.41.0, which was reported as an
     update), so versions compare by number; one that doesn't parse counts as behind when it differs."""
-    def key(v):
-        nums = re.findall(r"\d+", v)
-        return tuple(int(n) for n in nums[:3]) if nums else None
+    def key(v):   # (major, minor, patch, 1 for a release / 0 for a pre-release): '0.41' == 'v0.41.0' < '0.41.1'
+        m = re.match(r"\D*(\d+(?:\.\d+)*)(.*)", v.strip())
+        if not m:
+            return None
+        nums = [int(n) for n in m.group(1).split(".")][:3]
+        pre = re.match(r"[-.+]?(?:rc|a|b|alpha|beta|dev|pre)", m.group(2), re.IGNORECASE)
+        return (*nums, *[0] * (3 - len(nums)), 0 if pre else 1)
     a, b = key(running), key(latest)
     if a is None or b is None:
         return running.lstrip("v") != latest.lstrip("v")

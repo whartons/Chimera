@@ -646,12 +646,14 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
   context cache, read from Ollama: a 192k-token context adds about 13.5 GB to a 27B model, more with
   `OLLAMA_NUM_PARALLEL` above 1; with no `num_ctx` or `OLLAMA_CONTEXT_LENGTH` set, Ollama 0.40 gives a model up
   to its full trained context when the card looks free, 256k for the Qwen judges, so the estimate assumes that),
-  plus, on Windows, whatever Ollama already holds (ComfyUI can't see that
-  there either; Linux and macOS drivers count it), ComfyUI unloads its models (`/free`) and the loop waits up
-  to 30 s for the memory. A model bigger than the card always
-  gets ComfyUI emptied, and Ollama puts the overflow on the CPU. If the room never comes, or ComfyUI stops
-  answering after showing a full card, the model is **not** loaded: the iteration fails with "the GPU has no
-  room for it". The check reads a local CUDA card only (an Apple mps or CPU ComfyUI reports system RAM, so the
+  plus, on Windows, whatever Ollama already holds (ComfyUI can't see that there either; Linux and macOS drivers
+  count it), ComfyUI unloads its models (`/free`) and the loop waits up to 30 s for the memory. A model bigger
+  than the card always gets ComfyUI emptied. Once ComfyUI has emptied, a model that fits at a 32k context
+  loads, since Ollama sizes its context to the room it sees (with an f16 cache the full-context figure can
+  exceed the card). If even that never fits, or ComfyUI stops answering after showing a full card, the model
+  is **not** loaded: the iteration fails with "the GPU has no room for it". After a load, the loop warns when
+  Ollama took more than planned, which means its settings differ from the ones Chimera reads (see
+  [SETUP](../../docs/SETUP.md#local-models-for-the-self-correction-loops)). The check reads a local CUDA card only (an Apple mps or CPU ComfyUI reports system RAM, so the
   loop skips it there).
 - **Before every render** (ComfyUI and, in the CAD loop, Blender) and **when the run ends**, even on failure,
   the loops unload their own resident models (`LLMClient.release`, Ollama's `keep_alive: 0`) and wait until
@@ -660,8 +662,10 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
   run it later) when the judge won't unload before its repaint.
 - **Before the first render**, they unload Ollama models the run didn't load (another tool's, or an earlier
   run's), printing which.
-- **Whatever the ComfyUI URL:** one given by LAN address, host name or WSL IP may be this machine, so both
-  stay on (an unneeded unload only costs a judge reload).
+- **Whatever the ComfyUI URL**, the unloads run: one given by LAN address, host name or WSL IP may be this
+  machine, and an unneeded unload only costs a judge reload. The room check before a model loads needs a
+  ComfyUI given as `localhost` or `127.0.0.1`, though, and on another address an image run only warns about a
+  model Ollama won't unload, so give a ComfyUI on this machine as one of those.
 
 The checks apply to a "local" endpoint: `localhost`, `127.x`, `::1`, or the bind-all `0.0.0.0` / `::` (so
 `OLLAMA_HOST=0.0.0.0` works, read the way Ollama reads it: port 11434 when none is given). This machine's LAN

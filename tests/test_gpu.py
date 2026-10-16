@@ -298,7 +298,7 @@ _TAGS = {**_OLLAMA, ("GET", "/api/tags"): {"models": [{"name": "judge:8b", "size
 def test_a_local_ollama_model_asks_for_room_before_it_loads():
     asked = []
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
-    c.make_room = asked.append
+    c.make_room = lambda need, floor=None: asked.append(need)
     c._ensure_room(_opener=_server(_TAGS, []))
     assert len(asked) == 1 and asked[0] > 6 * 2**30
 
@@ -306,10 +306,10 @@ def test_a_local_ollama_model_asks_for_room_before_it_loads():
 def test_no_room_is_asked_for_a_resident_model_a_remote_server_or_when_unset():
     asked = []
     resident = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
-    resident.make_room = asked.append
+    resident.make_room = lambda need, floor=None: asked.append(need)
     resident._ensure_room(_opener=_server(_TAGS, []))
     remote = LLMClient(base_url="http://192.168.1.50:11434/v1", model="judge:8b")
-    remote.make_room = asked.append
+    remote.make_room = lambda need, floor=None: asked.append(need)
     remote._ensure_room(_opener=_server(_TAGS, []))
     log = []
     LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")._ensure_room(_opener=_server(_TAGS, log))
@@ -321,7 +321,7 @@ def test_chat_makes_room_before_the_request():
     routes = {**_TAGS, ("POST", "/v1/chat/completions"): {"choices": [{"message": {"content": "ok"}}]}}
     opener = _server(routes, order)
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
-    c.make_room = lambda need: order.append(("ROOM", need, None))
+    c.make_room = lambda need, floor=None: order.append(("ROOM", need, None))
     assert c.chat([{"role": "user", "content": "x"}], _opener=opener) == "ok"
     assert [e[0] for e in order].index("ROOM") < [e[1] for e in order].index("/v1/chat/completions")
 
@@ -334,7 +334,7 @@ def test_a_local_model_is_not_loaded_onto_a_card_that_never_frees():
     order = []
     routes = {**_TAGS, ("POST", "/v1/chat/completions"): {"choices": [{"message": {"content": "ok"}}]}}
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
-    c.make_room = lambda need: False
+    c.make_room = lambda need, floor=None: False
     with pytest.raises(LLMError, match="no room"):
         c.chat([{"role": "user", "content": "x"}], _opener=_server(routes, order))
     assert "/v1/chat/completions" not in [p for m, p, b in order]
@@ -369,14 +369,13 @@ _JUDGE_SHOW = {"model_info": {"general.architecture": "qwen3vl", "qwen3vl.block_
 
 
 def test_the_context_cache_is_sized_like_ollama_does(monkeypatch):
-    # real metadata (2026-10-15): Ollama logged a 1296 MiB q4_0 cache for the judge at a 32k context; a
-    # 27B model with a 192k-token context came to ~33 GB resident on an 18.7 GB file
+    # real metadata (2026-10-15): Ollama logged a 1296 MiB q4_0 cache for the judge at a 32k context. The big
+    # fixture is a dense model (every layer caches) pinned to a 192k context by its Modelfile.
     monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
     monkeypatch.setenv("OLLAMA_CONTEXT_LENGTH", "32768")
     assert abs(gpu._kv_cache_bytes(_JUDGE_SHOW) / 2**20 - 1296) < 1
-    monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH")
-    assert 13 < gpu._kv_cache_bytes(_BIG_CTX_SHOW) / 2**30 < 14
-    monkeypatch.delenv("OLLAMA_KV_CACHE_TYPE")                      # f16 cache: four times the bytes, roughly
+    assert 13 < gpu._kv_cache_bytes(_BIG_CTX_SHOW) / 2**30 < 14     # num_ctx outranks OLLAMA_CONTEXT_LENGTH
+    monkeypatch.delenv("OLLAMA_KV_CACHE_TYPE")                      # f16 cache: about 3.6x the bytes
     assert gpu._kv_cache_bytes(_JUDGE_SHOW) / 2**20 > 4000
     assert gpu._kv_cache_bytes({"model_info": {}}) is None
 
@@ -537,7 +536,7 @@ def test_room_counts_the_models_ollama_already_holds_on_windows(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     asked = []
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
-    c.make_room = asked.append
+    c.make_room = lambda need, floor=None: asked.append(need)
     c._ensure_room(_opener=_server(_TAGS, []))
     assert asked[0] > 6_100_000_000 + 20_000_000_000 + 6 * 2**30   # the two resident models + its own need
 
@@ -548,7 +547,7 @@ def test_elsewhere_the_room_is_just_the_models_own_need(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     asked = []
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
-    c.make_room = asked.append
+    c.make_room = lambda need, floor=None: asked.append(need)
     c._ensure_room(_opener=_server(_TAGS, []))
     assert 0 < asked[0] < 6_100_000_000 + 20_000_000_000
 
@@ -556,7 +555,7 @@ def test_elsewhere_the_room_is_just_the_models_own_need(monkeypatch):
 def test_no_room_check_when_ollama_is_down_or_lacks_the_model():
     asked = []
     c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
-    c.make_room = asked.append
+    c.make_room = lambda need, floor=None: asked.append(need)
     c._ensure_room(_opener=_server({}, []))                       # Ollama not answering
     c._ensure_room(_opener=_server(_OLLAMA, []))                  # not pulled: the request fails without loading
     assert asked == []
@@ -644,3 +643,88 @@ def test_model_names_match_however_ollama_spells_them():
     assert gpu.same_model("library/qwen3-vl:8b-instruct", "qwen3-vl:8b-instruct")
     assert gpu.same_model("registry.ollama.ai/library/QWEN3.8:27b", "qwen3.8:27b")
     assert gpu.same_model("mymodel", "mymodel:latest")
+
+
+# --- a full-context estimate bigger than the card must not refuse every load (2026-10 final review) ------------
+class _Desk(_Card):
+    """A 24 GB card where the desktop and a browser hold 3.5 GB that ComfyUI's unload can't give back; ComfyUI
+    itself holds 12 GB until /free."""
+    def system_stats(self):
+        s = super().system_stats()
+        d = s["devices"][0]
+        d["vram_total"] = 24 * 2**30
+        d["torch_vram_total"] = (0.4 if self.freed else 12) * 2**30
+        return s
+
+
+def test_once_comfyui_has_emptied_the_floor_is_enough():
+    # Ollama's default f16 cache at the 8B judge's full 256k context is ~44 GB: capped at the card, the old check
+    # waited for 21 GB free that a desktop holding 3.5 GB never gave, and refused every judge load
+    now, sleep = _clock()
+    card = _Desk(free_gb=8.5, after_free_gb=20.1)
+    assert gpu.make_room(card, 44 * 2**30, floor_bytes=12 * 2**30, _sleep=sleep, _clock=now) is True and card.freed == 1
+    assert gpu.make_room(_Desk(8.5, 20.1), 44 * 2**30, wait=5, _sleep=sleep, _clock=now) is False      # no floor given
+
+    class _Holding(_Desk):   # ComfyUI never lets go (a job running): the floor alone isn't enough
+        def system_stats(self):
+            s = super().system_stats()
+            s["devices"][0]["torch_vram_total"] = 12 * 2**30
+            return s
+    assert gpu.make_room(_Holding(8.5, 20.1), 44 * 2**30, floor_bytes=12 * 2**30, wait=5, _sleep=sleep,
+                         _clock=now) is False
+    assert gpu.make_room(_Desk(8.5, 10.0), 44 * 2**30, floor_bytes=12 * 2**30, wait=5, _sleep=sleep,
+                         _clock=now) is False                                                     # the floor doesn't fit
+
+
+def test_the_floor_is_the_32k_figure_unless_a_context_is_pinned(monkeypatch):
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    tags = {("GET", "/api/tags"): {"models": [{"name": "judge:8b", "size": 6 * 2**30}]}}
+    floor, full = gpu.vram_need_range("http://o", "judge:8b",
+                                      _opener=_server({**tags, ("POST", "/api/show"): _JUDGE_SHOW}, []))
+    assert full - floor == 7 * gpu._kv_cache_bytes(_JUDGE_SHOW, unpinned_ctx=32768)   # 256k is 8x the 32k cache
+    pinned = {**_JUDGE_SHOW, "parameters": "num_ctx 65536"}
+    floor, full = gpu.vram_need_range("http://o", "judge:8b", _opener=_server({**tags, ("POST", "/api/show"): pinned}, []))
+    assert floor == full
+    assert gpu.vram_need_range("http://o", "judge:8b", _opener=_server(tags, [])) == (int(6 * 2**30 * 1.2) + 2 * 2**30,) * 2
+
+
+def test_the_room_check_gets_both_figures_and_names_the_floor_when_it_refuses(monkeypatch):
+    import pytest
+    from scripts.agent.llm import LLMError
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    routes = {**_TAGS, ("POST", "/api/show"): _JUDGE_SHOW}
+    asked = []
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c.make_room = lambda full, floor=None: asked.append((full, floor))
+    c._ensure_room(_opener=_server(routes, []))
+    [(full, floor)] = asked
+    assert floor < full and c._planned is not None
+    c.make_room = lambda full, floor=None: False
+    with pytest.raises(LLMError, match="at a 32k context"):
+        c._ensure_room(_opener=_server(routes, []))
+
+
+def test_a_load_bigger_than_planned_is_reported(capsys):
+    # the estimate reads Ollama's settings from Chimera's environment: a server started with others can load more
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")
+    c._ollama, c._planned = True, 5 * 2**30
+    big = {("GET", "/api/ps"): {"models": [{"name": "judge:8b", "size_vram": 9 * 2**30}]}}
+    c._check_planned(_opener=_server(big, []))
+    assert "more than the 5.0 GB the GPU check planned for" in capsys.readouterr().err and c._planned is None
+    c._planned = 10 * 2**30
+    c._check_planned(_opener=_server(big, []))
+    assert capsys.readouterr().err == ""
+
+
+def test_a_model_without_head_count_kv_caches_one_head_per_attention_head(monkeypatch):
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    info = {k: v for k, v in _JUDGE_SHOW["model_info"].items() if "head_count_kv" not in k}
+    assert gpu._kv_cache_bytes({"model_info": info}) == 4 * gpu._kv_cache_bytes(_JUDGE_SHOW)   # 32 heads, 8 KV heads
+
+
+def test_per_layer_head_counts_without_kv_heads_or_key_length(monkeypatch):
+    # list-valued head_count, no head_count_kv (one KV head per head) and no key_length (embedding / heads)
+    monkeypatch.setenv("OLLAMA_KV_CACHE_TYPE", "q4_0")
+    show = {"model_info": {"general.architecture": "x", "x.block_count": 2, "x.attention.head_count": [8, 8],
+                           "x.embedding_length": 1024, "x.context_length": 4096}}
+    assert gpu._kv_cache_bytes(show) == int(16 * 256 * 4096 * 0.5625)
