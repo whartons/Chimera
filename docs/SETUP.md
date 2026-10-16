@@ -107,7 +107,7 @@ model that's missing.
 
 | GPU memory | Tier | Pull |
 |---|---|---|
-| 32 GB | large | `qwen3.8:27b` |
+| 32 GB+ | large | `qwen3.8:27b` |
 | 12–24 GB | medium | `qwen3-vl:8b-instruct`, plus `qwen3.8:27b` for `--pipeline cad` |
 | under 12 GB | small | `qwen3-vl:4b-instruct`, plus `qwen3.8:27b` for `--pipeline cad` (mostly on the CPU, slow) |
 

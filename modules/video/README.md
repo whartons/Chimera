@@ -82,7 +82,7 @@ python scripts/generate.py video --model ltx23 \
   own render can be the start frame. Without `--brand` it is a path to the file.
 - Output routes to `brands/<brand>/outputs/video/<brand>_i2v_<seed>.mp4` with a
   reproducibility `.json` sidecar alongside it. If the file already exists it is
-  overwritten (idempotent re-render); a `chimera replay` lands beside it as `<name>_replay` instead.
+  overwritten (idempotent re-render); a `chimera replay` takes the next free name (`<name>_replay`, …) instead.
 - `--length` snaps down to the 8k+1 frame counts LTX renders (`--length 100` renders 97), with a note.
 - `--quality` and `--camera` are Wan settings: with `--model ltx23` either one is an error.
 - `--no-audio` skips the audio-generation path; all other flags remain the same.

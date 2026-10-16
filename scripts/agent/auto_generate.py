@@ -29,7 +29,7 @@ FreeCAD script -> `cad --mode script` -> Blender contact-sheet render -> form ju
 
 Judge backends (--backend): `api` (default — a provider-agnostic, OpenAI-compatible LLM judge; with no
 --judge-*/--llm-* flags or CHIMERA_* env it uses Chimera's local Ollama model for the GPU's tier (Qwen 3.8
-27B on 32 GB cards, Qwen3-VL 8B on 12-24 GB, Qwen3-VL 4B below), else point it at OpenAI, Anthropic's
+27B on 32 GB+ cards, Qwen3-VL 8B on 12-24 GB, Qwen3-VL 4B below), else point it at OpenAI, Anthropic's
 OpenAI-compat endpoint, OpenRouter, or any OpenAI-compatible server — a thinking model must run with
 thinking off, or it returns empty content; see .env.example / scripts/agent/llm.py) or `local` (the
 optional ComfyUI-QwenVL judge node). --comfy-output-dir routes
@@ -327,10 +327,10 @@ def main():
                     help="(image/mesh3d) use an LLM to rewrite prompts from the judge's FIX feedback instead "
                          "of the templated expander; falls back to templated on any LLM error")
     ap.add_argument("--llm-tier", dest="llm_tier", choices=["auto", "large", "medium", "small"], default=None,
-                    help="Chimera's local Ollama models for roles you haven't configured. large (32 GB cards): Qwen 3.8 "
+                    help="Chimera's local Ollama models for roles you haven't configured. large (32 GB+ cards): Qwen 3.8 "
                          "27B for every role; medium (12-24 GB): Qwen3-VL 8B judge and rewriter; small (under 12 GB): "
                          "Qwen3-VL 4B judge and rewriter. Code-gen is Qwen 3.8 27B in every tier (partly on the CPU "
-                         "below 24 GB). Default auto, from the GPU's memory (else $CHIMERA_LLM_TIER)")
+                         "below 24 GB). Default: $CHIMERA_LLM_TIER, else auto (from the GPU's memory)")
     ap.add_argument("--judge-passes", dest="judge_passes", type=int, default=1,
                     help="(--backend api) number of LLM vision passes to consensus-judge (default 1)")
     ap.add_argument("--variant", choices=["base", "turbo"], default=None,

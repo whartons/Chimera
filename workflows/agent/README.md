@@ -7,7 +7,7 @@ candidate against a brand/brief **rubric** until one passes (or a cap is hit).
 
 This is **not** a headless CLI — it needs the assistant runtime in the loop. For an
 unattended/offline equivalent, see `auto_generate.py`, whose default judge is a local Ollama model sized to
-the GPU: Qwen 3.8 27B on 32 GB cards, a Qwen3-VL 8B or 4B on smaller ones
+the GPU: Qwen 3.8 27B on 32 GB+ cards, a Qwen3-VL 8B or 4B on smaller ones
 ([`../../modules/agent/self-correction.md`](../../modules/agent/self-correction.md#local-models-by-gpu-tier)).
 Both share the same model-free core in `scripts/agent/`.
 

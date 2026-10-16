@@ -82,7 +82,7 @@ panel) — all behind the same `Judge` seam, so it drops straight into `run_loop
 
 `auto_generate.py` runs the **same** `run_loop` with a VLM judge in place of the assistant's
 vision. By **default** (`--backend api`) that judge is a local **Ollama** model sized to your GPU:
-**`qwen3.8:27b`** with thinking off on a 32 GB card, `qwen3-vl:8b-instruct` on 12–24 GB and
+**`qwen3.8:27b`** with thinking off on a 32 GB+ card, `qwen3-vl:8b-instruct` on 12–24 GB and
 `qwen3-vl:4b-instruct` below that ([Local models by GPU tier](#local-models-by-gpu-tier)). With no
 `--judge-*` / `--llm-*` flag and no `CHIMERA_*` variable set, it calls `http://127.0.0.1:11434/v1` (or
 `$OLLAMA_HOST`), and any of those settings replaces that default. A judge you choose should be a
@@ -242,7 +242,7 @@ backend** earns that fail→pass cleanly: three independent vision passes yield 
 precise fixes. The **local Qwen3-VL-8B judge** writes noisier fixes, and it can miss fine geometry (it
 passed a fan rotor whose blades floated free of the hub; the geometry gate now catches that). With
 v0.6.0's brand-precedence rubric, tolerant FIX parsing and subject correction, it converges on brand misses
-like the one above. (The 8B is now the medium tier's judge. On a 32 GB card the default is Qwen 3.8 27B,
+like the one above. (The 8B is now the medium tier's judge. On a 32 GB+ card the default is Qwen 3.8 27B,
 which caught the fine-perception cases the 8B missed in the
 [benchmark](#measured-on-the-rtx-5090-2026-10-15).) Choose the backend per job: `auto_generate.py` with the
 default local Ollama judge for hands-off batches, and the assistant consensus backend (an interactive agent following
@@ -318,7 +318,7 @@ three tiers picked from the GPU's memory, and smaller cards get lighter judges a
 
 | Tier | GPU memory | Judge | Rewriter (`--rewrite-prompts`) | CAD code-gen (`--pipeline cad`) |
 |---|---|---|---|---|
-| **large** | 32 GB | `qwen3.8:27b` (thinking off) | `qwen3.8:27b` | `qwen3.8:27b` |
+| **large** | 32 GB+ | `qwen3.8:27b` (thinking off) | `qwen3.8:27b` | `qwen3.8:27b` |
 | **medium** | 12–24 GB | `qwen3-vl:8b-instruct` | `qwen3-vl:8b-instruct` (the judge's model, so nothing extra loads) | `qwen3.8:27b`, partly on the CPU |
 | **small** | under 12 GB | `qwen3-vl:4b-instruct` | `qwen3-vl:4b-instruct` | `qwen3.8:27b`, mostly on the CPU (slow; point `--codegen-*` at a hosted model if you have one) |
 
@@ -350,8 +350,8 @@ three tiers picked from the GPU's memory, and smaller cards get lighter judges a
   If not, the run stops before the first render with the fix (start Ollama, or the `ollama pull` command)
   rather than rendering every iteration and failing at each judging. A missing rewriter model only warns,
   since the templated expander takes over. A local server that isn't Ollama (LM Studio, vLLM) is left alone
-  unless it sits at Ollama's address or port. A role pointed at a hosted endpoint that gets no API key (an
-  `OPENAI_API_KEY` goes only to `api.openai.com`) prints a note saying which variable to set.
+  unless it sits at Ollama's address or port. When a key you set isn't sent to a role's hosted endpoint (an
+  `OPENAI_API_KEY` goes only to `api.openai.com`), the run prints a note naming the variable to set.
 
 ### Measured on the RTX 5090 (2026-10-15)
 

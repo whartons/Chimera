@@ -127,8 +127,8 @@ starting with `qwen_image` to the Qwen-Image templates, `z_image` to the Z-Image
 else to the FLUX.2 templates; it reads the file name, so a model in a subfolder (`qwen/qwen_image_…`) is
 sorted correctly. To re-run an old render on a new model, use `chimera replay <sidecar> --model <file>`: only
 the prompt is compared with the record (the negative and settings change with the model by design), a
-Z-Image `--variant` is dropped when the new model isn't Z-Image, and the result lands beside the original
-as `<name>_replay`.
+Z-Image `--variant` is dropped when the new model isn't Z-Image, and the result never replaces a file (it
+takes `<name>_replay` when the original is still there).
 
 **License note for forks:** Qwen-Image-2.1 ships under the Qwen research license (see
 [`models.md`](models.md)). If you need different terms, pin `z_image_turbo_nvfp4.safetensors`

@@ -95,7 +95,7 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
   GPU); three backends slot in — a provider-agnostic OpenAI-compatible **LLMJudge** (`--backend api`,
-  the default: unconfigured, it calls a local Ollama model from a GPU tier, **Qwen 3.8 27B** on 32 GB cards and a
+  the default: unconfigured, it calls a local Ollama model from a GPU tier, **Qwen 3.8 27B** on 32 GB+ cards and a
   Qwen3-VL 8B/4B on smaller cards, `--llm-tier` to choose), an optional headless
   **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass (an
   interactive agent following `workflows/agent/README.md`; `auto_generate.py` refuses `--backend assistant`).

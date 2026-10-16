@@ -18,8 +18,8 @@ recorded model PINNED (a later brand pin or Chimera default change can't swap it
 prompt from the recorded `subject` and today's brand.yaml, then compares the built graph with the
 record (prompt/negative text, model, structure, settings) and stops, listing the differences, unless
 `--accept-drift`. `replay --model <file>` deliberately re-runs old work on a different model (only the
-prompt is then checked, and a different video family gets its own clip defaults). The result lands
-beside the original as `<name>_replay`, never over it. Replay treats the sidecar as untrusted: it
+prompt is then checked, and a different video family gets its own clip defaults). The result takes the
+render's standard name, or `<name>_replay` (…2, …) when that is taken, never replacing a file. Replay treats the sidecar as untrusted: it
 renders on the local default ComfyUI unless `--comfy-url` is given, and only takes plain relative file
 names. Schema-1 (pre-enriched) sidecars lack `inputs` and cannot be replayed -- re-render once to
 upgrade them.
@@ -658,7 +658,7 @@ def main():
     rp.add_argument("--seed", type=int, default=None, help="override the recorded seed")
     rp.add_argument("--comfy-output-dir", default=None,
                     help="route the result into the outputs folder for its media type + write a fresh sidecar, "
-                         "as <name>_replay so the original stays (omit to just re-render and print the raw "
+                         "under the render's standard name, or <name>_replay when that is taken (omit to just re-render and print the raw "
                          "ComfyUI filename)")
     rp.add_argument("--comfy-url", default=None,
                     help=f"ComfyUI to render on (default {DEFAULT_COMFY_URL}; the sidecar's recorded URL is not "

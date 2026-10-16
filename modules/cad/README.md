@@ -135,7 +135,7 @@ repeat. It runs two ways:
   LLM** (`scripts/agent/llm.py` — any OpenAI-compatible endpoint: **Gemini / OpenAI / Anthropic /
   OpenRouter / local Ollama**, configurable via `CHIMERA_LLM_*`) writes + revises the script across
   iterations. It runs with **no configuration**: code-gen is **Qwen 3.8 27B** on a local Ollama in every GPU
-  tier, and the judge is `--backend api`, the default, on the tier's local model (Qwen 3.8 27B on 32 GB cards, a
+  tier, and the judge is `--backend api`, the default, on the tier's local model (Qwen 3.8 27B on 32 GB+ cards, a
   Qwen3-VL 8B or 4B on smaller ones; `--llm-tier` to choose). `--backend local` uses the optional ComfyUI
   Qwen3-VL judge node instead. With `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
   [`../agent/self-correction.md`](../agent/self-correction.md#local-models-by-gpu-tier) for the tiers and

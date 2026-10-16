@@ -54,7 +54,7 @@ loop's FreeCAD process and the MCP approval gates.
   restricted mode is not a sandbox: a probe walked Python object internals back to `os` and read all 104
   environment variables, API keys included. FreeCADCmd and headless Blender now start without
   credential-named variables (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASS*`, `*AUTH*`, `*SESSION*`, proxies,
-  webhooks, `*_URL` / `*_URI` connection strings, `*_PROFILE`, …), a job's reported outputs must sit in its own
+  webhooks, `*_URL` / `*_URI` connection strings, `*_PROFILE`, …), a FreeCAD job's reported outputs must sit in its own
   folder (an LLM-written script could print a forged result naming any file to be moved into `outputs/`), and
   the pre-filter also rejects dunder-attribute walks (`.__globals__`,
   `.__subclasses__`, frame objects). Only point `--pipeline cad` at a codegen model you trust.
@@ -123,7 +123,7 @@ loop's FreeCAD process and the MCP approval gates.
   ACE-Step was kept as the vocals option, but Chimera sent it empty lyrics, so every render was instrumental.
   Lyrics need room: in tests (by ear and by transcription) ACE-Step never sang six lines in a 20 s clip and
   sang them in 40 s on most seeds (5–6 of 7), so a lyric render is at least 40 s unless `--duration` says
-  otherwise (shorter prints a warning), and the CLI suggests another `--seed` when a render comes out
+  otherwise (shorter prints a warning), and the CLI reminds you to try another `--seed` if a render comes out
   instrumental, since some seeds plan one regardless. Sidecars record the
   lyrics, so replay sings them again; `--lyrics` with Stable Audio 3 or a non-music mode is an error. The
   ACE-Step graph's sampler shift is now 3, as in Comfy's ACE-Step 1.5 templates (it was 1.73).
@@ -237,7 +237,8 @@ loop's FreeCAD process and the MCP approval gates.
   turntables spin in place. Affects `render --mode mesh`, the mesh3d/CAD loop stills, and finalize renders.
 - **A replay overwrote the render it reproduced.** It keeps the recorded seed, so with `--comfy-output-dir`
   it routed onto the original file and replaced its sidecar, which is permanent for gitignored brand
-  outputs. A replay now lands beside it as `<name>_replay` (then `_replay2`, …).
+  outputs. A replay now takes the render's standard name only when it is free, else `<name>_replay` (then
+  `_replay2`, …), so it never replaces a file.
 - **`replay --model` across model families always stopped on drift.** Each family builds its own negative
   (Z-Image none, LTX and Wan their own lists), so every cross-family re-run reported "negative changed".
   With `--model`, only the prompt is compared now; an override naming the recorded model keeps every check
@@ -324,7 +325,8 @@ loop's FreeCAD process and the MCP approval gates.
   (nothing removed, 0 of 4 iterations), then added rims floating in the cavity (7 pieces); with both rules
   stated, the first iteration came out right.
 - **Replay refused brands that `new-brand` creates** (a space, `&`, accented letters); both now share one rule.
-  On Windows, a replay whose brand was cased differently could still replace the render it reproduced.
+  On Windows, a replay whose brand was typed in a different case could also replace the render it reproduced;
+  it no longer does.
 - **Blender exports carried the startup file's Cube** as a second scene: the factory scene's selected Cube rode
   along with `use_selection`. Every Blender job now starts from an empty file, and the example brand's GLB was
   re-exported without it (still 9.6 MB, one scene).
@@ -344,8 +346,8 @@ loop's FreeCAD process and the MCP approval gates.
   the templated expander takes over. A v0.5 setup that relied on `OPENAI_API_KEY` for another host (OpenRouter,
   say) gets a note that the key isn't sent there, where it got HTTP 401 after every render.
 - **Replay, a third review:**
-  - it accepts every input `generate` accepts (`.gif`, `.jfif`, `.avif`, `.heic` images; `.m4v`, `.mpg`, `.wmv`
-    clips);
+  - it accepts the other image and video types ComfyUI reads (`.gif`, `.jfif`, `.avif`, `.heic` images; `.m4v`,
+    `.mpg`, `.wmv` clips);
   - a hand-edited or damaged sidecar (`"schema": "2"`, a text duration, no subject, `format: fbx`) fails with
     the field named, where it crashed mid-render, or after a whole 3D render for `fbx`;
   - a sidecar from before v0.6.0 has no settings record, so replay says what it can't check, and an ACE-Step
@@ -393,7 +395,7 @@ loop's FreeCAD process and the MCP approval gates.
 
   | Tier | GPU | Judge and rewriter | CAD code-gen |
   |---|---|---|---|
-  | large | 32 GB | Qwen 3.8 27B | Qwen 3.8 27B |
+  | large | 32 GB+ | Qwen 3.8 27B | Qwen 3.8 27B |
   | medium | 12–24 GB | Qwen3-VL 8B Instruct | Qwen 3.8 27B, partly on the CPU |
   | small | under 12 GB | Qwen3-VL 4B Instruct | Qwen 3.8 27B, mostly on the CPU |
 

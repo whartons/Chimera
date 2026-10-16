@@ -194,7 +194,7 @@ def test_the_codegen_model_leaves_the_gpu_before_blender_renders(tmp_path, monke
     assert log == ["release", "blender"]
 
 
-def test_a_codegen_model_that_will_not_unload_stops_the_iteration_before_blender(tmp_path):
+def test_a_codegen_model_that_will_not_unload_stops_the_iteration_before_blender(tmp_path, monkeypatch):
     # the 27B code-gen is the biggest model in any loop; rendering beside it is the PC-freeze path
     class _Stuck:
         model = "qwen3.8:27b"
@@ -203,10 +203,19 @@ def test_a_codegen_model_that_will_not_unload_stops_the_iteration_before_blender
 
     gen = _Gen("box = 1")
     gen.client = _Stuck()
-    fc, _ = _ok_runners(tmp_path)
-    bl = lambda *a, **k: pytest.fail("Blender must not render beside the code-gen model")   # noqa: E731
-    with pytest.raises(RuntimeError, match="still loaded in Ollama"):
-        CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc, blender_runner=bl)("p", "", 1)
+    fc, ok_bl = _ok_runners(tmp_path)
+    rendered = []
+    g = CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=fc,
+                             blender_runner=lambda *a, **k: rendered.append(1) or ok_bl(*a, **k))
+    with pytest.raises(CG.LLMError, match="still loaded in Ollama"):
+        g("p", "", 1)
+    assert rendered == []
+    # the script didn't fail, so the next revision isn't told it did (it was, as "The previous script failed")
+    gen.client = None
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+    monkeypatch.setattr(CG, "route_output", lambda root, brand, src, mode, seed, **kw: Path(src))
+    g("P1", "", 2)
+    assert "still loaded" not in (gen.calls[-1][1] or "") and "previous script failed" not in (gen.calls[-1][1] or "")
 
 
 
