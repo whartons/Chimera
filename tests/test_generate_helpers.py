@@ -244,7 +244,20 @@ def test_prepare_video_missing_from_image_errors(tmp_path):
 def test_prepare_audio_music_maps(tmp_path):
     args = _args_ns(modality="audio", mode="music", duration=6.0, bpm=120, keyscale="C major", brand="b")
     fkw = generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())
-    assert fkw == {"mode": "music", "duration": 6.0, "bpm": 120, "keyscale": "C major"}
+    # model: None = brand/default; replay sets args.model to pin the recorded model
+    assert fkw == {"mode": "music", "duration": 6.0, "bpm": 120, "keyscale": "C major", "model": None}
+
+
+def test_prepare_passes_a_replay_pinned_model_to_the_video_and_audio_fillers(tmp_path):
+    args = _args_ns(modality="audio", mode="music", duration=6.0, bpm=120, keyscale="C major", brand="b",
+                    model="acestep_v1.5_xl_turbo_bf16.safetensors")
+    assert generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())["model"] == \
+        "acestep_v1.5_xl_turbo_bf16.safetensors"
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    vargs = _args_ns(modality="video", from_image="r.png", brand="b", model="ltx-2.3-22b-dev-nvfp4.safetensors")
+    assert generate._prepare_video(vargs, M, brand_dir, _FakeUploadClient(), _StubAp())["model"] == \
+        "ltx-2.3-22b-dev-nvfp4.safetensors"
 
 
 def test_prepare_audio_foley_maps(tmp_path, monkeypatch):

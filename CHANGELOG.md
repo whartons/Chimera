@@ -33,8 +33,18 @@ All notable changes to Chimera are documented here. The format follows
   **`chimera doctor`** now reports both apps' GPU memory and warns when Ollama holds 8 GB or more.
 - **Thinking control for local/hosted LLMs:** `--llm-` / `--codegen-` / `--judge-` / `--rewriter-reasoning-effort`
   and `CHIMERA_[ROLE]_REASONING_EFFORT` (see Fixed).
+- **`replay --model <file>`** re-runs a recorded render on a different model with everything else as
+  recorded (subject, seed, settings), e.g. to run old brand work back on a newer model. **`replay
+  --accept-drift`** renders even when the brand or a template changed since (see Fixed).
 
 ### Fixed
+- **Replay could silently render something different.** It re-resolved the model and settings from the
+  *live* brand kit and Chimera's defaults, so after a brand pin or a default model changed, replaying an
+  older asset used the new model. Replay now pins the model the render actually used, then compares the
+  rebuilt prompt/negative, graph structure and settings with the sidecar and stops with a readable list
+  of differences unless `--accept-drift`. Sidecars now also record a settings fingerprint
+  (`provenance.graph_values`); older sidecars get the model, prompt and structure checks. Video and audio
+  replays now pass the pinned model through to their fillers.
 - **Local models on Ollama ≥ 0.40 returned nothing.** Ollama 0.40 serves hybrid-thinking models (Qwen3.x) with
   thinking on, so the CAD codegen model spent its whole token budget reasoning and returned empty content, and
   every `--pipeline cad` iteration failed. `LLMClient` now retries once with `reasoning_effort: "none"` when a

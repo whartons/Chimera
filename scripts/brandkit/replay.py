@@ -13,6 +13,7 @@ from . import threed as threed_filler
 from . import video as video_filler
 from . import workflow as image_filler
 from .comfy import DEFAULT_URL as DEFAULT_COMFY_URL
+from .sidecar import graph_prompts, graph_signature, graph_values
 
 # CLI args harvested into the sidecar `inputs` dict (sidecar.relevant_inputs then keeps the
 # modality-relevant subset). Must remain a superset of every sidecar._INPUT_KEYS value, minus
@@ -26,9 +27,9 @@ def resolve_model_used(args, m):
     """The model filename the graph ACTUALLY loaded — asked of the filler that decided it, so the
     sidecar can never drift from the built graph (single source of truth, B6). Pure."""
     if args.modality == "video":
-        return video_filler.resolved_model(m)
+        return video_filler.resolved_model(m, getattr(args, "model", None))
     if args.modality == "audio":
-        return audio_filler.resolved_model(m, args.mode)
+        return audio_filler.resolved_model(m, args.mode, getattr(args, "model", None))
     if args.modality == "3d":
         return threed_filler.resolved_model(m, args.model)
     # Z-Image's variant determines the actual model file (product -> base, etc.).
@@ -60,13 +61,16 @@ def resolve_sidecar_inputs(args, m, fmt=None):
     return inputs
 
 
-def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None):
+def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None, model=None):
     """Reconstruct the full argparse.Namespace that run() expects from a schema-2 sidecar dict,
     plus optional overrides. Pure (no I/O), stdlib-only.
 
     Schema-1 sidecars predate the enriched `inputs` block and cannot be reconstructed, so we
     refuse them rather than guess. An explicit seed override wins over the recorded seed; with
-    neither override the recorded seed is reused, giving an identical render."""
+    neither override the recorded seed is reused. The model is PINNED: an explicit `model` override
+    (replay --model: re-run old work on a newer model) wins, else the render's own --model override,
+    else the model the render actually loaded — so a later brand pin or Chimera default change can't
+    silently swap it. run() then checks the rest for drift (replay_drift)."""
     if data.get("schema", 1) < 2:
         raise ValueError("sidecar is schema-1 (pre-enriched); replay needs schema>=2 — "
                          "re-render once to upgrade it.")
@@ -93,9 +97,10 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None)
         subject=inp.get("subject"),
         asset=inp.get("asset"),
         variant=inp.get("variant"),
-        # the user's --model OVERRIDE (absent when they used the brand default); run()
-        # re-resolves the actual model file, so we must NOT use the top-level resolved model.
-        model=inp.get("model"),
+        # the render's own --model override is a family selector (Z-Image's variant then picks the
+        # file), so it outranks the top-level resolved file; that file pins renders made on a default
+        # (the Z-Image file names map back to their variant, so either way the same file re-resolves).
+        model=model or inp.get("model") or data.get("model"),
         upscale=bool(inp.get("upscale")),       # image: re-apply the upscale pass on replay
         upscale_model=inp.get("upscale_model"),
         from_image=inp.get("from_image"),
@@ -111,3 +116,31 @@ def args_from_sidecar(data, *, seed=None, comfy_output_dir=None, comfy_url=None)
         octree=inp.get("octree"),
         format=inp.get("format") or data.get("format"),
     )
+
+
+def _clip(text, n=160):
+    text = " ".join(str(text).split())
+    return text if len(text) <= n else text[:n - 3] + "..."
+
+
+def replay_drift(expect, *, model, wf, modality, mode, model_override=None):
+    """What a replay would render differently from the recorded one (pure). `expect` is the sidecar,
+    `model`/`wf` the replay's resolved model and built graph. Returns human-readable lines; [] means
+    the replay reproduces the record. With a model override (replay --model, a deliberate re-run on
+    a newer model) the model, graph structure and settings change by design, so only the prompt text
+    is compared. Older sidecars without a provenance block get the model + prompt checks only."""
+    out = []
+    recorded = expect.get("model")
+    if model_override is None and recorded and model != recorded:
+        out.append(f"model: recorded {recorded}, would now load {model}")
+    pos, neg = graph_prompts(wf, modality, mode)
+    for label, now, then in (("prompt", pos, expect.get("prompt")), ("negative", neg, expect.get("negative"))):
+        if then is not None and now != then:
+            out.append(f"{label} changed\n      recorded: {_clip(then)}\n      now:      {_clip(now)}")
+    if model_override is None:
+        prov = expect.get("provenance") or {}
+        if prov.get("graph_signature") and graph_signature(wf) != prov["graph_signature"]:
+            out.append("graph structure changed (Chimera's workflow template for this modality changed)")
+        if prov.get("graph_values") and graph_values(wf, modality, mode) != prov["graph_values"]:
+            out.append("render settings changed (e.g. the brand's size, steps, guidance, LoRA or watermark)")
+    return out

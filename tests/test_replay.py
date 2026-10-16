@@ -187,3 +187,75 @@ def test_roundtrip_with_build_meta_3d_format():
     a = _args_from_sidecar(meta)
     assert a.from_image == "rover.png" and a.octree == 256 and a.format == "stl"
     assert a.subject is None
+
+
+# --- replay pins the recorded model + detects drift (P1, 2026-10-15) -----------------------------
+# A brand pin or a Chimera default can change after a render; replay must not silently re-render
+# with the new model or a changed prompt/template/setting.
+
+def test_replay_pins_the_recorded_model_when_no_override_was_used():
+    s = _video_sidecar()            # recorded model, no inputs.model
+    assert _args_from_sidecar(s).model == "ltx-2.3-22b-dev-nvfp4.safetensors"
+
+
+def test_replay_model_override_wins_over_the_record():
+    assert _args_from_sidecar(_image_sidecar(), model="qwen_image_2.1_int8_convrot.safetensors").model \
+        == "qwen_image_2.1_int8_convrot.safetensors"
+
+
+def _drift_wf(text="a knight", width=1024, seed=1, prefix="b_txt2img", extra=False):
+    wf = {"1": {"class_type": "CLIPTextEncode", "_meta": {"title": "brand:positive"},
+                "inputs": {"text": text, "clip": ["2", 0]}},
+          "2": {"class_type": "CLIPLoader", "_meta": {"title": "clip"}, "inputs": {"clip_name": "c.safetensors"}},
+          "3": {"class_type": "EmptyLatentImage", "_meta": {"title": "brand:latent"},
+                "inputs": {"width": width, "height": 768, "batch_size": 1}},
+          "4": {"class_type": "KSampler", "_meta": {"title": "brand:sampler"},
+                "inputs": {"seed": seed, "steps": 8, "positive": ["1", 0], "latent_image": ["3", 0]}},
+          "5": {"class_type": "SaveImage", "_meta": {"title": "brand:save"},
+                "inputs": {"filename_prefix": prefix, "images": ["4", 0]}}}
+    if extra:
+        wf["6"] = {"class_type": "ImageScaleBy", "_meta": {"title": "x"}, "inputs": {"scale_by": 2.0, "image": ["4", 0]}}
+    return wf
+
+
+def _drift_meta(wf, model="m.safetensors"):
+    from scripts.brandkit.sidecar import build_meta
+    return build_meta(modality="image", mode="txt2img", brand="b", seed=1, model=model, watermark=False,
+                      comfy_url="http://x", wf=wf, inputs={"subject": "a knight"}, timestamp="t")
+
+
+def _drift(meta, wf, model="m.safetensors", model_override=None):
+    from scripts.brandkit.replay import replay_drift
+    return replay_drift(meta, model=model, wf=wf, modality="image", mode="txt2img",
+                        model_override=model_override)
+
+
+def test_replay_drift_is_empty_when_the_render_reproduces():
+    assert _drift(_drift_meta(_drift_wf()), _drift_wf()) == []
+
+
+def test_replay_drift_ignores_a_new_seed_and_output_prefix():
+    assert _drift(_drift_meta(_drift_wf()), _drift_wf(seed=99, prefix="b_txt2img_99")) == []
+
+
+def test_replay_drift_reports_each_kind_of_change():
+    meta = _drift_meta(_drift_wf())
+    assert any("prompt changed" in d for d in _drift(meta, _drift_wf(text="a knight, neon noir")))
+    assert any("render settings changed" in d for d in _drift(meta, _drift_wf(width=640)))
+    assert any("graph structure changed" in d for d in _drift(meta, _drift_wf(extra=True)))
+    assert _drift(meta, _drift_wf(), model="n.safetensors") == [
+        "model: recorded m.safetensors, would now load n.safetensors"]
+
+
+def test_replay_drift_with_a_model_override_only_checks_the_prompt():
+    # a deliberate re-run on a newer model changes the model, graph and settings by design
+    meta = _drift_meta(_drift_wf())
+    assert _drift(meta, _drift_wf(width=640, extra=True), model="q.safetensors", model_override="q.safetensors") == []
+    assert any("prompt changed" in d for d in _drift(meta, _drift_wf(text="changed"), model="q.safetensors",
+                                                     model_override="q.safetensors"))
+
+
+def test_replay_drift_on_an_older_sidecar_checks_what_it_recorded():
+    meta = _drift_meta(_drift_wf())
+    meta.pop("provenance")          # pre-provenance schema-2 sidecar: no structure/settings record
+    assert _drift(meta, _drift_wf(width=640, extra=True)) == []
