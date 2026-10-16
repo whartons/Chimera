@@ -87,8 +87,8 @@ def test_qwen_watermark_then_upscale_splice_like_the_other_families(tmp_path):
                watermark_logo="primary.png", logo_px=(120, 120), upscale=True)
     assert _is_qwen(wf)
     cid, _ = find_node_by_title(wf, "brand:watermark_composite")
-    assert _inputs(wf, "brand:upscale")["image"] == [cid, 0]
-    assert _inputs(wf, "brand:save")["images"] == ["81", 0]
+    assert _inputs(wf, "brand:upscale_resize")["input"] == [cid, 0]      # SeedVR2 (the default upscaler)
+    assert _inputs(wf, "brand:save")["images"] == [find_node_by_title(wf, "brand:upscale")[0], 0]
 
 
 def test_the_sidecar_records_the_qwen_prompt_and_negative(tmp_path):

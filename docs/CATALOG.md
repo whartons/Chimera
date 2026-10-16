@@ -89,17 +89,21 @@ through the FLUX.2 templates instead.
 | **SD 3.5** | Solid all-rounder | ~8–12 GB | ❓ check community license |
 | **Kolors (Kwai)** | Photoreal, bilingual | ~8 GB (INT8) | ✅ Apache-2.0 |
 
-**Upscaler — Brand Kits image `--upscale` default**
+**Upscaler — Brand Kits image `--upscale` default: SeedVR2 7B**
 
-| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | License |
-|------|-----------------|----------------------------------|---------|
-| `4x-UltraSharp.pth` | `lokCX/4x-Ultrasharp` | `upscale_models/` | ❓ verify (repo lists it; neutral reference) |
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|-----------------|----------------------------------|------|---------|
+| `seedvr2_7b_int8_convrot.safetensors` | `Comfy-Org/SeedVR2` | `diffusion_models/` | ~7.8 GB | ✅ Apache-2.0 |
+| `seedvr2_ema_vae_fp16.safetensors` | `Comfy-Org/SeedVR2` | `vae/` | ~0.5 GB | ✅ Apache-2.0 |
+| `4x-UltraSharp.pth` *(ESRGAN option)* | `lokCX/4x-Ultrasharp` | `upscale_models/` | ~67 MB | ❓ verify (repo lists it; neutral reference) |
 
-- **4x-UltraSharp (ESRGAN)** — the default 4× upscaler for `generate.py image
-  --upscale`. Spliced before `SaveImage` via `ImageUpscaleWithModel`; ESRGAN
-  auto-tiles, so 1024²→4096² fits a 32 GB card. Override with `--upscale-model`
-  or `defaults.upscale_model`. SUPIR (below) is the heavier, higher-fidelity
-  alternative when a single image warrants it.
+- **SeedVR2 7B** — the default 4× upscaler for `generate.py image --upscale` since the 2026-10 review:
+  a one-step diffusion upscaler (core-native in ComfyUI 0.40, tiled VAE) that restores natural detail
+  where ESRGAN invented it (a crosshatch on a speaker grille, speckles on skin). 1024² → 4096² takes
+  about 10 s on an RTX 5090.
+- **4x-UltraSharp (ESRGAN)** — `--upscale-model 4x-UltraSharp.pth` (or `defaults.upscale_model`) for
+  the classic `ImageUpscaleWithModel` pass: a few seconds faster, but it sharpens by inventing texture.
+  SUPIR (below) is the heavier alternative.
 
 ## ✂️ Image editing / control
 - **Qwen-Image-Edit** — object insert/remove, style transfer, inpainting. ✅

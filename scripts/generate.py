@@ -335,10 +335,11 @@ def main():
                      help="override the image model/family by file name (default Qwen-Image-2.1; e.g. "
                           "z_image_turbo_nvfp4.safetensors for Z-Image, flux2_dev_fp8mixed.safetensors for FLUX.2)")
     img.add_argument("--upscale", action="store_true",
-                     help="4x ESRGAN upscale of the output (decode -> [watermark] -> upscale -> save)")
+                     help="4x upscale of the output with SeedVR2 (decode -> [watermark] -> upscale -> save)")
     img.add_argument("--upscale-model", dest="upscale_model", default=None,
-                     help=f"override the upscale model (default {image_filler.DEFAULT_UPSCALE_MODEL}; "
-                          "must be in ComfyUI models/upscale_models/)")
+                     help=f"override the upscaler (default {image_filler.DEFAULT_UPSCALE_MODEL}, in "
+                          "models/diffusion_models/; an ESRGAN model such as 4x-UltraSharp.pth, in "
+                          "models/upscale_models/, selects the ESRGAN pass)")
     vid = sub.add_parser("video"); _add_common(vid)
     vid.add_argument("--subject", required=True)
     vid.add_argument("--from-image", dest="from_image", required=True,

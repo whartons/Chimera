@@ -29,8 +29,13 @@ _ZIMAGE_VARIANTS = {
     "turbo": {"model": "z_image_turbo_nvfp4.safetensors", "steps": 8, "cfg": 1.0},
     "base":  {"model": "z_image_bf16.safetensors", "steps": 25, "cfg": 4.0},
 }
-# Default ESRGAN upscaler for the opt-in image --upscale pass (in models/upscale_models/).
-DEFAULT_UPSCALE_MODEL = "4x-UltraSharp.pth"
+# Default upscaler for the opt-in image --upscale pass: SeedVR2 7B, a one-step diffusion upscaler that
+# restores real detail (the 2026-10 review: ESRGAN/UltraSharp invents textures — crosshatch on fabric,
+# speckles on skin). It lives in models/diffusion_models/ with its VAE in models/vae/. An ESRGAN-style
+# model name (e.g. 4x-UltraSharp.pth, in models/upscale_models/) selects the classic ESRGAN pass.
+DEFAULT_UPSCALE_MODEL = "seedvr2_7b_int8_convrot.safetensors"
+SEEDVR2_VAE = "seedvr2_ema_vae_fp16.safetensors"
+UPSCALE_FACTOR = 4
 
 
 def _family(model):
@@ -106,11 +111,15 @@ def needs_free_before(mode, variant, model):
 
 
 def resolved_upscale_model(manifest, upscale_model=None):
-    """The ESRGAN upscaler the image --upscale pass will load: explicit override, else the brand's
-    defaults.upscale_model, else DEFAULT_UPSCALE_MODEL. Single source of truth shared by build()
-    and the sidecar (model selection itself is resolve_image_model). Parallels
+    """The upscaler the image --upscale pass will load: explicit override, else the brand's
+    defaults.upscale_model, else DEFAULT_UPSCALE_MODEL (SeedVR2). Single source of truth shared by
+    build() and the sidecar (model selection itself is resolve_image_model). Parallels
     video.resolved_upscale_model."""
     return upscale_model or manifest.defaults.upscale_model or DEFAULT_UPSCALE_MODEL
+
+
+def _is_seedvr2(model_name):
+    return "seedvr2" in (model_name or "").lower()
 
 
 def _apply_zimage(wf, m, positive, seed, mode, variant, model):
@@ -167,18 +176,46 @@ def _inject_lora(wf: dict, m: BrandManifest):
             node["inputs"]["model"] = ["99", 0]
 
 
-def _inject_upscale(wf, model_name):
-    """Splice an ESRGAN upscale just before brand:save: take over whatever currently feeds
-    brand:save (the decoded image, or the watermark composite if watermark ran first) and
-    rewire save to read the upscaled image. Order-independent w.r.t. watermark. Ids 80-81."""
-    assert_free_ids(wf, "80", "81")
+def _inject_upscale(wf, model_name, seed=0):
+    """Splice a 4x upscale just before brand:save: take over whatever currently feeds brand:save (the
+    decoded image, or the watermark composite if watermark ran first) and rewire save to read the
+    upscaled image. Order-independent w.r.t. watermark. SeedVR2 (ids 80-88) unless `model_name` is an
+    ESRGAN-style model (ids 80-81)."""
     _, save = find_node_by_title(wf, "brand:save")
     src = save["inputs"]["images"]            # current source: [decode,0] or [composite,0]
-    wf["80"] = {"class_type": "UpscaleModelLoader", "_meta": {"title": "brand:upscale_model"},
-                "inputs": {"model_name": model_name}}
-    wf["81"] = {"class_type": "ImageUpscaleWithModel", "_meta": {"title": "brand:upscale"},
-                "inputs": {"upscale_model": ["80", 0], "image": src}}
-    save["inputs"]["images"] = ["81", 0]
+    if not _is_seedvr2(model_name):
+        assert_free_ids(wf, "80", "81")
+        wf["80"] = {"class_type": "UpscaleModelLoader", "_meta": {"title": "brand:upscale_model"},
+                    "inputs": {"model_name": model_name}}
+        wf["81"] = {"class_type": "ImageUpscaleWithModel", "_meta": {"title": "brand:upscale"},
+                    "inputs": {"upscale_model": ["80", 0], "image": src}}
+        save["inputs"]["images"] = ["81", 0]
+        return wf
+    # SeedVR2 (the official Comfy graph): lanczos-resize to the target size, encode with the tiled
+    # SeedVR2 VAE, one euler step conditioned on that latent, decode, then post-process against the
+    # resized input. The official graph's JoinImageWithAlpha only carries a loaded PNG's alpha; a
+    # decoded render has none, so the image feeds the resize directly.
+    assert_free_ids(wf, *(str(i) for i in range(80, 89)))
+    tiled = {"tile_size": 512, "overlap": 128, "temporal_size": 4096, "temporal_overlap": 8}
+    wf["80"] = {"class_type": "UNETLoader", "_meta": {"title": "brand:upscale_model"},
+                "inputs": {"unet_name": model_name, "weight_dtype": "default"}}
+    wf["81"] = {"class_type": "VAELoader", "_meta": {"title": "brand:upscale_vae"},
+                "inputs": {"vae_name": SEEDVR2_VAE}}
+    wf["82"] = {"class_type": "ResizeImageMaskNode", "_meta": {"title": "brand:upscale_resize"},
+                "inputs": {"input": src, "resize_type": "scale by multiplier",
+                           "resize_type.multiplier": UPSCALE_FACTOR, "scale_method": "lanczos"}}
+    wf["83"] = {"class_type": "SeedVR2Preprocess", "inputs": {"resized_images": ["82", 0]}}
+    wf["84"] = {"class_type": "VAEEncodeTiled", "inputs": {"pixels": ["83", 0], "vae": ["81", 0], **tiled}}
+    wf["85"] = {"class_type": "SeedVR2Conditioning", "inputs": {"model": ["80", 0], "vae_conditioning": ["84", 0]}}
+    wf["86"] = {"class_type": "KSampler", "_meta": {"title": "brand:upscale_sampler"},
+                "inputs": {"model": ["80", 0], "positive": ["85", 0], "negative": ["85", 1],
+                           "latent_image": ["84", 0], "seed": seed, "steps": 1, "cfg": 1.0,
+                           "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}}
+    wf["87"] = {"class_type": "VAEDecodeTiled", "inputs": {"samples": ["86", 0], "vae": ["81", 0], **tiled}}
+    wf["88"] = {"class_type": "SeedVR2PostProcessing", "_meta": {"title": "brand:upscale"},
+                "inputs": {"images": ["87", 0], "original_resized_images": ["82", 0],
+                           "color_correction_method": "none"}}
+    save["inputs"]["images"] = ["88", 0]
     return wf
 
 
@@ -237,8 +274,9 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
           variant=None, model=None, upscale=False, upscale_model=None):
     """Uniform filler contract (image). `asset` = uploaded logo/product name; `watermark_logo`
     = uploaded brand-logo name for the opt-in watermark; `canvas` = (w,h) for watermark geometry.
-    `upscale` splices a 4x ESRGAN pass before brand:save (after the watermark, so the logo
-    upscales with the image); `upscale_model` overrides DEFAULT_UPSCALE_MODEL."""
+    `upscale` splices a 4x upscale before brand:save (after the watermark, so the logo upscales with
+    the image): SeedVR2 by default; `upscale_model` overrides DEFAULT_UPSCALE_MODEL (an ESRGAN name such
+    as 4x-UltraSharp.pth selects the ESRGAN pass)."""
     kw = {"variant": variant, "model": model}
     if mode == "logo":
         kw["logo_image"] = asset
@@ -257,5 +295,5 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
                                canvas=canvas or (manifest.defaults.width, manifest.defaults.height),
                                logo_px=logo_px)
     if upscale:  # after watermark: upscale takes over the composite's edge into save
-        _inject_upscale(wf, resolved_upscale_model(manifest, upscale_model))
+        _inject_upscale(wf, resolved_upscale_model(manifest, upscale_model), seed=seed)
     return wf

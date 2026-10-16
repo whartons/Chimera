@@ -81,8 +81,18 @@ both degrade output:
 
 ## Upscaler (optional — `--upscale`)
 
-The `--upscale` flag adds a 4× ESRGAN pass before `SaveImage`. The default model
-is **4x-UltraSharp** (an ESRGAN `.pth`); drop it into `upscale_models/`.
+The `--upscale` flag adds a 4× pass before `SaveImage`. The default is **SeedVR2 7B**, a one-step
+diffusion upscaler (core-native in ComfyUI 0.40) that restores real detail; in the 2026-10 review
+ESRGAN/UltraSharp invented textures instead (a crosshatch on fabric, speckles on skin). Files from
+`Comfy-Org/SeedVR2` (https://huggingface.co/Comfy-Org/SeedVR2):
+
+| File | Destination (`ComfyUI/models/…`) | Size | License |
+|------|----------------------------------|------|---------|
+| `seedvr2_7b_int8_convrot.safetensors` | `diffusion_models/` | ~7.8 GB | ✅ Apache-2.0 |
+| `seedvr2_ema_vae_fp16.safetensors` | `vae/` | ~0.5 GB | ✅ Apache-2.0 |
+
+**ESRGAN option:** pass an ESRGAN model name, e.g. `--upscale-model 4x-UltraSharp.pth`, for the classic
+`ImageUpscaleWithModel` pass (faster, but it sharpens by inventing texture):
 
 | File | Destination (`ComfyUI/models/…`) | Source | License |
 |------|----------------------------------|--------|---------|
@@ -90,7 +100,8 @@ is **4x-UltraSharp** (an ESRGAN `.pth`); drop it into `upscale_models/`.
 
 > Override per-render with `--upscale-model <name>`, or per-brand via
 > `defaults.upscale_model` in `brand.yaml`. The filler falls back to
-> `4x-UltraSharp.pth` when neither is set.
+> `seedvr2_7b_int8_convrot.safetensors` when neither is set; any name containing `seedvr2` uses the
+> SeedVR2 graph, anything else the ESRGAN pass.
 
 ---
 

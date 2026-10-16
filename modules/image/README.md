@@ -91,18 +91,22 @@ turbo model at 25 steps) degrades output. `--variant` always wins over any
 
 ### Upscale (`--upscale`)
 
-- `--upscale` runs a **4× ESRGAN** pass on the output via `ImageUpscaleWithModel`,
-  spliced in-graph just before `SaveImage` (no host image libs).
-- Model: **`4x-UltraSharp.pth`** in `ComfyUI/models/upscale_models/`. Override
-  with `--upscale-model <name>` (or set `defaults.upscale_model` in `brand.yaml`).
+- `--upscale` runs a **4× SeedVR2 7B** pass, spliced in-graph just before `SaveImage` (no host image
+  libs). SeedVR2 is a one-step diffusion upscaler: lanczos-resize to the target size → tiled SeedVR2
+  VAE encode → one euler step conditioned on that latent → tiled decode → `SeedVR2PostProcessing`. It
+  restores real detail; the classic ESRGAN pass sharpens by inventing texture (the 2026-10 review).
+- Models: `seedvr2_7b_int8_convrot.safetensors` (`diffusion_models/`) + `seedvr2_ema_vae_fp16.safetensors`
+  (`vae/`). **ESRGAN option:** `--upscale-model 4x-UltraSharp.pth` (in `upscale_models/`) selects the
+  `ImageUpscaleWithModel` pass; a brand can pin either via `defaults.upscale_model`.
+- **Time:** 1024² → 4096² adds about 10 s on an RTX 5090 (ESRGAN: about 7 s).
 - **Pipeline order:** `decode → [watermark] → upscale → save`. When `--watermark`
   is also on, the upscale takes over the watermark composite's edge into save, so
   **the logo upscales with the image** (it stays pixel-aligned, just larger).
 - Works for `txt2img`, `product`, and `logo` modes (all three templates route the
   final image through `brand:save`, which the upscale splices before).
-- **VRAM:** 4× of 1024² is 4096²; ESRGAN auto-tiles, so this fits the 32 GB card
-  easily. The large upscaled PNGs are generated on demand and are **not committed**
-  (outputs are gitignored).
+- **VRAM:** 4× of 1024² is 4096². SeedVR2's VAE runs tiled (512 px tiles) and its weights are ~8 GB
+  (int8), so it fits the 32 GB card next to the image model; ESRGAN auto-tiles. The large upscaled PNGs
+  are generated on demand and are **not committed** (outputs are gitignored).
 
 ### Switching backends
 

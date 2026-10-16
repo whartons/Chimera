@@ -56,7 +56,7 @@ chimera free                # clear GPU memory: unload Ollama's models, then Com
 
 ```bash
 chimera image --subject "an armored rover"               # Qwen-Image-2.1 txt2img (--model z_image…/flux2… to switch)
-chimera image --subject "a chrome emblem" --upscale      # + 4× ESRGAN
+chimera image --subject "a chrome emblem" --upscale      # + 4× SeedVR2 upscale
 chimera video --from-image start.png --subject "rolls forward, dust"   # image→video + synced audio
 chimera audio --mode music --subject "logo sting"        # text→stinger
 chimera 3d    --from-image rover.png --format stl         # image→mesh (glb|stl|obj)
@@ -107,7 +107,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **624 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **630 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
