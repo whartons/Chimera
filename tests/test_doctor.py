@@ -161,3 +161,33 @@ def test_doctor_resolves_a_3d_short_name_before_checking_it_is_installed(tmp_pat
         "z_image_turbo_nvfp4.safetensors", "pixal3d_int8_convrot.safetensors"]))
     out = run_checks(client, tmp_path, "b")
     assert any(lvl == "ok" and "pixal3d_int8_convrot.safetensors" in msg for lvl, msg in out)
+
+
+def test_available_models_reads_v3_combo_options_and_optional_inputs():
+    # ComfyUI 0.40 v3 nodes report a dropdown as ["COMBO", {"options": [...]}]: doctor missed them and
+    # flagged an installed birefnet.safetensors as missing (2026-10)
+    oi = {"LoadBackgroundRemovalModel": {"input": {"required": {
+              "bg_removal_name": ["COMBO", {"tooltip": "t", "options": ["birefnet.safetensors"]}]}}},
+          "X": {"input": {"optional": {"m": [["opt.safetensors"], {}]}}}}
+    assert {"birefnet.safetensors", "opt.safetensors"} <= doctor._available_models(oi)
+
+
+def test_doctor_reports_each_modalitys_default_model_files():
+    rows = doctor._default_model_files(ROOT)
+    assert [r[0] for r in rows] == ["image", "--upscale", "video", "video --camera", "music / sfx", "3d"]
+    every = {f for r in rows for f in r[3]}
+    types = doctor._required_class_types(ROOT)
+    out = doctor.run_checks(FakeClient(stats={"system": {}}, object_info=_oi(types, sorted(every))), ROOT)
+    assert sum(1 for lvl, msg in out if lvl == "ok" and " default (" in msg) == len(rows)
+    one = rows[-1][3][0]                       # drop one 3D file: only the 3d row warns, and names it
+    out = doctor.run_checks(FakeClient(stats={"system": {}}, object_info=_oi(types, sorted(every - {one}))), ROOT)
+    warns = [msg for lvl, msg in out if lvl == "warn" and " default (" in msg]
+    assert len(warns) == 1 and warns[0].startswith("3d default (TRELLIS.2)") and one in warns[0]
+
+
+
+def test_available_models_skips_inputs_that_are_not_dropdowns():
+    from scripts.brandkit.doctor import _available_models
+    info = {"N": {"input": {"required": {"steps": "INT", "empty": [], "ckpt": [["a.safetensors"], {}]},
+                            "optional": {"vae": ["COMBO", {"options": ["v.safetensors"]}]}}}}
+    assert _available_models(info) == {"a.safetensors", "v.safetensors"}

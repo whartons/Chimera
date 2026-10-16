@@ -8,19 +8,22 @@ real prompt change:
   - `add` terms  -> emphasized in the POSITIVE ("Ensure these are present: ..."),
   - `avoid` terms -> STRIPPED out of the subject in the positive AND appended to the negative.
 
-The positive matters most because Z-Image (the default judge-loop model) zeroes the text negative —
-so removing the off-brand terms from the positive is what actually changes the render. The negative
-augmentation still helps models that honor it (e.g. FLUX.2). If the judge emitted no FIX directive,
-we fall back to leading with a forceful brand re-assertion + the raw issues."""
+The positive matters most: the image models the loop renders with sample at CFG 1 (Qwen-Image-2.1,
+Z-Image Turbo, guidance-distilled FLUX.2), which skips the negative, so removing the off-brand terms
+from the positive is what actually changes the render. The negative augmentation only reaches a model
+sampled above CFG 1. If the judge emitted no FIX directive, we fall back to leading with a forceful
+brand re-assertion + the raw issues."""
 from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 
+from scripts.agent.rubric import color_words
 from scripts.brandkit.prompt import build_prompt
 
 _FIX = re.compile(r"\bfix\b\s*[:\-]\s*(.+)", re.IGNORECASE)
-_AVOID = re.compile(r"\bavoid\b\s*[:\-]?\s*", re.IGNORECASE)
-_ADD = re.compile(r"^\s*add\b\s*[:\-]?\s*", re.IGNORECASE)
+
+
+_EMPTY = {"none", "n/a", "na", "nothing", "-"}   # 'FIX: add none; avoid …' (a judge with nothing to add)
 
 
 def _dedup(terms, cap=10, maxlen=60):
@@ -28,7 +31,7 @@ def _dedup(terms, cap=10, maxlen=60):
     out, seen = [], set()
     for raw in re.split(r"[;,]", terms or ""):
         t = raw.strip().strip(".").strip()
-        if t and len(t) <= maxlen and t.lower() not in seen:
+        if t and t.lower() not in _EMPTY and len(t) <= maxlen and t.lower() not in seen:
             seen.add(t.lower())
             out.append(t)
         if len(out) >= cap:
@@ -36,20 +39,101 @@ def _dedup(terms, cap=10, maxlen=60):
     return out
 
 
+def _word(term):
+    """A whole-word pattern for `term`. Lookarounds, not \\b: \\b never matches before '#', so brand
+    palette hex codes (#1c1f22) went unmatched. A hyphenated word is one word: 'toy' must not match inside
+    'toyota' or 'toy-like' (cutting 'toy' out of 'a toy-like rover' left 'a -like rover')."""
+    return r"(?<![\w-])" + re.escape(term) + r"(?![\w-])"
+
+
+def _contains(text, terms):
+    """True when one of `terms` occurs inside `text` as a whole word (case-insensitive)."""
+    t = text.lower()
+    return any(o and re.search(_word(o.lower()), t) for o in terms)
+
+
+def _overlaps(term, others):
+    """True when `term` and one of `others` contain each other as whole words (case-insensitive)."""
+    return _contains(term, others) or any(o and _contains(o, [term]) for o in others)
+
+
+def brand_guard(add, avoid, manifest):
+    """Resolve contradictory FIX terms in the brand's favour. Consensus passes (and small judges) can
+    disagree, e.g. one pass says 'add candy-red' while another says 'avoid candy-red', or a pass says
+    'avoid matte black' for a matte-black brand; applying both sides inverted the correction (2026-10).
+    Drops `avoid` terms that overlap the brand's own style or palette (either way round), then `add` terms
+    that CONTAIN a remaining `avoid` term or a brand negative trait ('add handle' survives 'avoid plastic
+    handle'). Brand phrases of any length count: a 60-char cap had let a long style phrase through. A palette
+    color avoided by the name the rubric gave the judge ('avoid near-black' for #1c1f22) is dropped too."""
+    whole = dict(cap=10**6, maxlen=10**6)
+    palette = [str(c) for c in (manifest.palette or [])]
+    brand_keep = [t.lower() for t in _dedup(manifest.style, **whole)] + [c.lower() for c in palette]
+    palette_names = {color_words(c).split(" (")[0].lower() for c in palette}
+    avoid = [t for t in avoid if not _overlaps(t, brand_keep) and t.lower() not in palette_names]
+    clash = [t.lower() for t in _dedup(manifest.negative, **whole)] + [t.lower() for t in avoid]
+    return [t for t in add if not _contains(t, clash)], avoid
+
+
+_AVOID_VERB = re.compile(r"^(?:avoid|remove|eliminate|exclude|without|get rid of)\b\s*[:\-]?\s*", re.IGNORECASE)
+_ADD_VERB = re.compile(r"^(?:add|include|use|apply|ensure)\b\s*[:\-]?\s*", re.IGNORECASE)
+_SKIP_VERB = re.compile(r"^(?:none|nothing|n/a|no change|change|make|keep)\b", re.IGNORECASE)
+_CLAUSE = re.compile(r";|\.(?:\s+|$)")                       # ';' or a sentence end ('2.5 mm' stays whole)
+_JOIN = re.compile(r"\s+(and|or)\s+", re.IGNORECASE)
+_ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.IGNORECASE)
+
+
+_PAIR = re.compile(r"\b(?:between|among|amongst|both|either)\b", re.IGNORECASE)
+
+
+def _pieces(clause):
+    """A clause's terms: split at commas and at 'and' / 'or' ('red paint and chrome trim', 'add X and avoid Y'),
+    except inside a pair ('gaps between blades and hub' is one term: split, its 'hub' was cut from the subject,
+    2026-10 review)."""
+    out = []
+    for chunk in clause.split(","):
+        parts = _JOIN.split(chunk)                          # [text, conj, text, conj, text, ...]
+        cur = parts[0]
+        for conj, t in zip(parts[1::2], parts[2::2], strict=True):
+            verb = _AVOID_VERB.match(t.strip()) or _ADD_VERB.match(t.strip())
+            if _PAIR.search(cur) and not verb:
+                cur = f"{cur} {conj} {t}"
+            else:
+                out.append(cur)
+                cur = t
+        out.append(cur)
+    return out
+
+
 def parse_fixes(issues):
     """Extract (add, avoid) term lists from the judge's 'FIX: add X; avoid Y' directives carried in
-    the issue lines. Tolerant of formatting variations; returns ([], []) when none. Never raises."""
-    add_chunks, avoid_chunks = [], []
+    the issue lines. Tolerant of what small judges actually write (2026-10, Qwen3-VL-8B): either order
+    ('avoid X; add Y'), sentences ('add X. avoid Y'), 'remove X', 'X and Y' lists, a verb mid-clause ('add
+    X and avoid Y'), and 'none needed' / 'change the palette to …' (skipped). Every piece takes the most
+    recent verb, carried across clauses ('avoid X; Y; Z' avoids all three). Returns ([], []) when there is
+    no FIX. Never raises."""
+    add, avoid = [], []
     for issue in (issues or []):
         m = _FIX.search(str(issue))
         if not m:
             continue
-        seg = m.group(1)
-        am = _AVOID.search(seg)
-        add_part, avoid_part = (seg[:am.start()], seg[am.end():]) if am else (seg, "")
-        add_chunks.append(_ADD.sub("", add_part))
-        avoid_chunks.append(avoid_part)
-    return _dedup(", ".join(add_chunks)), _dedup(", ".join(avoid_chunks))
+        mode = "add"                                        # the documented format leads with add
+        for clause in _CLAUSE.split(m.group(1)):
+            for raw in _pieces(clause):
+                t = raw.strip().strip(".").strip()
+                v = _AVOID_VERB.match(t)
+                if v:
+                    mode, t = "avoid", t[v.end():]
+                else:
+                    v = _ADD_VERB.match(t)
+                    if v:
+                        mode, t = "add", t[v.end():]
+                if _SKIP_VERB.match(t):                     # also 'add none needed' once the verb is cut
+                    mode = "skip"
+                    continue
+                t = _ARTICLE.sub("", t.strip())
+                if t and mode != "skip":
+                    (avoid if mode == "avoid" else add).append(t)
+    return _dedup(", ".join(add), cap=24, maxlen=80), _dedup(", ".join(avoid), cap=24, maxlen=80)
 
 
 def _strip_terms(subject, avoid):
@@ -57,12 +141,26 @@ def _strip_terms(subject, avoid):
     resulting whitespace/commas. This is what removes 'toy/glossy plastic' from the positive prompt."""
     s = subject
     for t in avoid:
-        # word-boundaried: 'toy' must not gut 'toyota'
-        s = re.sub(r"\b" + re.escape(t) + r"\b", "", s, flags=re.IGNORECASE)
+        # whole-word: 'toy' must not gut 'toyota'
+        s = re.sub(_word(t), "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s+", " ", s)
     s = re.sub(r"\s*,\s*", ", ", s)
     s = re.sub(r"(,\s*)+", ", ", s)
     return s.strip(" ,")
+
+
+def correct_subject(subject, avoid):
+    """The subject with the judge's flagged (`avoid`) styling removed, for branded runs: trailing comma-
+    phrases containing an avoid term are dropped whole; avoid terms are cut from the first phrase (the
+    object) only when its noun, the phrase's last word, survives ('a knight helmet with a plume' minus
+    'plume' would leave 'a knight helmet with a'). The loop rebuilds the rubric from this, so a small
+    judge stops being asked to verify the off-brand styling it was told to remove."""
+    head, *rest = [p.strip() for p in subject.split(",")]
+    cut = _strip_terms(head, avoid)
+    if len(cut.split()) >= 2 and head.split() and cut.split()[-1].lower() == head.split()[-1].lower():
+        head = cut
+    rest = [p for p in rest if p and not _contains(p, avoid)]
+    return ", ".join([head, *rest])
 
 
 class PromptExpander(ABC):
@@ -82,8 +180,11 @@ class TemplatedExpander(PromptExpander):
         if not prior_issues:
             return build_prompt(manifest, subject)
 
-        add, avoid = parse_fixes(prior_issues)
-        eff_subject = _strip_terms(subject, avoid) if avoid else subject
+        raw_add, raw_avoid = parse_fixes(prior_issues)
+        add, avoid = brand_guard(raw_add, raw_avoid, manifest)
+        # correct_subject keeps the object's noun: cutting 'hub' from '... rotor with a central hub' left
+        # '... with a central'
+        eff_subject = correct_subject(subject, avoid) if avoid else subject
         pos, neg = build_prompt(manifest, eff_subject)
 
         # Lead with a forceful brand re-assertion so the brand dominates the (corrected) prompt.
@@ -102,6 +203,6 @@ class TemplatedExpander(PromptExpander):
             pos += ". Ensure these are present: " + ", ".join(add)
         if avoid:
             neg = ", ".join(t for t in (neg, *avoid) if t)
-        if not add and not avoid:                       # judge gave no structured FIX -> surface raw
+        if not raw_add and not raw_avoid:               # judge gave no structured FIX -> surface raw
             pos += ". Fix: " + "; ".join(str(i) for i in prior_issues)
         return pos, neg

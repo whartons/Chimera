@@ -1,8 +1,10 @@
 # `video` — brand-aware image-to-video (Wan 2.2 default · camera moves · LTX-2.3 with synced audio)
 
-![A short looping clip of a sci-fi utility robot with subtle idle motion](../../docs/images/chimera-sample-video.gif)
+![A short clip of a sci-fi utility robot waving hello](../../docs/images/chimera-sample-video.gif)
 
-*LTX-2.3 image-to-video — `chimera video --model ltx23 --from-image robot.png`. Brand-neutral sample (silent GIF; LTX also emits synced audio).*
+*Wan 2.2 image-to-video, the default (`--quality fast`, about 30 s on an RTX 5090):
+`chimera video --from-image robot.png --subject "the robot raises its right hand and waves hello…"`.
+Brand-neutral sample.*
 
 Two families, both run end-to-end on an RTX 5090:
 
@@ -45,12 +47,18 @@ python scripts/generate.py video \
 
 - **`--quality`**: `fast` = the lightx2v 4-step LoRAs (~30–55 s), the default for plain image-to-video;
   `full` = 20 steps without the LoRAs (~3 min), more motion but it drifted the camera more in the review.
+  Wan only: with `--model ltx23` it is an error.
 - **`--camera <move>`** uses Wan 2.2 **Fun Camera**: `static` locks the camera while the scene moves (the
   fix for LTX's unavoidable push-in on looping backgrounds); the others are controlled moves. It defaults
   to `full` quality, because the 4-step mode kept the camera locked but cut the scene's motion to about a
-  third (measured 2026-10); `--quality fast` (~35 s) is fine when the camera move is the point.
+  third (measured 2026-10); `--quality fast` (~35 s) is fine when the camera move is the point. Naming the
+  Fun Camera model directly (`--model wan22-camera`) also needs a `--camera` move; without one it's an error.
 - Wan's native clip is **81 frames at 16 fps (5 s)**; sizes snap down to multiples of 16. The brand
   `video:` block's `width`/`height` apply; its `length`/`fps`/`audio` are LTX settings.
+- `--length` snaps down to the 4k+1 frame counts Wan renders (`--length 96` renders 93), and a note says
+  so. Wan's motion is timed for 16 fps, so `--fps` only changes the playback speed (also noted).
+- Flag combinations a family can't render are errors raised before the start frame is uploaded or the GPU
+  freed.
 - **Silent.** For sound, run `python scripts/generate.py audio --mode foley --from-video <clip>
   --subject "<the sounds>"`, or use `--model ltx23`.
 - `--upscale` is LTX-only (its latent upscaler); for a bigger Wan clip ask for it with `--width`/`--height`.
@@ -69,12 +77,14 @@ python scripts/generate.py video --model ltx23 \
   --comfy-output-dir "<ComfyUI output dir>"
 ```
 
-- `--from-image` is a filename inside the brand's `products/` or `references/`
-  folder (e.g. `products/rover.png`). The filler resolves it relative to the brand
-  directory.
+- `--from-image` is a bare file name that the CLI looks up in the brand's `products/`, then
+  `references/`, then `outputs/images/` folder (e.g. `rover.png`, not `products/rover.png`), so a brand's
+  own render can be the start frame. Without `--brand` it is a path to the file.
 - Output routes to `brands/<brand>/outputs/video/<brand>_i2v_<seed>.mp4` with a
   reproducibility `.json` sidecar alongside it. If the file already exists it is
-  overwritten (idempotent re-render).
+  overwritten (idempotent re-render); a `chimera replay` takes the next free name (`<name>_replay`, …) instead.
+- `--length` snaps down to the 8k+1 frame counts LTX renders (`--length 100` renders 97), with a note.
+- `--quality` and `--camera` are Wan settings: with `--model ltx23` either one is an error.
 - `--no-audio` skips the audio-generation path; all other flags remain the same.
 - `--watermark` composites the brand logo over the final decoded video frames
   entirely in-graph, after the VAE decode — the synced audio track is never
@@ -108,8 +118,6 @@ negative list. Core ComfyUI nodes only — no node pack.
 
 ## How it works — LTX-2.3
 
-## How it works
-
 ### One-pass audio-video
 
 LTX-2.3 natively generates **both modalities at once** using the
@@ -133,9 +141,11 @@ silence or faint ambient noise:
 "a rover rolling over gravel"
 ```
 
-The filler automatically appends a brand-default negative prompt plus
-**anti-frozen / anti-silence** terms (`static, no motion, muted, silent`) to help
-the sampler avoid degenerate outputs.
+For LTX-2.3 the filler appends a fixed list to the brand's negative prompt: `still frame, frozen video,
+music, silence, morphing, warping, melting, distortion, deformation, wobbling, jitter, flicker, rubbery
+motion, object disintegrating, inconsistent geometry` (against frozen frames, silence or music, and the
+warping and jitter that make image-to-video look unreal). Wan 2.2 doesn't use this list: it joins the brand
+negative to Wan's own recommended negative list (see the Wan section above).
 
 ### Prompting tip — what i2v motion is realistic (field-tested)
 
@@ -161,10 +171,10 @@ implied by the image. From production use (e.g. a logo/crest stinger):
 
 ### VRAM
 
-The 22B nvfp4 model requires roughly the full 32 GB card. The CLI defaults
-`--free-before ON` for the `video` modality, which calls `clear_vram` via the
-MCP bridge before enqueuing — this unloads any resident image or audio models
-first. Per-modality `--timeout` defaults to `3600 s` (video generation is slow).
+The 22B nvfp4 LTX model needs roughly the full 32 GB card, and Wan 2.2 loads two 14B experts. The CLI
+defaults `--free-before ON` for the `video` modality: it asks ComfyUI to unload its models (`POST /free`) just
+before queueing, so resident image or audio models go first. Per-modality `--timeout` defaults to `3600 s`
+(video generation is slow).
 
 ## Local-only & security
 
@@ -192,8 +202,9 @@ than a tensor, so sampling fails:
 SamplerCustomAdvanced: AttributeError: 'AttentionTensorContainer' object has no attribute 'shape'
 ```
 
-This template uses STG (`"stg": 1.0` in both `GuiderParameters` nodes), so every Chimera video render fails
-on 0.40 with any pack version up to at least `44c8a36` (2026-10-14). Fix it by applying
+This template uses STG (`"stg": 1.0` in both `GuiderParameters` nodes), so every LTX-2.3 render
+(`--model ltx23`) fails on 0.40 with any pack version up to at least `44c8a36` (2026-10-14); Wan 2.2 runs
+on core nodes and is unaffected. Fix it by applying
 [`patches/ltxvideo-stg-comfyui-0.40.patch`](patches/ltxvideo-stg-comfyui-0.40.patch) to the pack, then
 restart ComfyUI:
 
@@ -231,10 +242,12 @@ synced audio without re-encoding the audio stream.
 
 ## Upscale (`--upscale`)
 
-`--upscale` runs a **2× LTX spatial latent upscaler** before the VAE decode:
+`--upscale` is **LTX-2.3 only** (`--model ltx23`): it runs a **2× LTX spatial latent upscaler** before the
+VAE decode. With Wan 2.2 (the default) it is an error; ask Wan for the size you want with
+`--width`/`--height` instead.
 
 ```
-python scripts/generate.py video --brand example-brand \
+python scripts/generate.py video --model ltx23 --brand example-brand \
   --subject "..." --from-image rover.png --upscale \
   [--upscale-model ltx-2.3-spatial-upscaler-x2-1.1.safetensors] \
   --comfy-output-dir "<ComfyUI output dir>"
@@ -281,8 +294,10 @@ python scripts/generate.py video --brand example-brand \
 
 **Wan 2.2:** two fp8 experts (~13–14 GB each, sampled one after the other) plus the ~6 GB umt5 text
 encoder. ComfyUI fills most of a 32 GB card while it runs (25–31 GB observed); the official template
-reports about 84% of a 24 GB card at 640² (89% with the 4-step LoRAs). Smaller cards rely on ComfyUI's
-offloading.
+reports about 84% of a 24 GB card at 640² (89% with the 4-step LoRAs). Below 24 GB, ComfyUI offloads part
+of each expert to system RAM, so it still runs, only slower (not measured here; plenty of system RAM helps).
+`--quality fast` (the default without `--camera`) and a smaller `--width`/`--height` keep activation memory
+down. No lighter Wan model (such as the 5B TI2V or GGUF quants) is wired into Chimera yet.
 
 **LTX-2.3:** ~28–32 GB for the nvfp4 checkpoint. `--free-before` (default ON) clears other
 resident models before queuing. See [`models.md`](models.md) for quantized and

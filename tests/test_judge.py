@@ -17,7 +17,9 @@ def test_judge_abc_cannot_instantiate():
         Judge()  # abstract
 
 
-def test_parse_pass_with_score_and_issue():
+def test_parse_a_pass_contradicted_by_a_not_met_criterion_fails():
+    # PASS only if every criterion is MET (the rubric's own rule): the not-met palette wins over the
+    # self-contradicting "Overall: PASS", while the score and the issue still come through
     text = (
         "1. depicts rover: MET\n"
         "2. brand palette: not-met: brand palette is washed out and not dominant\n"
@@ -25,7 +27,7 @@ def test_parse_pass_with_score_and_issue():
         "score 0.82\n"
     )
     v = parse_verdict(text)
-    assert v.passed is True
+    assert v.passed is False
     assert v.score == 0.82
     assert any("palette" in i.lower() for i in v.issues)
 
@@ -257,3 +259,305 @@ def test_localvlmjudge_missing_verdict_degrades_to_fail(tmp_path):
     assert v.passed is False
     assert v.score == 0.0
     assert any("no verdict file" in i.lower() for i in v.issues)
+
+
+# --- a criterion marked NOT-MET fails the verdict even when the judge's last line says PASS (2026-10) ----
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.mark.parametrize("text", [
+    "1. NOT-MET: The head is completely absent. FIX: add head\n2. MET: clean render\nOverall: PASS\nscore: 0.0",
+    "**1. Not met** - only two robots. FIX: add a third robot\nOVERALL: PASS\nscore: 0.9",
+    "- Palette: NOT-MET (warm tones)\nOverall verdict: PASS\nscore: 0.83",
+    "| 4 | NOT-MET | the icon sits between the words |\nPASS\nscore: 1.0",
+])
+def test_a_not_met_criterion_fails_a_pass_verdict(text):
+    # the rubric says PASS only if every criterion is MET; a small judge wrote "NOT-MET: the head is
+    # completely absent" and then "Overall: PASS", and the loop accepted the headless robot
+    from scripts.agent.judge import parse_verdict
+    v = parse_verdict(text)
+    assert v.passed is False and v.issues
+
+
+def test_prose_mentioning_unmet_in_a_met_line_still_passes():
+    from scripts.agent.judge import parse_verdict
+    assert parse_verdict("1. MET: nothing about the subject is unmet\n2. MET - sharp - nothing unmet\n"
+                         "Overall: PASS\nscore: 1.0").passed is True
+
+
+
+# --- the 2026-10 review: NOT-MET in the forms judges really write, and scores on other scales -------------
+@pytest.mark.parametrize("line", [
+    "1. Subject — NOT-MET: the head is missing", "1. **Subject** — NOT-MET", "1. Six-wheeled rover: NOT-MET",
+    "1. The image clearly depicts: a robot with arms: NOT-MET", "| 1 | Depicts the robot | NOT-MET | no head |",
+    "1. ❌ NOT-MET", "1. Palette: NOT_MET - wrong colors", "1. Avoids toy-like: NOT-MET - glossy plastic",
+    "2. Palette: the rover is yellow (NOT-MET)", "Summary: 3 MET, 1 NOT-MET",
+    "- No text or watermarks: NOT-MET - a logo is visible", "1. Palette: NOT-MET: no brand colors visible"])
+def test_a_criterion_marked_not_met_in_any_common_form_fails_the_verdict(line):
+    # each of these, followed by 'Overall: PASS', used to pass
+    v = parse_verdict(line + "\nOverall: PASS\nscore: 0.9")
+    assert not v.passed and v.issues
+
+
+@pytest.mark.parametrize("text", [
+    "1. Subject: MET - nothing is unmet", "- NOT MET: none", "Unmet criteria: none", "No criteria are NOT-MET.",
+    "None of the criteria are NOT-MET", "Criteria: 4 MET, 0 NOT-MET",
+    "| 1 | Requirements not met by older designs are fixed | MET |",
+    "Be strict: mark a criterion NOT-MET unless it is clearly and fully satisfied.",
+    "NOT-MET: none (all criteria met)"])
+def test_a_line_that_only_mentions_not_met_does_not_fail_a_pass(text):
+    assert parse_verdict(text + "\nOverall: PASS\nscore: 0.9").passed
+
+
+@pytest.mark.parametrize("line, score", [("score: 4 out of 5", 0.8), ("Score: 7", 0.7), ("score - 0.82", 0.82),
+                                         ("score: 85", 0.85), ("score: 85%", 0.85), ("score: 1.7", 1.0)])
+def test_scores_on_other_scales_and_separators(line, score):
+    # 'score: 4 out of 5' and 'Score: 7' read as a perfect 1.0, 'score - 0.82' as 0.0
+    assert round(parse_verdict("PASS\n" + line).score, 3) == score
+
+
+
+# --- 2026-10 test review: verdict precedence ----------------------------------------------------------
+def test_fail_beats_pass_on_the_verdict_line():
+    assert not parse_verdict("1. Palette: MET\nOverall: FAIL - it would pass with the brand palette\nscore: 0.6").passed
+
+
+def test_the_last_overall_line_wins():
+    assert not parse_verdict("Overall: PASS\n1. Subject: MET\nRe-checking the palette: grey.\nOverall: FAIL\n"
+                             "score: 0.4").passed
+    assert not parse_verdict("1. Subject: MET (overall it would PASS)\n2. Palette: MET\nThe overall verdict: FAIL\n"
+                             "score: 0.4").passed
+
+
+def test_without_an_overall_line_the_last_verdict_word_wins():
+    assert not parse_verdict("PASS (draft)\n1. Subject: MET\nFAIL\nscore: 0.2").passed
+
+
+def test_a_verdict_line_that_mentions_not_met_is_neither_a_criterion_nor_an_issue():
+    v = parse_verdict("1. Subject: MET\nOverall: PASS - no criterion is NOT-MET\nscore: 1.0")
+    assert v.passed and v.issues == []
+    v = parse_verdict("1. Subject: MET\n2. Palette: NOT-MET\nOverall: FAIL - 1 NOT-MET\nscore: 0.4")
+    assert v.issues == ["2. Palette: NOT-MET"]
+
+
+def test_the_last_score_wins():
+    assert parse_verdict("Score: 0.9 (draft)\nOverall: FAIL\nFinal score: 0.3").score == 0.3
+    assert parse_verdict("I first gave score 0.9; on reflection the score is 0.3\nOverall: FAIL").score == 0.3
+
+
+def test_a_fix_directive_on_its_own_line_reaches_the_expander():
+    v = parse_verdict("1. Palette: NOT-MET\nFIX: add brand red; avoid grey\nOverall: FAIL\nscore: 0.2")
+    assert "FIX: add brand red; avoid grey" in v.issues
+
+
+def test_a_crashing_judge_is_a_fail_vote():
+    from scripts.agent.judge import ConsensusJudge
+
+    class Boom:
+        def judge(self, image_path, rubric):
+            raise RuntimeError("kaboom")
+
+    class Fixed:
+        def __init__(self, p): self.p = p
+        def judge(self, i, r): return Verdict(self.p, 0.9 if self.p else 0.1, [])
+    assert ConsensusJudge([Fixed(True), Fixed(False), Boom()]).judge("i", None).passed is False
+
+
+@pytest.mark.parametrize("line", [
+    "No NOT-MET criteria.", "There are no NOT-MET criteria, so the verdict is PASS.", "No unmet criteria.",
+    "   - Reason: all six wheels are present; nothing is unmet.", "For any NOT-MET criterion a FIX is given below.",
+    "NOT-MET: none (all criteria met)", "Criteria: 4 MET, 0 NOT-MET"])
+def test_a_line_that_only_says_nothing_is_unmet_keeps_a_pass(line):
+    # these failed correct renders, and went into the next prompt as "Fix: ..." (2026-10 review)
+    v = parse_verdict(f"1. Subject - MET\n2. Style - MET\n{line}\n**Overall verdict:** PASS\nscore: 0.9")
+    assert v.passed and v.issues == []
+
+
+@pytest.mark.parametrize("line", [
+    "1. Subject: NOT\u2011MET - the head is missing", "1. Subject: NOT\u2013MET", "- Palette: NOT\u2014MET",
+    "- Nothing floats free of the hub: NOT-MET", "1. Subject\n   NOT-MET \u2014 the head is missing",
+    "Status: NOT-MET", "2. Palette: the rover is yellow (NOT-MET)"])
+def test_every_way_of_writing_not_met_fails_the_render(line):
+    v = parse_verdict(f"1. Style - MET\n{line}\nOverall: PASS\nscore: 0.9")
+    assert not v.passed and v.issues
+
+
+def test_a_score_on_the_next_line_or_with_a_plural_label_is_read():
+    assert parse_verdict("1. MET\nOverall: FAIL\n**Score:**\n0.85").score == 0.85
+    assert parse_verdict("PASS\nScores: 0.4").score == 0.4
+
+
+# --- final review: a status rule tight enough to need a label layout passed broken renders ---------------------
+@pytest.mark.parametrize("line", [
+    "3. No missing or broken parts - NOT-MET: the left arm is missing",     # the rubric's own negative phrasing
+    "3. No obvious artifacts - NOT MET - heavy banding in the sky",
+    "1. The image clearly depicts: a knight without a helmet - NOT-MET (he is wearing one)",
+    "- ❌ Palette: NOT-MET - the body is yellow",
+    "- Palette (NOT-MET): the body is yellow",
+    "- Palette: the body is yellow — NOT-MET",
+    "| Palette | NOT-MET - yellow body |",
+    "| Palette | NOT-MET. |",
+    "1 - Palette: NOT MET (yellow body)",
+    "* Palette → NOT-MET",
+    "However, the palette criterion is NOT met: the body is yellow.",
+    "2. Palette - Partially MET: only some red",
+    "- Palette: **NOT** MET",
+    "- Palette: not fully met",
+])
+def test_a_criterion_marked_not_met_fails_the_render_whatever_the_layout(line):
+    v = parse_verdict(f"1. Subject - MET\n{line}\nOverall: PASS\nscore: 0.8")
+    assert not v.passed and v.issues
+
+
+@pytest.mark.parametrize("line", ["Criteria met: 3/3 (0/3 NOT-MET)", "Met: 4  Not met: 0", "0/3 NOT-MET",
+                                  "Summary: 3 MET, 0 NOT-MET. No criteria are unmet."])
+def test_a_zero_count_keeps_a_pass(line):
+    v = parse_verdict(f"1. Subject - MET\n2. Palette - MET\n{line}\nOverall: PASS\nscore: 0.9")
+    assert v.passed and v.issues == []
+
+
+def test_a_score_scale_named_before_the_value_is_used():
+    for text, want in (("Score (0-1): 0.82", 0.82), ("Score (out of 5): 4", 0.8), ("score (0-10): 8", 0.8)):
+        assert round(parse_verdict(f"Overall: PASS\n{text}").score, 3) == want, text
+
+
+# --- third parser review: a criterion is never the verdict line, and its own status always counts (2026-10) ----
+@pytest.mark.parametrize("text, issue", [
+    # the 27B writes a bare FAIL: this criterion was taken as the verdict line, left out of the criterion check,
+    # and the judge's FAIL came back as a PASS with no issues
+    ("1. MET: The image clearly depicts an exploration rover.\n2. NOT-MET: The overall look would not pass as "
+     "photoreal. FIX: add photoreal textures; avoid toy-like finish\n\nFAIL\nscore: 0.6",
+     "2. NOT-MET: The overall look would not pass as photoreal. FIX: add photoreal textures; avoid toy-like finish"),
+    ("Verdict: FAIL\n\n1. MET: The rover is clear.\n2. NOT-MET: palette would not pass review\nscore: 0.6",
+     "2. NOT-MET: palette would not pass review"),
+    ("1. MET: a clear rover\n- Overall quality: NOT-MET - heavy banding, it would not pass a print check\nPASS\n"
+     "score: 0.6", "- Overall quality: NOT-MET - heavy banding, it would not pass a print check"),
+])
+def test_a_criterion_that_says_pass_or_overall_is_never_the_verdict(text, issue):
+    v = parse_verdict(text)
+    assert not v.passed and v.issues == [issue]
+
+
+def test_a_verdict_label_after_a_summary_still_makes_the_verdict_line():
+    v = parse_verdict("1. Subject - MET\nNOT-MET: none. Overall: PASS\nscore: 0.9")
+    assert v.passed and v.issues == []
+
+
+@pytest.mark.parametrize("line", [
+    "2. NOT-MET: none (the top face is flat and has no holes)", "2. NOT-MET: N/A (the model is a robot, not a dragon)",
+    "2. Five hexagonal holes - NOT-MET: 0 (the top face is flat)", "2. NOT-MET: nothing (the head is missing)",
+    "2. NOT-MET unless the yellow trim counts as on-palette", "2. Hex holes - NOT-MET: 0, expected five",
+    "2. Holes drilled: 0/5 NOT-MET"])
+def test_a_numbered_criterion_marked_not_met_is_never_a_summary(line):
+    # the summary escapes ('NOT-MET: none', 'Not met: 0', '0/5 NOT-MET', 'unless') passed these renders; the 4B
+    # judge wrote PASS over a NOT-MET criterion in 14 of 68 replies, so that line can be the only signal
+    v = parse_verdict(f"1. Subject - MET\n{line}\nPASS\nscore: 0.5")
+    assert not v.passed and v.issues == [line]
+
+
+@pytest.mark.parametrize("status", [
+    "Mostly MET", "Largely met", "Nearly met", "Almost MET", "Somewhat met", "Half met", "Semi-met", "Barely met",
+    "Hardly met", "Scarcely met", "Marginally met", "Not quite met", "Not yet met", "not adequately met",
+    "MET (partially)", "MET (partly)", "MET (mostly)", "MET (largely)", "MET (barely)", "Partially-met",
+    "PARTIALLY_MET", "Partly met",
+    "NOT－MET", "NOT﹣MET", "NOTMET"])
+def test_a_qualified_met_is_not_met(status):
+    # the rubric passes only what is clearly and fully satisfied; each of these passed a render
+    v = parse_verdict(f"1. Subject - MET\n2. Palette - {status}: yellow panels\nOverall: PASS\nscore: 0.8")
+    assert not v.passed and v.issues == [f"2. Palette - {status}: yellow panels"]
+
+
+@pytest.mark.parametrize("status", ["Fully met", "MET (fully)", "MET (partially occluded, but complete)",
+                                    "not only met but exceeded", "not just met", "Notably met", "Clearly MET"])
+def test_an_emphatic_or_qualified_reason_met_stays_met(status):
+    v = parse_verdict(f"1. Subject - MET\n2. Palette - {status}\nOverall: PASS\nscore: 0.9")
+    assert v.passed and v.issues == []
+
+
+def test_the_rubric_instructions_echoed_back_are_ignored():
+    # a judge that repeats the prompt: its 'FIX: add <comma-separated visual elements to include>' reached the
+    # next prompt as a term to add, and its 'PASS only if EVERY criterion ..., otherwise FAIL' became the verdict
+    prompt = Rubric(subject="an armored rover", criteria=["depicts the rover.", "is sharp."]).as_prompt()
+    v = parse_verdict(f"{prompt}\n1. MET: a clear rover\n2. MET: sharp\nPASS\nscore: 0.9")
+    assert v.passed and v.issues == [] and v.score == 0.9
+    assert parse_verdict(f"{prompt}\n1. MET: a clear rover\n2. MET: sharp\nPASS").score == 0.0   # not its 'e.g. 0.82'
+
+
+@pytest.mark.parametrize("verdict", ["Overall verdict: Does not pass.", "Overall: not a pass", "Verdict: cannot pass",
+                                     "Overall: doesn't pass", "Overall: never passed"])
+def test_a_negated_pass_is_a_fail(verdict):
+    assert not parse_verdict(f"1. Subject - MET\n2. Palette - MET\n{verdict}\nscore: 0.6").passed
+
+
+@pytest.mark.parametrize("verdict", ["Overall: PASS - criterion 2 NOT-MET is minor",
+                                     "Overall: PASS (criterion 3 partially met)",
+                                     "Overall: PASS, but 1 criterion unmet"])
+def test_a_pass_that_admits_an_unmet_criterion_fails(verdict):
+    v = parse_verdict(f"1. Subject - MET\n2. Palette - MET\n{verdict}\nscore: 0.8")
+    assert not v.passed and v.issues == [verdict]
+
+
+@pytest.mark.parametrize("verdict", ["Overall: PASS (all criteria MET)", "Overall: PASS. Criteria NOT-MET: none.",
+                                     "Overall: PASS (no unmet criteria)", "PASS: 2/2 MET, 0 NOT-MET"])
+def test_a_pass_that_says_nothing_is_unmet_keeps_its_pass(verdict):
+    v = parse_verdict(f"1. Subject - MET\n2. Palette - MET\n{verdict}\nscore: 0.8")
+    assert v.passed and v.issues == []
+
+
+def test_a_bracketed_scale_and_a_decimal_comma_are_read():
+    for text, want in (("Score [0-1]: 0.7", 0.7), ("score: 0,85", 0.85), ("Score (1-5): 4", 0.8),
+                       ("Score [0-5]: 4", 0.8), ("Score (0 to 5): 4", 0.8), ("**Score:**\n0,6", 0.6)):
+        assert round(parse_verdict(f"Overall: PASS\n{text}").score, 3) == want, text
+
+
+# --- pins: each rule below survived its own deletion in the 2026-10 mutation run --------------------------------
+def _fails(line):
+    v = parse_verdict(f"1. Subject - MET\n{line}\nOverall: PASS\nscore: 0.8")
+    return not v.passed and bool(v.issues)
+
+
+def _keeps(line):
+    v = parse_verdict(f"1. Subject - MET\n2. Style - MET\n{line}\nOverall: PASS\nscore: 0.8")
+    return v.passed and v.issues == []
+
+
+@pytest.mark.parametrize("line", [
+    "Met: 3  Not met: 1", "3. No missing or broken parts NOT-MET: the left arm is missing",
+    "**3.** No missing parts NOT-MET", "3) No missing parts NOT-MET", "3: No missing parts NOT-MET",
+    "Criterion 3: No missing parts NOT-MET", "| 3 | No missing parts NOT-MET", "- 3. No missing parts NOT-MET",
+    "### 3. No missing parts NOT-MET", "- No missing parts - NOT-MET",
+    "- The knight has no helmet and his visor and plume are missing so NOT-MET", "- Palette: partly met",
+    "- Palette: not entirely met", "2. Finish: brushed metal, not chrome — NOT-MET",
+    "There are no fewer than 2 criteria NOT-MET"])
+def test_pinned_rules_fail_a_render(line):
+    assert _fails(line)
+
+
+@pytest.mark.parametrize("line", [
+    "Zero NOT-MET criteria.", "Every criterion holds, without a single NOT-MET.",
+    "If a criterion were NOT-MET, a FIX would follow.", "| Requirements not met by older designs are fixed | ✅ MET |",
+    "| Requirements not met by older designs are fixed | **MET** |", "NOT-MET: N/A", "NOT-MET: 0.", "NOT-MET: zero",
+    "Unmet: nothing.", "Summary: 0 criteria NOT-MET", "NOT-MET = 0, MET = 4", "Not met: 0, met: 4"])
+def test_pinned_rules_keep_a_pass(line):
+    assert _keeps(line)
+
+
+@pytest.mark.parametrize("text, passed", [
+    ("1. Subject: MET\nOverall: FAIL\nNote: with a sharper horizon it would pass overall.\nscore: 0.4", False),
+    ("1. Subject: MET\nThe overall verdict: FAIL\nNote: it would pass with a red body.\nscore: 0.4", False),
+    ("1. Subject: MET\n**Overall:** FAIL\nNote: overall it would pass with a red body.\nscore: 0.4", False),
+    ("1. Subject: MET\nOverall: PASSED\nscore: 0.9", True),
+    ("PASS (draft)\n1. Subject: MET\nOverall: FAILED\nscore: 0.3", False),
+    ("1. Subject: MET\nOverall: PASS - no criterion fails\nscore: 0.9", True),
+    ("1. Subject: MET\nOverall: PASS\nScore: 1/0", True)])
+def test_pinned_verdict_rules(text, passed):
+    assert parse_verdict(text).passed is passed
+
+
+def test_pinned_score_and_fix_rules():
+    v = parse_verdict("1. Palette: NOT-MET\nFix - add red; avoid grey\nOverall: FAIL\nscore: 0.2")
+    assert "Fix - add red; avoid grey" in v.issues
+    assert parse_verdict("Overall: PASS\nScore (0–5): 4").score == 0.8
+    assert parse_verdict("Overall: PASS\nScore: 5%").score == 0.05
+    assert parse_verdict("Overall: PASS\nScore: 10%").score == 0.1
+    assert parse_verdict("Overall: PASS\nScores: 0.4\nNote: a score of 0.9 would need studio light.").score == 0.4

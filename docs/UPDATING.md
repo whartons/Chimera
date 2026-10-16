@@ -11,7 +11,7 @@ code. Two pieces make that reliable:
 - **The lever** — this runbook: the safe, gated process to actually apply each kind of update.
 
 > **The three gates — run them after *any* update before you trust it:**
-> 1. `python -m pytest -q` is green, 2. `chimera doctor` (and `chimera doctor --brand <b>`) is clean,
+> 1. `python -m pytest` is green, 2. `chimera doctor` (and `chimera doctor --brand <b>`) is clean,
 > 3. a **smoke render** of the affected modality looks right. If any gate fails, roll back.
 
 The dependency inventory those updates touch lives in [`docs/STACK.md`](STACK.md); models in
@@ -29,20 +29,25 @@ Dependabot opens weekly PRs (`pip` + `github-actions`). Nothing to remember:
 If you want to pull deps locally: `pip install -U -e ".[dev]"`, then run the gates.
 
 ## 2 · ComfyUI (Desktop) — *manual, low-risk*
-ComfyUI Desktop versions independently of the `comfyanonymous/ComfyUI` core repo's GitHub releases,
+ComfyUI Desktop versions independently of the `Comfy-Org/ComfyUI` core repo's GitHub releases,
 so the weekly report only *points* at the core release — the authoritative check is local:
 1. `chimera update-check` (against your running instance) tells you if you're behind.
 2. Update via the **ComfyUI Desktop app**.
-3. Run the gates — especially **`chimera doctor`** (confirms node packs + models still resolve) and a
-   smoke render of **each modality** (a ComfyUI bump can change node schemas).
-4. If the reference build moved, update the `0.26.2` references in `docs/STACK.md` / `docs/SETUP.md`
+3. Run the gates — especially **`chimera doctor`** (confirms the workflow node types, each modality's
+   default model files and, with `--brand`, the brand's pinned models still resolve) and a smoke render of
+   **each modality** (a ComfyUI bump can change node schemas).
+4. If the reference build moved, update the reference-build version in `docs/STACK.md` / `docs/SETUP.md`
    and `COMFY_REF` in [`scripts/update_report.py`](../scripts/update_report.py).
 
 ## 3 · Pinned node packs & the MCP server — *manual, audit-gated*
-LTXVideo, HunyuanVideo-Foley, QwenVL and `freecad-mcp` (GitHub git-pinned commits), `comfyui-mcp`
+LTXVideo, HunyuanVideo-Foley, IPAdapter and `freecad-mcp` (GitHub git-pinned commits), `comfyui-mcp`
 (npm-pinned version), and `blender_mcp` (Gitea git-pinned commit) are **pinned and security-audited**
 — Dependabot can't see them, which is exactly why the weekly report checks them (`freecad-mcp` rides
 the GitHub `check_git_pack`; `blender_mcp` uses the Gitea compare API since it is **not** on GitHub).
+A pin fixes the package's own code, not its dependencies: those still resolve at install time
+(`comfyui-mcp@0.18.0` ships no lockfile, so its npm dependencies float within their caret ranges, and the
+`uvx`-launched bridges resolve their Python dependencies the same way). A project-local install from a
+lockfile is a possible follow-up.
 **Never bump to `@latest` blind.** When the report flags one behind:
 1. **Re-audit the diff** between the current pin and the new commit/version — same standard as the
    original scan (look for new network calls, `eval`/`exec`, `torch.load(weights_only=False)`,

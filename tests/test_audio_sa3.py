@@ -86,3 +86,18 @@ def test_the_sfx_prompt_is_the_subject_alone():
 def test_an_unknown_audio_mode_is_rejected():
     with pytest.raises(ValueError, match="music, sfx or foley"):
         _build(mode="karaoke")
+
+
+
+def test_sa3_and_foley_reject_what_they_cannot_render():
+    import pytest as _pytest
+    from scripts.brandkit import audio as A
+    from scripts.brandkit.manifest import default_manifest
+    m = default_manifest()
+    with _pytest.raises(ValueError, match="at least 1"):
+        A.check_options(m, "sfx", duration=0.4)       # EmptyLatentAudio's minimum is 1 s
+    with _pytest.raises(ValueError, match="makes music"):
+        A.check_options(m, "foley", model="acestep")
+    A.check_options(m, "sfx", duration=1.0)
+    A.check_options(m, "music", model="acestep", duration=0.5)    # ACE-Step is not SA3
+    A.check_options(m, "foley", model="hunyuanvideo_foley_fp8_e4m3fn.safetensors")

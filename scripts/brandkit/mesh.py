@@ -34,6 +34,10 @@ def read_glb_mesh(path):
     meshes = g.get("meshes")
     if not meshes or not meshes[0].get("primitives"):
         raise ValueError(f"GLB has no meshes/primitives (not a 3D mesh file): {path}")
+    parts = sum(len(m.get("primitives") or []) for m in meshes)
+    if parts > 1:   # reading only the first used to drop the rest without a word
+        raise ValueError(f"{Path(path).name} has {parts} mesh parts; STL/OBJ conversion here reads one-part GLBs "
+                         "(ComfyUI's 3D output). For others use `generate.py render --mode finish --formats stl`")
     prim = meshes[0]["primitives"][0]
     attrs = prim.get("attributes", {})
     if "POSITION" not in attrs:

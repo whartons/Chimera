@@ -94,3 +94,75 @@ def test_find_blender_raises_when_absent(monkeypatch):
     monkeypatch.setattr(D.glob, "glob", lambda p: [])
     with pytest.raises(B.BlenderJobError):
         B.find_blender()
+
+
+def test_run_template_decodes_utf8_and_reports_a_missing_binary(tmp_path):
+    # the locale codec (cp1252) garbled a non-ASCII path in Blender's output; a wrong --blender-bin
+    # surfaced as a raw FileNotFoundError traceback
+    import pytest as _pytest
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    seen = {}
+
+    def runner(argv, **kw):
+        seen.update(kw)
+        return _fake_proc(stdout='@@CHIMERA_MANIFEST@@ {"outputs": ["C:/Users/\u00e9/r.png"]}')
+    assert B.run_template(tmpl, {}, blender_bin="blender", _runner=runner)["outputs"] == ["C:/Users/\u00e9/r.png"]
+    assert seen["encoding"] == "utf-8" and seen["errors"] == "replace"
+
+    def missing(argv, **kw):
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+    with _pytest.raises(B.BlenderJobError, match="couldn.t start"):
+        B.run_template(tmpl, {}, blender_bin="C:/nope/blender.exe", _runner=missing)
+
+
+def test_blender_jobs_and_freecad_jobs_get_no_credentials(tmp_path, monkeypatch):
+    # FreeCAD was scrubbed but headless Blender inherited every API key; and the name list missed proxies with
+    # user:password, package-index URLs, webhooks and connection strings (2026-10 security review)
+    for k, v in {"OPENAI_API_KEY": "sk", "HTTPS_PROXY": "http://u:p@h", "PIP_INDEX_URL": "https://t@x/simple",
+                 "SLACK_WEBHOOK": "https://hooks", "AWS_PROFILE": "prod", "REDIS_URL": "redis://:p@h",
+                 "GIT_ASKPASS": "x", "MY_PASSPHRASE": "x"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("CHIMERA_TEST_KEEP", "1")
+    seen = {}
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+
+    def runner(argv, **kw):
+        seen.update(kw["env"])
+        return types.SimpleNamespace(returncode=0, stdout=D.MANIFEST_TAG + ' {"outputs": []}', stderr="")
+    B.run_template(tmpl, {}, blender_bin="blender", _runner=runner)
+    assert not {"OPENAI_API_KEY", "HTTPS_PROXY", "PIP_INDEX_URL", "SLACK_WEBHOOK", "AWS_PROFILE", "REDIS_URL",
+                "GIT_ASKPASS", "MY_PASSPHRASE"} & set(seen)
+    assert seen.get("CHIMERA_TEST_KEEP") == "1" and any(k.upper() == "PATH" for k in seen)
+
+
+def test_job_outputs_must_stay_in_the_job_folder(tmp_path):
+    inside = tmp_path / "job" / "m.stl"
+    assert D.job_outputs({"outputs": [str(inside)]}, tmp_path / "job", RuntimeError) == [str(inside)]
+    assert D.job_outputs({}, tmp_path / "job", RuntimeError) == []
+    with pytest.raises(RuntimeError, match="outside its folder"):
+        D.job_outputs({"outputs": [str(inside), str(tmp_path / "other.stl")]}, tmp_path / "job", RuntimeError)
+    with pytest.raises(RuntimeError, match="outside its folder"):
+        D.job_outputs({"outputs": [str(tmp_path / "job" / ".." / "x.stl")]}, tmp_path / "job", RuntimeError)
+
+
+
+def test_the_env_scrub_drops_passwords_proxies_and_connection_urls(monkeypatch):
+    names = ("DB_PASS", "SMTP_PASS", "PGPASSFILE", "HTTPS_PROXY", "SLACK_WEBHOOK_URL", "MONGO_URI", "AWS_PROFILE")
+    for k in names:
+        monkeypatch.setenv(k, "secret")
+    env = D.scrubbed_env()
+    assert not set(names) & set(env)
+    assert any(k.upper() == "PATH" for k in env)
+
+
+def test_a_job_output_on_another_drive_is_stray_not_a_traceback(tmp_path, monkeypatch):
+    # on Windows commonpath raises for 'D:\secret.txt' against a job folder on C:, which `cad` didn't catch
+    real = D.os.path.commonpath
+
+    def commonpath(paths):
+        if any("other-drive" in p for p in paths):
+            raise ValueError("Paths don't have the same drive")
+        return real(paths)
+    monkeypatch.setattr(D.os.path, "commonpath", commonpath)
+    with pytest.raises(RuntimeError, match="outside its folder"):
+        D.job_outputs({"outputs": [str(tmp_path / "other-drive" / "secret.stl")]}, tmp_path / "job", RuntimeError)

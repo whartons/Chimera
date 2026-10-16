@@ -6,9 +6,10 @@ loop using its **Workflow/subagent tooling and its own vision**, scoring each
 candidate against a brand/brief **rubric** until one passes (or a cap is hit).
 
 This is **not** a headless CLI — it needs the assistant runtime in the loop. For an
-unattended/offline equivalent, see the **local standalone** backend
-([`../../modules/agent/self-correction.md`](../../modules/agent/self-correction.md)).
-Both backends share the same model-free core in `scripts/agent/`.
+unattended/offline equivalent, see `auto_generate.py`, whose default judge is a local Ollama model sized to
+the GPU: Qwen 3.8 27B on 32 GB+ cards, a Qwen3-VL 8B or 4B on smaller ones
+([`../../modules/agent/self-correction.md`](../../modules/agent/self-correction.md#local-models-by-gpu-tier)).
+Both share the same model-free core in `scripts/agent/`.
 
 ## Why multi-judge consensus
 
@@ -33,21 +34,22 @@ headless backend:
 - **Rubric** — `scripts/agent/rubric.py` `build_rubric(manifest, subject)` composes
   the scorable checklist from the brand (subject, style, palette, negative); with a
   brandless `default_manifest()` it collapses to just subject + quality, so the same
-  consensus loop works for general briefs too (the live anatomy example below was one).
+  consensus loop works for general briefs too (the live anatomy example above was one).
   `rubric.as_prompt()` renders the numbered MET / NOT-MET + PASS/FAIL + `score: 0-1`
   instructions each judge is handed.
 - **Expander** — `scripts/agent/expander.py` `TemplatedExpander.expand(subject,
   manifest, prior_issues)` builds the on-brand `(positive, negative)` and, when given
-  the consensus issues, appends `". Emphasize and correct: <issues>"` so the next
-  batch corrects them.
+  the consensus issues, applies their `FIX: add …; avoid …` directives (`add` terms go into the
+  positive as "Ensure these are present: …"; `avoid` terms are cut from the subject and added to the
+  negative), or appends the raw issues when no judge wrote a FIX, so the next batch corrects them.
 - **Generate** — `scripts/generate.py image` produces candidates; vary `--seed` for a
   batch and pass `--comfy-output-dir` so finished files route into the brand folder.
 
 ### Step by step
 
 1. **Build the rubric** from the brand manifest + the subject/brief:
-   `r = build_rubric(load_manifest(<brand>), "<subject>")`. Keep `r.as_prompt()` — it
-   is the exact text every judge scores against.
+   `r = build_rubric(load_manifest("brands/<brand>/brand.yaml"), "<subject>")`. Keep
+   `r.as_prompt()` — it is the exact text every judge scores against.
 2. **Generate a batch** of N candidates with varied seeds:
    ```
    python scripts/generate.py image --brand <brand> --subject "<subject>" \
@@ -59,8 +61,8 @@ headless backend:
    PASS/FAIL + score. Parse each with `scripts/agent/judge.py` `parse_verdict()`.
 4. **Take the consensus.** A candidate **passes** when a majority of its M judges
    voted PASS. Among passing candidates, keep the highest mean score. If none pass,
-   carry forward the **consensus issues** — the unmet criteria most judges flagged.
-   `scripts/agent/judge.py` `consensus_verdict(texts)` does this in one call (parse each
+   carry forward the **consensus issues** — every unmet criterion any judge flagged,
+   de-duplicated. `scripts/agent/judge.py` `consensus_verdict(texts)` does this in one call (parse each
    pass → strict-majority PASS → mean score → de-duplicated union of issues); `CallableJudge`
    wraps a single vision pass as a `Judge`, so a panel of them drops straight into
    `ConsensusJudge` / `run_loop`.
@@ -76,7 +78,7 @@ Brand-neutral pseudocode for the assistant-driven loop (`<brand>` / `<subject>` 
 placeholders; use the bundled `example-brand` to try it):
 
 ```
-manifest = load_manifest("<brand>")
+manifest = load_manifest("brands/<brand>/brand.yaml")
 rubric   = build_rubric(manifest, "<subject>")
 expander = TemplatedExpander()
 
@@ -86,9 +88,11 @@ for it in range(MAX_ITERS):              # cap, e.g. 4
     pos, neg = expander.expand("<subject>", manifest, prior_issues)
     batch = [generate_image("<brand>", "<subject>", seed) for seed in seeds(it, N)]
 
+    batch_verdicts = []
     for img in batch:
         verdicts = [assistant_vision_judge(img, rubric.as_prompt())  # parse_verdict()
                     for _ in range(M)]                                # M independent passes
+        batch_verdicts += verdicts
         passes   = sum(v.passed for v in verdicts)
         score    = mean(v.score for v in verdicts)
         if best is None or score > best.score:
@@ -96,8 +100,8 @@ for it in range(MAX_ITERS):              # cap, e.g. 4
         if passes > M / 2:               # majority PASS -> consensus accept
             return img
 
-    # no consensus winner this round: refine from what most judges flagged
-    prior_issues = consensus_issues(batch_verdicts)   # union of common NOT-MET
+    # no consensus winner this round: refine from what any judge flagged
+    prior_issues = consensus_issues(batch_verdicts)   # de-duplicated union of every judge's NOT-MET
 
 return best.img                          # cap reached: best-scoring candidate
 ```
@@ -105,11 +109,10 @@ return best.img                          # cap reached: best-scoring candidate
 `assistant_vision_judge` is the assistant looking at the image and producing a
 free-text verdict that `parse_verdict()` normalizes — there is **no API key and no
 local VLM** in this backend; the "judge" is the Claude Code runtime itself. Swapping
-that single call for a Qwen3-VL judge — the recommended Ollama path (`--backend api`)
+that single call for a VLM judge — the default Ollama path (`--backend api`, a model sized to the GPU)
 or a `LocalVLMJudge` over the optional ComfyUI Qwen3-VL graph (`--backend local`) — is
-exactly the local standalone backend, which is **built and live-validated**
-(`python scripts/agent/auto_generate.py --backend api …`), with the same rubric,
-expander, and loop shape.
+exactly the headless `auto_generate.py`, which is **built and live-validated**
+(`python scripts/agent/auto_generate.py …`), with the same rubric, expander, and loop shape.
 
 `auto_generate.py` also exposes `--backend assistant`, but as an **explicitly gated** opt-in:
 a headless subprocess has no assistant vision to call, so the CLI refuses it and points back
@@ -124,13 +127,16 @@ The same consensus recipe drives **3D form** correction via the `mesh3d` pipelin
 produces a candidate mesh and a **4-view contact sheet** instead of a 2D image; the rubric, consensus,
 expander, and loop are unchanged.
 
-1. **Build the 3D rubric** — `build_rubric(manifest, subject, modality="3d")`: form criteria
-   (proportions/silhouette, completeness, clean surface), **no color/palette** (Hunyuan3D output is
-   untextured grey clay). `r.as_prompt()` is what each judge scores against, as before.
-2. **Generate a candidate contact sheet** — concept image → Hunyuan3D mesh → `mesh_eval` 4 orbit stills
-   → montaged contact sheet. Headless: `auto_generate.py --pipeline mesh3d`. For the assistant backend,
-   drive the same `make_render_generate(...)` closure (`scripts/agent/render_generate.py`) and judge the
-   contact-sheet PNG it returns.
+1. **Build the 3D rubric** — `build_rubric(manifest, subject, modality="3d", textured=True)` for the
+   default TRELLIS.2 (or Pixal3D) mesh, which comes out textured: form criteria
+   (proportions/silhouette, completeness, clean surface) plus a lenient color criterion and the brand
+   palette. For a shape-only Hunyuan3D mesh (`--mesh-model hunyuan21`, untextured grey clay) leave out
+   `textured`: form only, **no color/palette**. `r.as_prompt()` is what each judge scores against, as
+   before.
+2. **Generate a candidate contact sheet** — concept image → 3D mesh (TRELLIS.2 by default) → `mesh_eval`
+   4 orbit stills → montaged contact sheet. Headless: `auto_generate.py --pipeline mesh3d`. For the
+   assistant backend, drive the same `make_render_generate(...)` closure
+   (`scripts/agent/render_generate.py`) and judge the contact-sheet PNG it returns.
 3. **Judge each contact sheet with M independent vision passes** against `r.as_prompt()`, exactly as for
    images — but **also read the sibling `<stem>.checks.json`** the generator wrote and include any
    `structural_issues(checks)` (empty / degenerate / over-fragmented — the gross defects a VLM can't read
@@ -140,8 +146,9 @@ expander, and loop are unchanged.
    folds the unmet issues into the next **concept** prompt (the lever on an image-conditioned mesh).
    Re-generate with a fresh seed (which also rerolls the mesh lift) and repeat to the cap.
 
-The autonomous equivalent wraps the local judge in `GeometryAwareJudge`, so the same checks-file merge
-happens with no assistant in the loop — `auto_generate.py --pipeline mesh3d --backend local`.
+The autonomous equivalent wraps its judge (by default the GPU tier's local Ollama judge; `--backend local` for the
+optional ComfyUI node) in `GeometryAwareJudge`, so the same checks-file merge happens with no assistant in
+the loop — `auto_generate.py --pipeline mesh3d`.
 
 ## When to use this
 
@@ -150,4 +157,4 @@ happens with no assistant in the loop — `auto_generate.py --pipeline mesh3d --
 - You want the **best result** and are willing to keep the assistant in the loop.
 
 For unattended batches, scheduled jobs, or fully offline runs with no assistant, use
-the **local standalone** backend instead.
+`auto_generate.py` instead (its default judge is a local Ollama model sized to your GPU).

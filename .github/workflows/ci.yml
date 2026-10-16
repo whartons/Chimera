@@ -7,9 +7,10 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only by default. Actions are pinned by commit SHA (Dependabot keeps the pins current), and only
+# the upload job below can mint an OIDC token: the jobs that pip-install third-party packages can't.
 permissions:
   contents: read
-  id-token: write   # OIDC: lets codecov-action do a tokenless upload (no CODECOV_TOKEN needed)
 
 jobs:
   test:
@@ -22,29 +23,66 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.12"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97   # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      # Linux adds the Pillow extra, so the contact sheet the judge scores (montage.py) and the Pillow
+      # cross-checks run and count toward coverage; Windows stays on [dev] alone and proves the no-Pillow
+      # fallbacks (8 Pillow-gated tests skip there).
       - name: Install (editable + dev tooling)
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev${{ matrix.os == 'ubuntu-latest' && ',images' || '' }}]"
       - name: Lint (ruff — correctness rules)
         run: ruff check .
       - name: Run tests (with coverage)
         run: python -m pytest --cov=scripts --cov-report=term-missing --cov-report=xml --cov-fail-under=85
-      - name: Upload coverage to Codecov
+      - name: Keep the coverage report for the upload job
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
         with:
-          files: ./coverage.xml
-          use_oidc: true          # tokenless upload via GitHub OIDC (needs id-token: write above)
-        continue-on-error: true   # advisory — never gate the merge on the coverage upload
-      - name: Audit dependencies for known advisories (pip-audit)
-        if: matrix.os == 'ubuntu-latest'
-        continue-on-error: true   # advisory: surface CVEs in the dep tree without gating the merge
-        run: |
-          python -m pip install pip-audit
-          pip-audit --desc
+          name: coverage
+          path: coverage.xml
+          retention-days: 1
       - name: CLI entry point smoke
         run: chimera --help
+
+  coverage:
+    name: upload coverage
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC: lets codecov-action do a tokenless upload (no CODECOV_TOKEN needed)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c   # v8.0.1
+        with:
+          name: coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5   # v7.1.1
+        with:
+          files: ./coverage.xml
+          use_oidc: true
+        continue-on-error: true   # advisory — never gate the merge on the coverage upload
+
+  audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    continue-on-error: true   # advisory: surface CVEs in the dep tree without gating the merge
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97   # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Audit dependencies for known advisories
+        run: |
+          python -m pip install -e ".[dev]" pip-audit
+          pip-audit --desc

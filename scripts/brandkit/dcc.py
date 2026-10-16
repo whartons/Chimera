@@ -7,10 +7,44 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 
 MANIFEST_TAG = "@@CHIMERA_MANIFEST@@"
+# Variable names that carry credentials: keys and tokens, and also URLs and URIs (proxies, package indexes and
+# database connection strings embed user:password), webhooks, vaults, profiles and askpass helpers.
+_SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|PWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|DSN"
+                          r"|JWT|BEARER|PROXY|WEBHOOK|ASKPASS|VAULT|KUBECONFIG|_URL$|_URI$|_PROFILE$|_PAT$|^PAT_"
+                          r"|CONN(ECTION)?_?STR", re.IGNORECASE)
+
+
+def scrubbed_env(**extra):
+    """os.environ without anything named like a credential, plus `extra`. The CAD loop runs LLM-written
+    FreeCAD scripts whose restrictions are a speed bump, not a sandbox: a probe walked object internals
+    back to `os` and read all 104 environment variables, API keys included (2026-10 audit). Blender jobs get
+    the same environment: none of them needs a credential."""
+    env = {k: v for k, v in os.environ.items() if not _SECRET_NAME.search(k)}
+    env.update(extra)
+    return env
+
+
+def job_outputs(manifest, out_dir, error_cls):
+    """The manifest's output paths, each required to sit inside the job's own `out_dir`. A job script prints
+    its manifest on stdout, and an LLM-written FreeCAD script could print a forged one naming any file on
+    disk, which the caller would then move into outputs/ (2026-10 security review)."""
+    root = os.path.realpath(out_dir)
+    outs = [str(o) for o in (manifest.get("outputs") or [])]
+
+    def inside(path):
+        try:
+            return os.path.commonpath([root, os.path.realpath(path)]) == root
+        except ValueError:   # another drive on Windows ('D:\\secret.txt'), or a relative path
+            return False
+    stray = [o for o in outs if not inside(o)]
+    if stray:
+        raise error_cls(f"the job reported outputs outside its folder: {stray[:3]}")
+    return outs
 
 
 def find_executable(*, explicit=None, env_var=None, path_names=(), default_glob=None,
@@ -37,9 +71,14 @@ def run_and_parse(argv, *, timeout, _runner, error_cls, exe_label, job_label, re
     surfaced, because these tools print script errors to stderr while still exiting 0."""
     kw = {"env": env} if env is not None else {}
     try:
-        proc = _runner(argv, capture_output=True, text=True, timeout=timeout, **kw)
+        # UTF-8, not the locale codec (cp1252 on Windows): a non-ASCII path printed by Blender/FreeCAD
+        # garbled the stream and swallowed the manifest line
+        proc = _runner(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=timeout, **kw)
     except subprocess.TimeoutExpired as e:
         raise error_cls(f"{job_label} job timed out after {timeout}s") from e
+    except OSError as e:   # a wrong --blender-bin / --freecad-bin: say so instead of a raw traceback
+        raise error_cls(f"couldn't start {exe_label} ({argv[0]}): {e}") from e
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "")[-2000:]
         raise error_cls(f"{exe_label} exited {proc.returncode}:\n{tail}")

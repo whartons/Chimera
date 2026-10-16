@@ -5,11 +5,10 @@ palette: ["#1c1f22", "#2e3338", "#b6c0c8", "#c8442e"]
 prompt_prefix: ""
 prompt_suffix: ", high-detail hardware render, clean dark studio background"
 negative: "low quality, blurry, watermark, text artifacts, cartoonish, toy-like"
-# This showcase brand pins Z-Image Turbo (8-step); Chimera's global default is Qwen-Image-2.1.
-# --model qwen_image_2.1_int8_convrot.safetensors / flux2_dev_fp8mixed.safetensors switches backend for one
-# run; --variant base uses Z-Image's 25-step model. steps/guidance below are used only by FLUX.2
-# (Z-Image and Qwen-Image set their own).
-defaults: { model: "z_image_turbo_nvfp4.safetensors", width: 1216, height: 832, steps: 24, guidance: 3.5 }
+# This showcase brand uses Chimera's default image model, Qwen-Image-2.1 (its outputs were regenerated on it
+# for v0.6.0). --model z_image_turbo_nvfp4.safetensors / flux2_dev_fp8mixed.safetensors switches backend for
+# one run. steps/guidance below are used only by FLUX.2 (Z-Image and Qwen-Image set their own).
+defaults: { model: "qwen_image_2.1_int8_convrot.safetensors", width: 1216, height: 832, steps: 24, guidance: 3.5 }
 logo: { default: "logos/primary.png", position: "bottom-right", scale: 0.22, margin: 0.04 }
 lora: { file: null, strength: 0.8 }
 ip_adapter: { enabled: false, weight: 0.5, references: "references/" }
@@ -22,5 +21,4 @@ audio:
   music_bpm: 90
   music_keyscale: "D minor"
   music_duration: 8.0
-  foley: "hunyuan"
 threed: { model: null, format: "glb" }

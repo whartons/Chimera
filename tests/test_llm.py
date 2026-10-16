@@ -23,7 +23,8 @@ def _opener(payload, capture=None):
         if capture is not None:
             capture["url"] = req.full_url
             capture["body"] = json.loads(req.data)
-            capture["headers"] = {k.lower(): v for k, v in req.headers.items()}
+            capture["headers"] = {k.lower(): v for k, v in req.header_items()}
+            capture["redirected"] = {k.lower() for k in req.headers}   # what urllib copies onto a redirect
         return _Resp(payload)
     return open_
 
@@ -57,7 +58,7 @@ def test_config_reads_env(monkeypatch):
     _clear_env(monkeypatch)
     monkeypatch.setenv("CHIMERA_LLM_BASE_URL", "http://e/v1")
     monkeypatch.setenv("CHIMERA_LLM_MODEL", "envmodel")
-    monkeypatch.setenv("OPENAI_API_KEY", "envkey")
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "envkey")
     c = LLMClient()
     assert c.base_url == "http://e/v1" and c.model == "envmodel" and c.api_key == "envkey"
 
@@ -266,7 +267,7 @@ def test_client_for_role_falls_back_to_shared(monkeypatch):
 
 def test_client_for_role_key_role_beats_generic(monkeypatch):
     _clear_env(monkeypatch)
-    monkeypatch.setenv("OPENAI_API_KEY", "ok")
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "ok")
     assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "ok"
     monkeypatch.setenv("CHIMERA_JUDGE_API_KEY", "jk")
     assert client_for_role("judge", shared_cli_base="http://x/v1", shared_cli_model="m").api_key == "jk"
@@ -314,3 +315,202 @@ def test_llmexpander_falls_back_when_llm_raises():
 def test_llmexpander_falls_back_on_bad_json():
     pos, neg = LLMExpander(_FakeClient(["not json at all"])).expand("a knight", default_manifest(), None)
     assert isinstance(pos, str) and pos
+
+
+def test_vendor_keys_only_go_to_their_own_vendor(monkeypatch):
+    # An OPENAI_API_KEY exported for other tools was sent to ANY base URL (OpenRouter, Gemini, a LAN box).
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    for url in ("https://openrouter.ai/api/v1", "http://localhost:11434/v1", "https://api.openai.com.evil.example/v1",
+                "https://generativelanguage.googleapis.com/v1beta/openai"):
+        assert LLMClient(base_url=url, model="m").api_key is None
+        assert not client_for_role("judge", shared_cli_base=url, shared_cli_model="m").api_key
+    assert LLMClient(base_url="https://api.openai.com/v1", model="m").api_key == "sk-openai"
+    assert client_for_role("codegen", cli_base="https://API.anthropic.com/v1", cli_model="m").api_key == "sk-ant"
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "chimera")                  # an explicit Chimera key still wins
+    assert LLMClient(base_url="https://openrouter.ai/api/v1", model="m").api_key == "chimera"
+
+
+
+def test_the_api_key_is_not_copied_onto_a_redirect(monkeypatch):
+    _clear_env(monkeypatch)
+    cap = {}
+    LLMClient(base_url="https://api.example/v1", api_key="k", model="m").chat(
+        [{"role": "user", "content": "x"}], _opener=_opener(_msg("ok"), cap))
+    assert cap["headers"]["authorization"] == "Bearer k" and "authorization" not in cap["redirected"]
+
+
+def test_the_shared_key_only_goes_to_the_shared_endpoint(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("CHIMERA_LLM_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("CHIMERA_LLM_API_KEY", "sk-shared")
+    monkeypatch.delenv("CHIMERA_CODEGEN_API_KEY", raising=False)
+    assert not client_for_role("codegen", cli_base="https://openrouter.ai/api/v1", cli_model="m").api_key
+    assert client_for_role("codegen", cli_base="https://api.openai.com/v1", cli_model="m2").api_key == "sk-shared"
+    assert client_for_role("judge", cli_model="m").api_key == "sk-shared"
+    assert not LLMClient(base_url="http://192.168.1.50:11434/v1", model="m").api_key
+
+
+def test_vendor_keys_need_https(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    assert LLMClient(base_url="http://api.openai.com/v1", model="m").api_key is None
+
+
+def test_a_key_over_plain_http_to_another_machine_warns(monkeypatch, capsys):
+    _clear_env(monkeypatch)
+    LLMClient(base_url="http://192.168.1.50:8000/v1", api_key="k", model="m")
+    LLMClient(base_url="http://localhost:11434/v1", api_key="k", model="m")
+    err = capsys.readouterr().err
+    assert err.count("unencrypted") == 1 and "192.168.1.50" in err
+
+
+
+def test_client_for_role_falls_back_to_the_callers_default_endpoint(monkeypatch):
+    # the judge works with nothing configured (local Ollama's qwen3-vl:8b-instruct); config always wins
+    _clear_env(monkeypatch)
+    monkeypatch.delenv("CHIMERA_JUDGE_BASE_URL", raising=False)
+    monkeypatch.delenv("CHIMERA_JUDGE_MODEL", raising=False)
+    kw = dict(default_base="http://127.0.0.1:11434/v1", default_model="qwen3-vl:8b-instruct")
+    c = client_for_role("judge", **kw)
+    assert (c.base_url, c.model) == ("http://127.0.0.1:11434/v1", "qwen3-vl:8b-instruct")
+    c = client_for_role("judge", shared_cli_base="https://api.openai.com/v1", shared_cli_model="gpt-4o", **kw)
+    assert (c.base_url, c.model) == ("https://api.openai.com/v1", "gpt-4o")
+
+
+
+# --- local models come in GPU tiers (2026-10: chosen on a 32 GB card; forks have less) -----------------------
+from scripts.agent.llm import LOCAL_TIERS, local_tier, local_model_checks  # noqa: E402
+
+
+@pytest.mark.parametrize("gb, tier", [(31.8, "large"), (28.0, "large"), (27.9, "medium"), (23.99, "medium"), (11.0, "medium"),
+                                      (10.9, "small"), (4.0, "small"), (None, "medium")])
+def test_local_tier_follows_the_gpu_size(monkeypatch, gb, tier):
+    monkeypatch.delenv("CHIMERA_LLM_TIER", raising=False)
+    assert local_tier(gb) == tier
+
+
+def test_local_tier_override_wins_and_rejects_typos(monkeypatch):
+    monkeypatch.setenv("CHIMERA_LLM_TIER", "small")
+    assert local_tier(31.8) == "small"
+    assert local_tier(31.8, "medium") == "medium"            # the CLI flag beats the env
+    assert local_tier(8.0, "auto") == "small"                # auto still means "pick from the GPU"
+    monkeypatch.setenv("CHIMERA_LLM_TIER", "huge")
+    with pytest.raises(LLMConfigError, match="unknown LLM tier 'huge'"):
+        local_tier(31.8)
+
+
+def test_every_tier_names_all_three_roles():
+    for spec in LOCAL_TIERS.values():
+        assert {"judge", "codegen", "rewriter"} <= set(spec)
+
+
+def test_a_default_model_is_flagged_and_gets_the_default_effort_but_a_chosen_one_does_not(monkeypatch):
+    _clear_env(monkeypatch)
+    kw = dict(default_base="http://127.0.0.1:11434/v1", default_model="qwen3.8:27b", default_reasoning="none")
+    c = client_for_role("judge", **kw)
+    assert c.from_default and c.reasoning_effort == "none"
+    c = client_for_role("judge", cli_model="qwen3-vl:8b-instruct", **kw)
+    assert not c.from_default and c.reasoning_effort is None
+
+
+def test_doctor_reports_the_tier_and_missing_pulls(monkeypatch):
+    from scripts.brandkit import gpu as G
+    monkeypatch.delenv("CHIMERA_LLM_TIER", raising=False)
+    monkeypatch.setattr(G, "total_memory_gb", lambda client: 16.0)
+
+    def opener(have):
+        def open_(req, timeout=None):
+            url = req.full_url if hasattr(req, "full_url") else req
+            payload = {"version": "0.40.4"} if url.endswith("/api/version") else {"models": [{"name": n} for n in have]}
+            return _Resp(payload)
+        return open_
+    lines = local_model_checks(object(), "http://127.0.0.1:11434", _opener=opener(["qwen3-vl:8b-instruct"]))
+    assert lines[0][0] == "info" and "medium tier (16 GB GPU)" in lines[0][1]
+    assert lines[1][0] == "warn" and "ollama pull qwen3.8:27b" in lines[1][1]
+    lines = local_model_checks(object(), "http://127.0.0.1:11434",
+                               _opener=opener(["qwen3-vl:8b-instruct", "qwen3.8:27b"]))
+    assert lines[1][0] == "ok"
+    monkeypatch.setenv("CHIMERA_LLM_TIER", "giant")
+    assert local_model_checks(object())[0][0] == "warn"
+
+
+
+def test_codegen_retrying_a_rejected_first_script_says_why():
+    # with no previous script to revise, the retry prompt dropped the reason the first one was rejected
+    from scripts.agent.llm import LLMCadGenerator
+    seen = []
+
+    class _C:
+        def chat(self, messages, **kw):
+            seen.append(messages[-1]["content"])
+            return "```python\nbox = 1\n```"
+    LLMCadGenerator(_C()).generate_script("a mug", fix_feedback="The previous script failed: disallowed 'socket'")
+    assert seen[0].startswith("Create a parametric FreeCAD script for: a mug.") and "disallowed 'socket'" in seen[0]
+
+
+
+# --- 2026-10 test review --------------------------------------------------------------------------------
+from tests.test_gpu import _OLLAMA, _ollama, _server  # noqa: E402
+
+
+def test_a_resident_model_never_asks_for_room():
+    tags = {**_OLLAMA, ("GET", "/api/tags"): {"models": [{"name": "qwen3-vl:8b-instruct", "size": 6 * 2**30}]}}
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
+    asked = []
+    c.make_room = lambda need, floor=None: asked.append(need) or False     # a full card would refuse a NEW load
+    c._ensure_room(_opener=_server(tags, []))                   # already loaded: nothing to make room for
+    assert asked == []
+
+
+def test_a_length_cutoff_without_a_reasoning_field_retries_with_thinking_off():
+    bodies, seq = [], iter([{"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
+                            {"choices": [{"message": {"content": "ok"}}]}])
+
+    class _R:
+        def __init__(self, p): self.b = json.dumps(p).encode()
+        def read(self): return self.b
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def open_(req, timeout=None):
+        bodies.append(json.loads(req.data))
+        return _R(next(seq))
+    c = LLMClient(base_url="http://x/v1", model="m")
+    assert c.chat([{"role": "user", "content": "x"}], _opener=open_) == "ok"
+    assert bodies[1]["reasoning_effort"] == "none"
+
+
+def test_resident_never_probes_a_remote_server():
+    log = []
+    assert LLMClient(base_url="https://api.example.com/v1", model="m").resident(_opener=_server(_OLLAMA, log)) is False
+    assert log == []
+
+
+def test_release_says_false_when_the_model_will_not_leave(monkeypatch):
+    import scripts.agent.llm as L
+    monkeypatch.setattr(L, "_UNLOAD_WAIT", 0.3)                  # release() takes no clock seam
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
+    assert c.release(_opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], [], forgets=False)) is False
+
+
+def test_a_withheld_key_is_mentioned(monkeypatch, capsys):
+    # a v0.5 setup (OpenRouter + OPENAI_API_KEY) got HTTP 401 on every iteration, after the render, silently
+    from scripts.agent.llm import client_for_role
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    c = client_for_role("judge", cli_base="https://openrouter.ai/api/v1", cli_model="m")
+    err = capsys.readouterr().err
+    assert c.api_key == "" and "openrouter.ai" in err and "OPENAI_API_KEY isn't sent there" in err
+    client_for_role("judge", cli_base="https://api.openai.com/v1", cli_model="m")      # the key goes: no note
+    client_for_role("judge", cli_base="http://127.0.0.1:11434/v1", cli_model="m")     # local Ollama: no note
+    assert capsys.readouterr().err == ""
+
+
+def test_the_code_gen_prompt_states_what_the_cad_loop_checks():
+    # live 2026-10-16: a "hex socket organizer" brief cut its sockets into the tray's empty cavity (nothing
+    # removed, 0 of 4 iterations), then added rims floating in the cavity (7 pieces); with the one-solid rule
+    # and the cut rule stated, the first iteration came out right
+    from scripts.agent.llm import _CAD_SYSTEM
+    assert "ONE connected solid" in _CAD_SYSTEM and "never into an existing cavity" in _CAD_SYSTEM
+    assert "App.Vector" in _CAD_SYSTEM and "a Matrix has no `.rotate`" in _CAD_SYSTEM

@@ -113,3 +113,22 @@ def test_find_freecad_raises_when_absent(monkeypatch):
     monkeypatch.setattr(D.glob, "glob", lambda p: [])
     with pytest.raises(F.FreeCADJobError):
         F.find_freecad()
+
+
+
+def test_freecad_gets_no_credentials_in_its_environment(tmp_path, monkeypatch):
+    # LLM-written CAD scripts can walk object internals back to os.environ (2026-10 audit)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    monkeypatch.setenv("CHIMERA_CODEGEN_API_KEY", "k")
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("SOME_SECRET", "s")
+    monkeypatch.setenv("CHIMERA_LLM_MODEL", "keeps")
+    tmpl = tmp_path / "t.py"; tmpl.write_text("x")
+    seen = {}
+
+    def runner(argv, **kw):
+        seen.update(kw["env"])
+        return _fake_proc(stdout='@@CHIMERA_MANIFEST@@ {"outputs": []}')
+    F.run_template(tmpl, {}, freecad_bin="fc", timeout=5, _runner=runner)
+    assert not {"OPENAI_API_KEY", "CHIMERA_CODEGEN_API_KEY", "GITHUB_TOKEN", "SOME_SECRET"} & set(seen)
+    assert seen["CHIMERA_LLM_MODEL"] == "keeps" and "CHIMERA_CAD_PARAMS" in seen and "PATH" in {k.upper() for k in seen}

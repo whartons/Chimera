@@ -36,7 +36,7 @@ It's core-native in ComfyUI 0.40 (no custom node pack). The `image` module dispa
 | `qwen3vl_8b_int8_convrot.safetensors` | `Comfy-Org/Qwen-Image-2.1` | `text_encoders/` | ~8.7 GB | ⚠️ Qwen research license |
 | `qwen_image_2.1_vae_bf16.safetensors` | `Comfy-Org/Qwen-Image-2.1` | `vae/` | ~0.6 GB | ⚠️ Qwen research license |
 
-**Fast alternative: Z-Image** (the public example-brand pins it; Apache-2.0)
+**Fast alternative: Z-Image** (`--model z_image_turbo_nvfp4.safetensors`; Apache-2.0)
 
 Z-Image is ComfyUI core-native (support added in 0.22.3 — **no custom node
 pack**), uses a **Qwen-3-4B text encoder loaded via `CLIPLoader(type="lumina2")`
@@ -53,7 +53,7 @@ module dispatches to Z-Image templates when the active model name starts with
 | `ae.safetensors` *(shared)* | `Comfy-Org/z_image_turbo` | `vae/` | ~0.3 GB | ✅ Apache-2.0 |
 
 - **Z-Image turbo** (`z_image_turbo_nvfp4`) — 8-step / CFG 1.0 fast path.
-  Default for `txt2img` and `logo` modes in Brand Kits.
+  Z-Image's default variant for `txt2img` and `logo` when a `z_image` model is chosen.
 - **Z-Image base** (`z_image_bf16`) — 25-step / CFG 4.0, full fidelity. Default
   for `product` img2img (always) and for `txt2img`/`logo` when `--variant base`
   is passed.
@@ -156,8 +156,8 @@ via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 | `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `Lightricks/LTX-2.3` | `latent_upscale_models/` | ~1 GB | open weights |
 | `gemma_3_12B_it_fp4_mixed.safetensors` *(LTX-2.3 text encoder)* | fetched with the LTX-2.3 setup / the `ComfyUI-LTXVideo` pack | `text_encoders/` | ~7 GB | ❓ verify |
 
-- **Dev nvfp4** (`ltx-2.3-22b-dev-nvfp4`) — quantized for 32 GB cards; primary
-  daily-driver path.
+- **Dev nvfp4** (`ltx-2.3-22b-dev-nvfp4`) — quantized for 32 GB cards; the
+  primary LTX-2.3 path (`--model ltx23`).
 - **Distilled** (`ltx-2.3-22b-distilled-1.1`) — fewer steps, higher throughput at
   full weight; only practical on 32+ GB.
 - **Distilled LoRA** — **must be v1.1** to match the v1.1 spatial upscaler; v1.0
@@ -179,7 +179,6 @@ via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 | Model | Strengths | Notes | License |
 |-------|-----------|-------|---------|
 | **LTX-2 19B dev-fp8** *(already validated)* | Audio-video (synced sound), up to 4K/50fps/20s, RTX-optimized | Solid fallback; existing LoRAs work here | open weights |
-| **Wan 2.2 14B** | Strong motion realism, Apache-2.0 | t2v + i2v | ✅ Apache-2.0 |
 | **HunyuanVideo 1.5** | High-fidelity motion | t2v / i2v | ❓ verify |
 | **FramePack F1** | Long video on modest VRAM | efficient | open |
 | **AnimateDiff** | Legacy but flexible | stylized loops | open |
@@ -187,9 +186,9 @@ via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 > **Wan 2.5 / 2.6 / 2.7 are API-only** — disqualified for local use. Use Wan 2.2
 > if you want the Wan family for its motion realism.
 
-**For live-stream stingers/transitions:** LTX-2.3 dev-nvfp4 (speed + quality) or
-the already-validated LTX-2 path for synced audio-video. Wan 2.2 with Lightning
-LoRAs is a strong second for pure-motion clips.
+**For live-stream stingers/transitions:** Wan 2.2, the default (`--camera static` for a
+locked shot; add sound with the foley module, `audio --mode foley`), or `--model ltx23`
+when you want synced audio in one pass.
 
 ---
 
@@ -248,11 +247,13 @@ enhancer**, and its sound-effects mode powers `audio --mode sfx`.
 | `t5gemma_b_b_ul2.safetensors` | `Comfy-Org/stable-audio-3` | `text_encoders/` | ~1.1 GB | ⚠️ Gemma terms |
 | `qwen3.5_2b_bf16.safetensors` *(prompt enhancer)* | `Comfy-Org/Qwen3.5` | `text_encoders/` | ~4.2 GB | ✅ Apache-2.0 |
 
-**Vocals / lyrics option (`--model acestep`): ACE-Step 1.5 XL Turbo**
+**Vocals option (`--model acestep --lyrics "…"`): ACE-Step 1.5 XL Turbo**
 
 ComfyUI core-native (no extra node pack); 8-step turbo, KSampler euler, cfg 1.0.
-Generates instrumental stingers/loops from genre/style tags; supports lyrics, voice
-cloning, and remix. Output: `.mp3` (SaveAudioMP3, V0).
+Generates stingers/loops from genre/style tags, and sings `--lyrics` when given (section
+tags such as `[Verse 1]` / `[Chorus]`); a lyric render is at least 40 s, since 20 s clips came
+out instrumental, and even at 40 s one or two seeds in seven planned an instrumental. The model also does voice cloning and remix, which Chimera doesn't
+wire up. Output: `.mp3` (SaveAudioMP3, V0).
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
@@ -311,6 +312,8 @@ takes ~25–35 s, shape only.
 | `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT |
 | `moge_2_vitl_normal_fp16.safetensors` *(Pixal3D)* | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT |
 
+- Both models share one graph, but Chimera folds its model switch at build time, so each run needs only its
+  own files: TRELLIS.2 the five rows without *(Pixal3D)*, Pixal3D the Pixal3D model + MoGe + the shared four.
 - `chimera 3d --model trellis2|pixal3d|hunyuan21` (or a brand's `threed.model`); `--octree` is Hunyuan3D-only.
 - The mesh3d agent loop judges the textured render. `--texture` / `--finalize` (Blender bakes for a
   shape-only mesh) need `--mesh-model hunyuan21`.
@@ -352,23 +355,32 @@ for the texturing routes (Blender/Substance, or a cu126 env) and the re-visit pa
 ---
 
 ## 🧠 LLM / agent layer
-- **Local (via Ollama):** Qwen 3.6, Gemma, Llama, GLM — for prompt expansion,
+- **Local (via Ollama):** Qwen 3.8, Qwen3-VL, Gemma, Llama, GLM — for prompt expansion,
   JSON workflow parameterization, and VLM critique loops.
 - **API node:** Gemini (e.g. 3.1 Flash-Lite) is supported by the built-in LLM node.
 - **Quantized loading:** `ComfyUI-GGUF` to fit large models in VRAM.
 
-**Agent / VLM judge (self-correction loop): Qwen3-VL-8B-Instruct (via Ollama; cloud OpenAI-compatible also works)**
+**Agent loop models (self-correction): local Ollama models by GPU tier — Qwen 3.8 27B on 32 GB+ cards (cloud OpenAI-compatible also works)**
 
-The vision judge for the self-correction backend (generate → judge → refine). **Default:** served by
-**Ollama** over its OpenAI-compatible `/v1` endpoint (the `LLMJudge`, `--backend api`) —
-`ollama pull qwen3-vl:8b-instruct` (the **non-thinking** Instruct tag — a *thinking* tag like
-`qwen3-vl:8b` spends its token budget on reasoning and returns empty content, silently scoring every
-render 0.0; the loop now also errors loudly on empty judge output), no API key, zero Blackwell/torch coupling (Ollama runs its own bundled
-runtime). The **same** `--backend api` path also targets any cloud OpenAI-compatible provider
-(OpenAI/Anthropic/Gemini/OpenRouter), so a GPU-poor reuser can judge on the cloud. See
-[`../modules/agent/self-correction.md`](../modules/agent/self-correction.md).
+The judge, prompt rewriter and CAD code-gen for the self-correction loop (generate → judge → refine).
+**Default:** served by **Ollama** over its OpenAI-compatible `/v1` endpoint (`--backend api`,
+`auto_generate.py`'s default, which with nothing configured calls `http://127.0.0.1:11434/v1` or
+`$OLLAMA_HOST`), with the models picked from the GPU's memory. The defaults were chosen on a 32 GB card, so
+smaller cards get lighter judges automatically (`--llm-tier` / `CHIMERA_LLM_TIER` to choose; `chimera doctor`
+prints the `ollama pull` commands). No API key, zero Blackwell/torch coupling (Ollama runs its own bundled
+runtime). A judge you configure must be a **non-thinking** `-instruct` VLM or a hybrid model with thinking off
+(a *thinking* tag like `qwen3-vl:8b` spends its token budget on reasoning and returns empty content; the loop
+errors loudly on empty judge output). The **same** `--backend api` path also targets any cloud
+OpenAI-compatible provider (OpenAI/Anthropic/Gemini/OpenRouter), so a GPU-poor reuser can judge on the cloud.
+See [`../modules/agent/self-correction.md`](../modules/agent/self-correction.md#local-models-by-gpu-tier).
 
-**Optional ComfyUI path:** the judge can instead run as a ComfyUI graph via the
+| Tier (GPU memory) | Judge | Rewriter | CAD code-gen |
+|---|---|---|---|
+| large (32 GB+) | `qwen3.8:27b`, thinking off | `qwen3.8:27b` | `qwen3.8:27b` |
+| medium (12–24 GB) | `qwen3-vl:8b-instruct` | `qwen3-vl:8b-instruct` | `qwen3.8:27b`, partly on the CPU |
+| small (under 12 GB) | `qwen3-vl:4b-instruct` | `qwen3-vl:4b-instruct` | `qwen3.8:27b`, mostly on the CPU |
+
+**Optional ComfyUI path (`--backend local`):** the judge can instead run as a ComfyUI graph via the
 [`1038lab/ComfyUI-QwenVL`](https://github.com/1038lab/ComfyUI-QwenVL) node pack (re-pin to a
 Qwen3-VL-capable commit ≥ v1.0.4 + re-scan before use; no longer a default/auto-checked pin). That graph
 writes the verdict text with the **core** ComfyUI node `SaveImageTextDataSetToFolder`
@@ -376,13 +388,18 @@ writes the verdict text with the **core** ComfyUI node `SaveImageTextDataSetToFo
 
 | File / repo | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
-| Qwen3-VL-8B-Instruct | `Qwen/Qwen3-VL-8B-Instruct` (or `ollama pull qwen3-vl:8b-instruct`) | `LLM/Qwen-VL/` (ComfyUI path) | ~6–9 GB (Q4/q8) | ✅ Apache-2.0 |
+| Qwen 3.8 27B (large tier; code-gen in every tier) | `ollama pull qwen3.8:27b` | Ollama (not ComfyUI) | 16.5 GB GPU as the judge (measured) | ✅ Apache-2.0 |
+| Qwen3-VL-8B-Instruct (medium tier) | `Qwen/Qwen3-VL-8B-Instruct` (or `ollama pull qwen3-vl:8b-instruct`) | `LLM/Qwen-VL/` (ComfyUI node path) | ~6–9 GB (Q4/q8); 6.6 GB measured | ✅ Apache-2.0 |
+| Qwen3-VL-4B-Instruct (small tier) | `Qwen/Qwen3-VL-4B-Instruct` (or `ollama pull qwen3-vl:4b-instruct`) | Ollama | 4.4 GB GPU (measured) | ✅ Apache-2.0 |
 
-- 8B ≈ **6–9 GB VRAM** (Ollama Q4/q8) — co-resides with an image model on a 32 GB card. Size ladder
-  (pure config swap via `CHIMERA_JUDGE_MODEL` + `ollama pull`): **8B** (default) · **30B-A3B** MoE
-  (≈32B capability at ≈3B speed) · **32B** (sharpest, slower, VRAM-tight) · **2B/4B** for small cards.
+- Measured as the judge on the RTX 5090 (2026-10-15; 34 cases with labels checked by eye, 3 runs each;
+  correct of 34 · balanced accuracy · time per judgment): **Qwen 3.8 27B 31.0 · 0.900 · 1.5 s**, Qwen3-VL 32B
+  30.0 · 0.888 · 14.6 s, 8B 29.3 · 0.865 · 0.8 s, Qwen 3.6 27B-coding 29.3 · 0.849 · 1.5 s, 4B 27.7 · 0.817 ·
+  0.6 s, 30B-A3B MoE 27.3 · 0.801 · 0.7 s. On six CAD test parts, Qwen 3.8 27B built 5, Qwen 3.6 27B-coding 4,
+  and Qwen 3.5 9B none of the 3 it tried, so every tier keeps the 27B for code-gen. Any other model is a
+  config swap (`CHIMERA_JUDGE_MODEL` / `CHIMERA_CODEGEN_MODEL` / `CHIMERA_REWRITER_MODEL` + `ollama pull`).
 - The **assistant Workflow** backend needs no model — it judges with the assistant's
-  own vision (multi-judge consensus); this VLM is only for the unattended local path.
+  own vision (multi-judge consensus); these models are for unattended `auto_generate.py` runs.
 
 ---
 
@@ -423,25 +440,27 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
   provider-agnostic LLM writes the script — see the agent module). The interactive MCP bridge stays the
   route for live edits.
 - Phase 3 (VLM self-correction over renders) is **shipped for Blender**
-  (`auto_generate.py --pipeline mesh3d` — concept → Hunyuan3D mesh → contact-sheet render → form
-  judge + geometry checks). **Phase 4a** adds albedo texturing (`--texture`: front-projected bake,
+  (`auto_generate.py --pipeline mesh3d` — concept → image-to-3D mesh (TRELLIS.2 by default, textured;
+  `--mesh-model`) → contact-sheet render → form judge + geometry checks). **Phase 4a** adds albedo
+  texturing for a shape-only Hunyuan3D mesh (`--mesh-model hunyuan21 --texture`: front-projected bake,
   back palette-filled) restoring the color rubric. **Phase 4b** ships all-around texture: the **multi-view
   bake** (`generate.py finalize-texture` → `_common.bake_multiview`, no model, pure bpy/Cycles) **plus
   `--auto-repaint`** which *generates* the views — `render_views` depth + an **SDXL depth-ControlNet +
   IPAdapter** repaint (`scripts/brandkit/repaint.py`). Pinned/audited pieces for auto-repaint:
   | Piece | Source / pin | License |
   |---|---|---|
-  | IPAdapter node pack | `cubiq/ComfyUI_IPAdapter_plus` @ `a0f451a` (audited safe-with-precautions) | MIT |
+  | IPAdapter node pack | `cubiq/ComfyUI_IPAdapter_plus` @ `a0f451a` (audited safe-with-precautions) | GPL-3.0 |
   | IPAdapter model | `h94/IP-Adapter` → `ip-adapter-plus_sdxl_vit-h.safetensors` → `models/ipadapter/` | Apache-2.0 |
   | CLIP-Vision (ViT-H) | `h94/IP-Adapter` image_encoder → `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` → `models/clip_vision/` | MIT |
-  | Depth ControlNet | `xinsir/controlnet-depth-sdxl-1.0` → `models/controlnet/` | Apache-2.0 |
-  | Base | `sd_xl_base_1.0.safetensors` (already present) | CreativeML-OpenRAIL++ |
+  | Depth ControlNet | `xinsir/controlnet-depth-sdxl-1.0` → `controlnet-depth-sdxl-1.0.safetensors` → `models/controlnet/` | Apache-2.0 |
+  | Base | `stabilityai/stable-diffusion-xl-base-1.0` → `sd_xl_base_1.0.safetensors` → `models/checkpoints/` | CreativeML-OpenRAIL++ |
 
   Auto-repaint masks each view to its depth silhouette + adds cross-view consistency (a 2nd IPAdapter pass
   on the previous painted view). The **autonomous CAD loop** uses the provider-agnostic LLM backend
   (`scripts/agent/llm.py` — OpenAI-compatible: Gemini / OpenAI / Anthropic / OpenRouter / local). The
   **in-loop finalize** on the mesh3d winner is now **shipped** (`auto_generate.py --pipeline mesh3d
-  --finalize` — auto-runs the auto-repaint bake on the winner + re-judges, informational).
+  --mesh-model hunyuan21 --finalize` — auto-runs the auto-repaint bake on the winner + re-judges,
+  informational).
 
 ---
 

@@ -10,10 +10,14 @@
   "negative": "music, speech, voice, singing, noisy, harsh",
   "inputs": {
     "subject": "a heavy six-wheeled armored vehicle slowly driving forward on a hard concrete floor, thick rubber tires rolling and gripping the ground, low electric-diesel drivetrain hum and whine, suspension creak, faint servo whir of the rotating sensor turret, subtle grit and gravel crunching under the tires",
-    "from_video": "example-brand_i2v_42.mp4",
-    "duration": 3.88,
-    "fps": 25.0
+    "from_video": "example-brand_i2v_42.mp4"
   },
   "comfy_url": "http://127.0.0.1:8000",
-  "timestamp": "2026-06-08T16:01:22"
+  "timestamp": "2026-10-15T11:33:40",
+  "provenance": {
+    "graph_signature": "8cab09d70576c7e8",
+    "graph_values": "b0db7dc4448fd561",
+    "comfyui_version": "0.40.0",
+    "pipeline_git_sha": "558e0b9-dirty"
+  }
 }

@@ -14,6 +14,7 @@ from scripts.brandkit import montage
 from scripts.brandkit.outputs import route_output, run_graph_to_file
 from scripts.brandkit.blender import run_template
 from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
+from scripts.agent.loop import SeedNames
 
 _MESH_EVAL = "mesh_eval.py"
 _BLENDER_TIMEOUT = 1800  # mesh render + 4 stills + bmesh probe
@@ -49,6 +50,7 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
     back_fill = getattr(args, "back_fill", "palette")
     texture_res = int(getattr(args, "texture_res", 1024))
     palette = list(getattr(manifest, "palette", []) or [])
+    name = SeedNames()   # a repeated seed's pass gets its own files (the winner's GLB/sheet must survive)
 
     def _concept(pos, neg, seed):
         """Stage A: produce the concept image; return (uploaded_name, local_path). The uploaded
@@ -79,8 +81,9 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         # Stage C+D: render 4 orbit stills + geometry checks (+ Phase-4a: bake + textured GLB),
         # then montage them into the judged contact sheet — the shared eval_contact_sheet stage.
         tmp = Path(tempfile.mkdtemp(prefix="chimera_eval_"))
+        tag = name(seed)
         try:
-            stem = f"{args.brand or 'agent'}_{seed}"
+            stem = f"{args.brand or 'agent'}_{tag}"
             mani, sheet_tmp = eval_contact_sheet(
                 glb_src, tmp, stem, template=template, samples=args.samples, res=args.res,
                 seed=seed, blender_runner=blender_runner, blender_bin=args.blender_bin,
@@ -90,8 +93,8 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
             checks = mani.get("checks", {})
             # Stage E: render succeeded — route the mesh (textured GLB if present, else raw) + sheet.
             glb_out = mani.get("textured_glb") or str(glb_src)
-            glb_dest = route_output(repo_root, args.brand, Path(glb_out), "agent", seed)
-            sheet = route_output(repo_root, args.brand, sheet_tmp, "agent", seed)
+            glb_dest = route_output(repo_root, args.brand, Path(glb_out), "agent", tag)
+            sheet = route_output(repo_root, args.brand, sheet_tmp, "agent", tag)
 
             # Stage F: geometry-check sidecar (Phase 3) + texture-status sidecar (Phase 4a). The
             # texture sidecar records the routed GLB name so Phase 4b can find the mesh to finalize.

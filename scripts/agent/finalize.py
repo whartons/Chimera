@@ -41,6 +41,9 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
     if repaint is None:
         repaint = finalize_core.repaint_views
     repo_root = Path(repo_root)
+    # the subject the loop ended on: re-judging with the original would put back off-brand styling the
+    # loop had dropped
+    subject = getattr(result, "subject", "") or args.subject
 
     if result.best_image is None:
         print("[finalize] no winning shape to texture (loop produced no render); skipping",
@@ -72,7 +75,7 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
     # untextured winner untouched (return None) — never crash an otherwise-successful run.
     try:
         view_paths, azimuths = repaint(
-            client, mesh=glb, concept=concept, subject=args.subject, azimuths=azimuths,
+            client, mesh=glb, concept=concept, subject=subject, azimuths=azimuths,
             comfy_output_dir=args.comfy_output_dir, repo_root=repo_root,
             blender_runner=blender_runner, seed=seed, res=texture_res, elevation=_ELEVATION,
             cn_strength=_CN_STRENGTH, ip_weight=_IP_WEIGHT, blender_bin=args.blender_bin)
@@ -97,7 +100,7 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
     try:
         sheet_tmp = tmp / "texture_sheet.png"
         montage.contact_sheet([Path(s) for s in mani.get("outputs", [])], sheet_tmp, cols=2)
-        rubric = build_rubric(manifest, args.subject, modality="3d", textured=True)
+        rubric = build_rubric(manifest, subject, modality="3d", textured=True)
         verdict = judge.judge(str(sheet_tmp), rubric)
         routed_sheet = route_output(repo_root, args.brand, sheet_tmp, "finalize", seed)
     except Exception as e:   # noqa: BLE001
@@ -125,6 +128,6 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
     # already-textured GLB would stack UV layers.
     print("[finalize] not happy with the texture? retry by hand with a new seed:\n"
           f"  python scripts/generate.py finalize-texture --auto-repaint {brand_flag}"
-          f"--from {glb} --concept {concept} --subject \"{args.subject}\" "
+          f"--from {glb} --concept {concept} --subject \"{subject}\" "
           f"--seed {seed + 1} --comfy-output-dir {args.comfy_output_dir}")
     return routed_glb

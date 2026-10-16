@@ -186,3 +186,28 @@ def test_upload_video_posts_to_upload_image_and_returns_name(monkeypatch, tmp_pa
     assert name == "clip.mp4"
     assert captured["url"].endswith("/upload/image")
     assert b'filename="clip.mp4"' in captured["body"]
+
+
+def test_wait_rides_out_a_brief_connection_drop(monkeypatch):
+    # a dropped poll used to abort a long render (raw URLError) even though its output was saved
+    hist = {"abc": {"status": {"status_str": "success"}, "outputs": {}}}
+    calls = []
+
+    def flaky(req, timeout=0):
+        calls.append(1)
+        if len(calls) < 3:
+            raise comfy.urllib.error.URLError("connection reset")
+        return FakeResp(json.dumps(hist).encode())
+
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(comfy.time, "sleep", lambda s: None)
+    assert comfy.ComfyClient().wait("abc") == hist and len(calls) == 3
+
+
+def test_wait_gives_up_with_a_clear_error_when_comfyui_stays_down(monkeypatch):
+    def down(req, timeout=0):
+        raise comfy.urllib.error.URLError("refused")
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", down)
+    monkeypatch.setattr(comfy.time, "sleep", lambda s: None)
+    with pytest.raises(ConnectionError, match="lost contact with ComfyUI"):
+        comfy.ComfyClient().wait("abc", max_misses=3)

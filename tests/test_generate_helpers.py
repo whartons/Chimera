@@ -56,8 +56,8 @@ def test_image_size_png_header_fallback(tmp_path, monkeypatch):
     assert _image_size(p) == (320, 200)
 
 
-def test_image_size_non_png_without_pillow_is_none(tmp_path, monkeypatch):
-    # a JPG with no Pillow available -> None (the old PNG-only behavior, now an explicit fallback)
+def test_image_size_unreadable_jpeg_without_pillow_is_none(tmp_path, monkeypatch):
+    # a JPEG without a readable frame header, and no Pillow -> None (callers then estimate the geometry)
     real_import = builtins.__import__
     def no_pil(name, *a, **k):
         if name == "PIL" or name.startswith("PIL."):
@@ -233,7 +233,7 @@ def test_prepare_image_logo_unsized_warns(tmp_path, monkeypatch, capsys):
 def test_prepare_video_maps_args_and_passes_raw_upscale_model(tmp_path):
     brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
     (brand_dir / "products" / "r.png").write_bytes(b"x")
-    args = _args_ns(modality="video", from_image="r.png", length=49, fps=24, audio=False,
+    args = _args_ns(modality="video", from_image="r.png", length=49, fps=24, audio=False, model="ltx23",
                     width=960, height=544, upscale=True, upscale_model="u.safetensors", brand="b")
     fkw = generate._prepare_video(args, M, brand_dir, _FakeUploadClient(), _StubAp())
     assert fkw["from_image"] == "up:r.png"            # the start frame is an image upload
@@ -252,7 +252,19 @@ def test_prepare_audio_music_maps(tmp_path):
     args = _args_ns(modality="audio", mode="music", duration=6.0, bpm=120, keyscale="C major", brand="b")
     fkw = generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())
     # model: None = brand/default; replay sets args.model to pin the recorded model
-    assert fkw == {"mode": "music", "duration": 6.0, "bpm": 120, "keyscale": "C major", "model": None}
+    assert fkw == {"mode": "music", "duration": 6.0, "bpm": 120, "keyscale": "C major", "model": None,
+                   "lyrics": None}
+
+
+def test_lyrics_say_how_long_they_render(tmp_path, capsys):
+    args = _args_ns(modality="audio", mode="music", duration=None, bpm=None, keyscale=None, brand="b",
+                    model="acestep", lyrics="[Verse 1]\nla")
+    generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())
+    err = capsys.readouterr().err
+    assert "--lyrics renders 40 s" in err and "try another --seed" in err
+    args.duration = 15.0
+    generate._prepare_audio(args, M, tmp_path, _FakeUploadClient(), _StubAp())
+    assert "may come out instrumental" in capsys.readouterr().err
 
 
 def test_prepare_passes_a_replay_pinned_model_to_the_video_and_audio_fillers(tmp_path):
@@ -451,3 +463,280 @@ def test_prepare_audio_sfx_maps():
     args = _args_ns(modality="audio", mode="sfx", duration=3.0, brand=None)
     assert generate._prepare_audio(args, M, None, _FakeUploadClient(), _StubAp()) == \
         {"mode": "sfx", "duration": 3.0, "model": None}
+
+
+def test_cli_reports_an_unreachable_comfyui_in_one_line(monkeypatch, capsys):
+    import sys, urllib.error
+    import scripts.generate as GEN
+    import pytest as _pytest
+
+    def down(args, root, ap):
+        raise urllib.error.URLError("[WinError 10061] refused")
+    monkeypatch.setattr(GEN, "run", down)
+    monkeypatch.setattr(sys, "argv", ["generate.py", "image", "--subject", "x"])
+    with _pytest.raises(SystemExit) as e:
+        GEN.main()
+    assert e.value.code == 1 and "can't reach ComfyUI" in capsys.readouterr().err
+
+
+
+# --- 2026-10 review + audit -------------------------------------------------------------------------
+def test_sidecars_record_a_file_name_not_a_local_path():
+    # sidecars get shared and committed: an absolute --from-image recorded the user's folder layout
+    args = _args_ns(modality="video", from_image="C:/Users/someone/Pictures/rover.png", width=None, height=None,
+                    length=None, fps=None, audio=None, upscale=False, upscale_model=None)
+    assert generate._resolve_sidecar_inputs(args, M)["from_image"] == "rover.png"
+    args = _args_ns(modality="image", mode="product", asset="../shared/photo.png", upscale=False)
+    assert generate._resolve_sidecar_inputs(args, M)["asset"] == "photo.png"
+    args = _args_ns(modality="image", mode="product", asset="sub/photo.png", upscale=False)
+    assert generate._resolve_sidecar_inputs(args, M)["asset"] == "sub/photo.png"
+
+
+def test_sidecars_drop_settings_the_model_ignores():
+    args = _args_ns(modality="image", mode="txt2img", variant="base", model="qwen_image_2.1_int8_convrot.safetensors",
+                    upscale=False)
+    assert generate._resolve_sidecar_inputs(args, M)["variant"] is None
+    args.model = "z_image_turbo_nvfp4.safetensors"
+    assert generate._resolve_sidecar_inputs(args, M)["variant"] == "base"
+    args = _args_ns(modality="3d", mode="image", octree=384, model="trellis2")
+    assert generate._resolve_sidecar_inputs(args, M, "glb")["octree"] is None
+    args.model = "hunyuan21"
+    assert generate._resolve_sidecar_inputs(args, M, "glb")["octree"] == 384
+
+
+class _CountingUploads(_FakeUploadClient):
+    def __init__(self):
+        self.n = 0
+
+    def upload_image(self, p):
+        self.n += 1
+        return super().upload_image(p)
+
+
+@pytest.mark.parametrize("over, match", [
+    (dict(model="ltx23", camera="pan-left"), "Fun Camera"),
+    (dict(model="ltx23", quality="full"), "--quality"),
+    (dict(model="wan22-camera"), "needs a camera move"),
+    (dict(upscale=True), "latent upscaler"),
+])
+def test_prepare_video_rejects_a_combination_before_uploading(tmp_path, over, match):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    args = _args_ns(modality="video", from_image="r.png", brand="b", **{"upscale": False, **over})
+    client = _CountingUploads()
+    with pytest.raises(_ApError, match=match):
+        generate._prepare_video(args, M, brand_dir, client, _StubAp())
+    assert client.n == 0
+
+
+def test_prepare_video_notes_what_wan_does_with_fps_and_length(tmp_path, capsys):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    args = _args_ns(modality="video", from_image="r.png", brand="b", fps=24, length=96, upscale=False)
+    generate._prepare_video(args, M, brand_dir, _FakeUploadClient(), _StubAp())
+    err = capsys.readouterr().err
+    assert "playback speed" in err and "--length 96 renders 93" in err
+
+
+def test_prepare_notes_settings_the_model_ignores(tmp_path, capsys):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    generate._prepare_3d(_args_ns(modality="3d", mode="image", from_image="r.png", model="trellis2", octree=256,
+                                  brand="b"), M, brand_dir, _FakeUploadClient(), _StubAp())
+    generate._prepare_image(_args_ns(modality="image", mode="txt2img", variant="base", brand="b",
+                                     model="qwen_image_2.1_int8_convrot.safetensors", upscale=False, upscale_model=None),
+                            M, brand_dir, _FakeUploadClient(), _StubAp())
+    err = capsys.readouterr().err
+    assert "--octree is a Hunyuan3D setting" in err and "--variant picks Z-Image" in err
+
+
+@pytest.mark.parametrize("over, match", [(dict(mode="sfx", duration=0.4), "at least 1"),
+                                         (dict(mode="foley", model="sa3", from_video="c.mp4"), "makes music")])
+def test_prepare_audio_rejects_what_the_mode_cannot_render(tmp_path, over, match):
+    with pytest.raises(_ApError, match=match):
+        generate._prepare_audio(_args_ns(modality="audio", brand=None, **over), M, None, _FakeUploadClient(),
+                                _StubAp())
+
+
+def test_cli_reports_an_http_error_from_comfyui_as_one_line(monkeypatch, capsys):
+    import sys, urllib.error
+    import scripts.generate as GEN
+
+    def refused(args, root, ap):
+        raise urllib.error.HTTPError("http://127.0.0.1:8000/upload/image", 413, "Payload Too Large", {}, None)
+    monkeypatch.setattr(GEN, "run", refused)
+    monkeypatch.setattr(sys, "argv", ["generate.py", "image", "--subject", "x"])
+    with pytest.raises(SystemExit) as e:
+        GEN.main()
+    err = capsys.readouterr().err
+    assert e.value.code == 1 and "answered HTTP 413" in err and "can't reach" not in err
+
+
+def test_the_cli_reports_the_checkouts_version(monkeypatch, capsys):
+    # scripts.brandkit.__version__ said 0.1.0 through every release; it now reads pyproject.toml
+    import tomllib
+    import scripts.brandkit as bk
+    want = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+    assert bk.__version__ == want["project"]["version"]
+    monkeypatch.setattr("sys.argv", ["generate.py", "--version"])
+    with pytest.raises(SystemExit):
+        generate.main()
+    assert capsys.readouterr().out.strip() == f"chimera {bk.__version__}"
+
+
+def test_the_version_falls_back_to_the_installed_metadata(monkeypatch, tmp_path):
+    import importlib.metadata as md
+    import scripts.brandkit as bk
+    monkeypatch.setattr(bk, "_Path", lambda *a: tmp_path / "a" / "b" / "c" / "d.py")   # no pyproject.toml there
+    monkeypatch.setattr(md, "version", lambda name: "9.9.9")
+    assert bk._version() == "9.9.9"
+
+    def missing(name):
+        raise md.PackageNotFoundError(name)
+    monkeypatch.setattr(md, "version", missing)
+    assert bk._version() == "unknown"
+
+
+
+# --- 2026-10 third review ----------------------------------------------------------------------------
+def test_a_windows_path_records_only_its_file_name():
+    args = _args_ns(modality="video", from_image="C:\\Users\\someone\\Pictures\\rover.png", width=None,
+                    height=None, length=None, fps=None, audio=None, upscale=False, upscale_model=None)
+    assert generate._resolve_sidecar_inputs(args, M)["from_image"] == "rover.png"
+
+
+def test_a_relative_input_path_keeps_its_folders_with_forward_slashes():
+    # recorded as 'sub\\rover2.png', a sidecar made on Windows named one odd file on Linux
+    args = _args_ns(modality="video", from_image="sub\\rover2.png", width=None, height=None, length=None,
+                    fps=None, audio=None, upscale=False, upscale_model=None)
+    assert generate._resolve_sidecar_inputs(args, M)["from_image"] == "sub/rover2.png"
+
+
+def test_a_non_flux2_brand_default_keeps_the_fast_path():
+    from scripts.brandkit.manifest import default_manifest
+    ns = argparse.Namespace(modality="image", mode="txt2img", variant=None, model=None)
+    assert generate._default_free_before(ns, default_manifest()) is False      # Qwen-Image default, no --model
+
+
+def _no_pillow(monkeypatch):
+    real_import = builtins.__import__
+
+    def no_pil(name, *a, **k):
+        if name == "PIL" or name.startswith("PIL."):
+            raise ImportError("forced: no Pillow")
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", no_pil)
+
+
+def _gif(w, h):
+    return b"GIF89a" + struct.pack("<HH", w, h) + b"\x00\x00\x00;"
+
+
+def _jpeg(w, h):
+    app0 = b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+    sof0 = b"\xff\xc0" + struct.pack(">HBHHB", 17, 8, h, w, 3) + b"\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+    return b"\xff\xd8" + app0 + sof0 + b"\xff\xd9"
+
+
+def _webp(kind, w, h):
+    if kind == "VP8 ":    # lossy: frame tag, start code, 14-bit sizes
+        payload = b"\x00\x00\x00\x9d\x01\x2a" + struct.pack("<HH", w, h) + b"\x00" * 10
+    elif kind == "VP8L":  # lossless: signature, then width-1 and height-1 in 14 bits each
+        payload = b"\x2f" + ((w - 1) | ((h - 1) << 14)).to_bytes(4, "little") + b"\x00" * 10
+    else:                 # VP8X: flags, reserved, 24-bit canvas width-1 and height-1
+        payload = b"\x00" * 4 + (w - 1).to_bytes(3, "little") + (h - 1).to_bytes(3, "little")
+    chunk = kind.encode() + struct.pack("<I", len(payload)) + payload
+    return b"RIFF" + struct.pack("<I", 4 + len(chunk)) + b"WEBP" + chunk
+
+
+@pytest.mark.parametrize("name, data", [
+    ("logo.png", _png_header(320, 200)), ("logo.gif", _gif(320, 200)), ("photo.jpg", _jpeg(320, 200)),
+    ("a.webp", _webp("VP8 ", 320, 200)), ("b.webp", _webp("VP8L", 320, 200)), ("c.webp", _webp("VP8X", 320, 200))])
+def test_image_size_reads_common_headers_without_pillow(tmp_path, monkeypatch, name, data):
+    # without Pillow a JPEG or WebP source changed the graph (watermark canvas, logo size), so a render made
+    # with Pillow replayed without it as drift (2026-10 review)
+    _no_pillow(monkeypatch)
+    p = tmp_path / name
+    p.write_bytes(data)
+    assert _image_size(p) == (320, 200)
+
+
+def test_the_header_read_agrees_with_pillow(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    for name, mode, kw in (("a.png", "RGB", {}), ("a.gif", "RGB", {}), ("a.jpg", "RGB", {}),
+                           ("a.webp", "RGB", {"lossless": False}), ("b.webp", "RGB", {"lossless": True}),
+                           ("c.webp", "RGBA", {"lossless": False})):
+        p = tmp_path / name
+        Image.new(mode, (123, 45), "red").save(p, **kw)
+        with Image.open(p) as im:
+            assert generate._header_size(p) == im.size == (123, 45), name
+
+
+def test_replaying_onto_the_fun_camera_model_says_replay_cannot_add_a_move(tmp_path):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(b"x")
+    args = _args_ns(modality="video", from_image="r.png", brand="b", model="wan22-camera", expect={"model": "x"})
+    with pytest.raises(_ApError, match="replay can't add a camera move"):
+        generate._prepare_video(args, M, brand_dir, _FakeUploadClient(), _StubAp())
+
+
+def test_video_and_product_renders_start_from_the_brands_own_renders(tmp_path):
+    # the README's image -> video -> 3D chain: a brand render named by its file name was "not found"
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "outputs" / "images").mkdir(parents=True)
+    (brand_dir / "outputs" / "images" / "b_txt2img_5.png").write_bytes(_png_header(64, 64))
+    v = _args_ns(modality="video", from_image="b_txt2img_5.png", brand="b")
+    assert generate._prepare_video(v, M, brand_dir, _FakeUploadClient(), _StubAp())["from_image"] == "up:b_txt2img_5.png"
+    p = _args_ns(modality="image", mode="product", asset="b_txt2img_5.png", brand="b")
+    assert generate._prepare_image(p, M, brand_dir, _FakeUploadClient(), _StubAp())["asset"] == "up:b_txt2img_5.png"
+
+
+def test_relight_says_which_model_it_renders_on(tmp_path, capsys):
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    (brand_dir / "products" / "r.png").write_bytes(_png_header(64, 64))
+    args = _args_ns(modality="image", mode="relight", asset="r.png", brand="b",
+                    model="qwen_image_2.1_int8.safetensors")
+    generate._prepare_image(args, M, brand_dir, _FakeUploadClient(), _StubAp())
+    assert "relight is a FLUX.2 edit" in capsys.readouterr().err
+
+
+def test_foley_replays_the_recorded_timing_and_size(tmp_path, monkeypatch):
+    # the sidecar records what the render used; a replay must not need the probe (or PyAV) for it
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (None, None, None, None))
+    clip = tmp_path / "clip.mp4"; clip.write_bytes(b"x")
+    args = _args_ns(modality="audio", mode="foley", from_video=str(clip), brand=None, fps=30.0, duration=7.2,
+                    width=640, height=360)
+    fkw = generate._prepare_audio(args, M, None, _FakeUploadClient(), _StubAp())
+    assert (fkw["fps"], fkw["duration"], fkw["width"], fkw["height"]) == (30.0, 7.2, 640, 360)
+
+
+def test_image_size_skips_jpeg_padding_and_markers_without_a_length(tmp_path, monkeypatch):
+    _no_pillow(monkeypatch)
+    jpg = _jpeg(320, 200)
+    # fill bytes, then a TEM and an RST marker (neither has a length) before the frame header
+    p = tmp_path / "a.jpg"; p.write_bytes(jpg[:2] + b"\x00\x00\xff\x01\xff\xd0" + jpg[2:])
+    assert _image_size(p) == (320, 200)
+
+
+def test_image_size_of_a_truncated_jpeg_or_a_folder_is_unknown_without_pillow(tmp_path, monkeypatch):
+    _no_pillow(monkeypatch)
+    p = tmp_path / "cut.jpg"; p.write_bytes(b"\xff\xd8\xff\xe0\x00")    # ends inside a segment length
+    assert _image_size(p) is None
+    assert _image_size(tmp_path) is None                                  # unreadable: a folder
+
+
+def test_image_size_skips_a_huffman_table_before_the_frame_header(tmp_path, monkeypatch):
+    # 0xC4 (DHT) sits in the start-of-frame range but isn't one; read as a frame it gave a nonsense size
+    _no_pillow(monkeypatch)
+    dht = b"\xff\xc4" + struct.pack(">H", 2 + 17) + b"\x00" + bytes([0] * 16)
+    jpg = _jpeg(320, 200)
+    p = tmp_path / "a.jpg"; p.write_bytes(jpg[:2] + dht + jpg[2:])
+    assert _image_size(p) == (320, 200)
+
+
+def test_clip_timing_reads_a_clip_sidecar_saved_with_a_bom(tmp_path, monkeypatch):
+    # a sidecar edited in Windows PowerShell 5.1 gains a BOM; foley fell back to the probe (or 25 fps without PyAV)
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (None, None, None, None))
+    clip = tmp_path / "i2v_7.mp4"; clip.write_bytes(b"x")
+    clip.with_suffix(".json").write_text(json.dumps({"inputs": {"fps": 16, "length": 81, "width": 768,
+                                                                "height": 512}}), encoding="utf-8-sig")
+    assert generate._clip_timing(clip) == (16.0, 81 / 16, 768, 512)

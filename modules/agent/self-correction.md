@@ -12,17 +12,18 @@ transport).
 A small, **model-free, judge-agnostic** core (unit-tested with no GPU/ComfyUI). It
 reuses the existing `scripts/generate.py` filler/route path. Only the **winning**
 render is recorded — with an *agent-run* sidecar (`kind: agent-run`) summarizing the
-run (subject, iterations, pass/score, winning seed/prompt). That sidecar is a run
+run (subject, iterations, pass/score, winning seed/prompt, and `corrected_subject` when a branded run
+dropped flagged styling from the subject). That sidecar is a run
 summary, **not** a replayable render sidecar: `generate.py replay` refuses it on the
 `kind` discriminator. Per-iteration renders are routed into the brand folder but are
 not individually sidecar'd, so the loop is **not** per-iteration replayable.
 
 | Module | Responsibility |
 |---|---|
-| `rubric.py` | `Rubric` + `build_rubric(manifest, subject)` — composes a scorable checklist from the brand (subject, style, palette, negative). `rubric.as_prompt()` renders the numbered **MET / NOT-MET → PASS/FAIL → `score: 0-1`** instructions a judge follows. |
-| `expander.py` | `PromptExpander` ABC + `TemplatedExpander` — wraps `build_prompt(manifest, subject)` for the on-brand `(positive, negative)`; given `prior_issues`, appends `". Emphasize and correct: <issues>"` so the next render corrects them. |
-| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, NOT-MET lines → issues; never raises). |
-| `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best-scoring candidate after the cap, with full per-iteration history. |
+| `rubric.py` | `Rubric` + `build_rubric(manifest, subject)` — composes a scorable checklist from the brand (subject, style, palette, negative). `rubric.as_prompt()` renders the numbered **MET / NOT-MET → PASS/FAIL → `score: 0-1`** instructions a judge follows. With a brand, the subject criterion judges the object itself and the brand wins any styling conflict; a FIX may never contradict another criterion. Palette colors are named for the judge (`color_words`: `#1c1f22` → `near-black (#1c1f22)`), since a VLM can't read hex. |
+| `expander.py` | `PromptExpander` ABC + `TemplatedExpander` — wraps `build_prompt(manifest, subject)` for the on-brand `(positive, negative)`. On a correction pass it applies the judge's `FIX: add …; avoid …` directives (`parse_fixes` reads either order, `remove …`, `none needed`), after `brand_guard` drops contradictions: never add a trait an avoid term or the brand's negative names, never avoid the brand's own style or palette. |
+| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, `4 out of 5` / `7` / `85` rescaled to 0–1, NOT-MET lines → issues; a criterion whose status is NOT-MET fails the verdict even under an "Overall: PASS"; never raises). A status counts as a table cell holding only it, a count (`1 NOT-MET`), or the first status word on a criterion's line (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `Status: NOT-MET`, typographic dashes too); a line that only says nothing is unmet (`NOT MET: none`, `No NOT-MET criteria.`, a MET reason on its own line, an echoed instruction) doesn't count, except on a numbered criterion, whose status always counts. Softer wordings (`Mostly MET`, `Barely met`, `MET (partially)`) are NOT-MET; a numbered criterion, or a line marking one NOT-MET, is never taken for the verdict line; and a PASS that admits an unmet criterion or is negated (`Does not pass`) fails. |
+| `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best-scoring candidate after the cap, with full per-iteration history. In branded runs it also drops the subject styling the judge flagged from the subject **and** the rubric (`correct_subject`; the object phrase is kept), so later passes aren't judged against the off-brand words. |
 
 The judge's **PASS/FAIL verdict is authoritative** for stopping the loop — a single
 PASS returns immediately. The `score` is *not* a threshold gate; it is used only to
@@ -36,17 +37,17 @@ the **`PromptExpander`** interface (how a subject + prior issues become a prompt
 Everything else — the rubric, the loop, the generate path — is shared by both backends
 below. `TemplatedExpander` is the default expander; an LLM-driven expander (`LLMExpander`,
 opt-in via `--rewrite-prompts`) now ships alongside it — it rewrites prompts from the judge's
-FIX feedback and falls back to `TemplatedExpander` when no LLM is configured.
+FIX feedback and falls back to `TemplatedExpander` on any LLM error.
 
 ## The three judge backends
 
 All drive the *same* core; they differ only in **who plays the `Judge`**.
 
-| | **Local standalone** | **API (provider-agnostic)** | **Assistant Workflow** |
+| | **Local ComfyUI node (opt-in)** | **API (provider-agnostic, default)** | **Assistant Workflow** |
 |---|---|---|---|
-| Judge | the optional ComfyUI **Qwen3-VL** judge node | **Any OpenAI-compatible LLM** (`LLMJudge`, N-pass consensus via `--judge-passes`) — the **recommended** path serves **Qwen3-VL-8B-Instruct** over **Ollama** | The assistant's own vision — M passes, majority-PASS consensus |
-| Driver | `auto_generate.py --backend local` (ComfyUI node) | `auto_generate.py --backend api` (Ollama Qwen3-VL, **recommended**; + `CHIMERA_LLM_*` / `--llm-*`) | Claude Code Workflow tooling (assistant in the loop) |
-| Cost / deps | ~6–9 GB VRAM (8B, Ollama Q4/q8), **offline/unattended** | API or **local** endpoint (Gemini/OpenAI/Anthropic/**Ollama Qwen3-VL**) — no SDK | No API key, no extra model |
+| Judge | the optional ComfyUI **Qwen3-VL** judge node | **Any OpenAI-compatible LLM** (`LLMJudge`, N-pass consensus via `--judge-passes`) — by default a local **Ollama** model sized to the GPU ([tiers](#local-models-by-gpu-tier)) | The assistant's own vision — M passes, majority-PASS consensus |
+| Driver | `auto_generate.py --backend local` (ComfyUI node) | `auto_generate.py` (`--backend api` is the default; `--judge-*` / `--llm-*` or `CHIMERA_*` point it elsewhere) | an interactive agent (Claude Code Workflow tooling); `auto_generate.py` refuses `--backend assistant` |
+| Cost / deps | ~6–9 GB VRAM (8B), **offline/unattended**; needs the optional, unpinned ComfyUI-QwenVL pack | API or **local** endpoint (Gemini/OpenAI/Anthropic/**Ollama**, 4.4–16.5 GB by tier) — no SDK | No API key, no extra model |
 | Status | **Built + validated** (full loop ran live) | **Built + validated** (live Ollama: Qwen3-VL vision judge) | **Built + proven** (live fail→pass below) |
 | Recipe | `scripts/agent/auto_generate.py` | §[Bring your own LLM](#bring-your-own-llm---backend-api----pipeline-cad) | [`../../workflows/agent/README.md`](../../workflows/agent/README.md) |
 
@@ -56,8 +57,9 @@ All drive the *same* core; they differ only in **who plays the `Judge`**.
   layout, counts, "no X"), when you can keep the assistant in the loop. The multi-judge
   consensus is the strongest available filter. Recipe + the proven chimera-anatomy
   precedent: [`../../workflows/agent/README.md`](../../workflows/agent/README.md).
-- **Local standalone** — unattended batches, scheduled jobs, or fully **offline** runs
-  with no assistant present. Trades a touch of judging quality for autonomy.
+- **`auto_generate.py`** (the default Ollama judge, or the opt-in ComfyUI node) — unattended batches,
+  scheduled jobs, or fully **offline** runs with no assistant present. Trades a touch of judging quality
+  for autonomy.
 
 ### Multi-judge consensus — `ConsensusJudge`
 
@@ -74,19 +76,23 @@ panel) — all behind the same `Judge` seam, so it drops straight into `run_loop
 
 > **Status: built + live-validated.** The full generate → judge → refine loop has run
 > end-to-end: a Z-Image render judged against the auto-built brand rubric, returning
-> `passed=True score=0.97`. The agent layer now targets **Qwen3-VL-8B-Instruct** as the
-> judge (served via Ollama for `--backend api`, the recommended path; the ComfyUI judge
-> node is the optional `--backend local` alternative).
+> `passed=True score=0.97`. The judge is now served by Ollama through `--backend api`, the
+> default, as a model picked for the GPU ([Local models by GPU tier](#local-models-by-gpu-tier));
+> the ComfyUI judge node is the opt-in `--backend local` alternative.
 
-The local backend runs the **same** `run_loop` with the optional ComfyUI **Qwen3-VL**
-judge node in place of the assistant's vision — see `scripts/agent/auto_generate.py`. The
-judge is **Qwen3-VL-8B-Instruct** run **as a ComfyUI graph** (the same queue/`ComfyClient`
-path every Chimera modality uses): `LoadImage → Qwen3-VL(prompt = rubric.as_prompt())
-→ text`, then `parse_verdict()` turns that text into a `Verdict`. The **recommended**
-alternative is `--backend api` pointed at **Qwen3-VL-8B-Instruct on Ollama** (`qwen3-vl:8b-instruct`
-— the **non-thinking** tag; a *thinking* tag returns empty content and silently fails the judge),
-which needs no ComfyUI node pack. The expander is the same deterministic `TemplatedExpander`,
-so a local run is brand-aware without any assistant or API key.
+`auto_generate.py` runs the **same** `run_loop` with a VLM judge in place of the assistant's
+vision. By **default** (`--backend api`) that judge is a local **Ollama** model sized to your GPU:
+**`qwen3.8:27b`** with thinking off on a 32 GB+ card, `qwen3-vl:8b-instruct` on 12–24 GB and
+`qwen3-vl:4b-instruct` below that ([Local models by GPU tier](#local-models-by-gpu-tier)). With no
+`--judge-*` / `--llm-*` flag and no `CHIMERA_*` variable set, it calls `http://127.0.0.1:11434/v1` (or
+`$OLLAMA_HOST`), and any of those settings replaces that default. A judge you choose should be a
+**non-thinking** `-instruct` VLM or a hybrid model with thinking off: a *thinking* model can spend its token
+budget on reasoning and return empty content. It needs no ComfyUI node pack. With `--backend local` the
+judge is instead the optional ComfyUI node, run **as a ComfyUI graph** (the same queue/`ComfyClient` path
+every Chimera modality uses):
+`LoadImage → Qwen3-VL(prompt = rubric.as_prompt()) → text`, then `parse_verdict()` turns that text into a
+`Verdict`. The expander is the same deterministic `TemplatedExpander`, so a local run is brand-aware
+without any assistant or API key.
 
 **Invocation:**
 
@@ -94,6 +100,11 @@ so a local run is brand-aware without any assistant or API key.
 python scripts/agent/auto_generate.py [--brand <brand>] --subject "<subject>" \
     --comfy-output-dir <ComfyUI output dir> [--max-iters N] [--seeds a,b,c]
 ```
+
+Without `--seeds`, each run draws fresh seeds and prints them (outputs are named by seed, so a fixed
+default let a second run replace the first run's winner); pass them back with `--seeds` to repeat a run. A
+shorter `--seeds` list is topped up with fresh seeds, and a seed the run repeats (`--seeds 7,7,7`, one seed
+with corrected prompts) gets its own files per pass: `agent_7`, `agent_7_2`, `agent_7_3`.
 
 `--brand` is **optional** — the same machinery does branded *and* general self-correction:
 
@@ -105,9 +116,9 @@ python scripts/agent/auto_generate.py [--brand <brand>] --subject "<subject>" \
   and the winner routes into the global `outputs/`. The judge, expander and loop are brand-agnostic;
   only the rubric's optional criteria differ.
 
-`--comfy-output-dir` does double duty: it's both where finished renders route (into the brand
-folder, or the global `outputs/` when brandless) **and** where the judge graph drops (and the judge
-reads back) its verdict `.txt`.
+`--comfy-output-dir` is where finished renders route from (into the brand folder, or the global
+`outputs/` when brandless); with `--backend local` it is also where the judge graph drops (and the
+judge reads back) its verdict `.txt`.
 
 ### The judge & correction in action (real local-backend output)
 
@@ -122,8 +133,15 @@ The strict judge **enforces the brand** — it passes an on-brand render and rej
 The rubric is **strict** (overall PASS only if *every* criterion is MET) and asks the judge to attach
 a structured fix to each miss — `FIX: add <…>; avoid <…>`. The expander consumes that directly:
 `add` terms are emphasized in the next positive prompt; `avoid` terms are **stripped from the subject**
-in the positive (Z-Image zeroes the text negative, so the positive is the real lever) and also pushed
-to the negative for models that honor it (FLUX.2). See `scripts/agent/expander.py`.
+in the positive (the image recipes sample at CFG 1, so the positive is the real lever) and also pushed
+to the negative for graphs that sample above CFG 1. See `scripts/agent/expander.py`.
+
+**When the subject fights the brand.** A subject such as *"a glossy candy-red toy rover"* under a gunmetal
+brand used to stall the loop: the subject criterion demanded the candy colors while the brand criteria
+forbade them, so a small judge wrote contradictory fixes (*"add cartoonish toy styling; avoid matte
+black"*) and every pass drifted further off-brand. Three changes (v0.6.0) make the brand win. The rubric
+says so. `brand_guard` filters the contradictions out of the FIX terms. And the loop removes the
+flagged styling from the subject and the rubric before the next pass, keeping the object itself.
 
 **The judge evaluates every criterion and emits an actionable fix.** Verbatim from the Qwen3-VL judge on an
 `example-brand` rover render:
@@ -196,15 +214,40 @@ Overall: PASS   score: 0.94
 The headline **0.38 / 0.92** are the **mean of each frame's three self-assessed passes**
 (`consensus_verdict` averages them); the per-pass scores above are the individual votes.
 
-**Honest note on convergence — and which backend earns it.** Z-Image's base quality plus brand prompt
+### The same correction, fully local: the Ollama judge (v0.6.0)
+
+The README's headline GIF is the autonomous loop with no assistant in it: Qwen3-VL-8B-Instruct on a local
+Ollama judging with 3-pass consensus, on Qwen-Image-2.1. The command that reproduces it names the judge,
+since the default now depends on your [GPU tier](#local-models-by-gpu-tier): `auto_generate.py --pipeline
+image --brand example-brand --judge-model qwen3-vl:8b-instruct --judge-passes 3 --seeds 7,7,7
+--comfy-output-dir <dir>`, with the deliberately off-brand subject *"an exploration rover vehicle, bright glossy candy-red and sunny-yellow
+plastic bodywork, smooth rounded cartoonish toy styling, cheerful kids' toy, pastel colors"*:
+
+| iter | verdict (one of three passes, verbatim) | before the next pass |
+|---|---|---|
+| 0 | FAIL · 0.40 — *"The image is cartoonish and toy-like, which conflicts with the requirement to avoid these traits. FIX: add none; avoid cartoonish, toy-like."* | the cartoonish toy-styling phrase leaves the subject and the rubric |
+| 1 | FAIL · 0.49 — still glossy red-and-yellow plastic, *"more toy-like … not rugged tactical-industrial"* | the candy-colored plastic, kids'-toy and pastel phrases leave too |
+| 2 | **PASS · 1.00** | — |
+
+Iteration 2's subject was just *"an exploration rover vehicle"* inside the brand's style, on the same seed
+throughout. Before v0.6.0 this run never converged. The judge kept demanding the candy colors (the
+subject criterion) while forbidding them (the brand criteria), and its contradictory fixes pushed each
+pass further off-brand.
+
+**Honest note on convergence — and which backend earns it.** The default image model plus brand prompt
 injection are strong enough that a *satisfiable* subject often passes on the **first** iteration, so a
 dramatic fail→pass appears only when a render genuinely misses the brand (as above, where the first
 prompt was deliberately off-brand). Reliability scales with the judge. The **assistant consensus
-backend** earns that fail→pass cleanly — three independent vision passes yield a strict verdict and
-precise, format-following fixes. The **autonomous local Qwen3-VL judge** follows the structured-fix format only
-*intermittently*, so it enforces the brand reliably but converges less consistently — the trade for
-running unattended. Choose the tier per job: `--backend local` for hands-off batches, the opt-in
-`--backend assistant` (agent in the loop) when you want the strongest correction.
+backend** earns that fail→pass cleanly: three independent vision passes yield a strict verdict and
+precise fixes. The **local Qwen3-VL-8B judge** writes noisier fixes, and it can miss fine geometry (it
+passed a fan rotor whose blades floated free of the hub; the geometry gate now catches that). With
+v0.6.0's brand-precedence rubric, tolerant FIX parsing and subject correction, it converges on brand misses
+like the one above. (The 8B is now the medium tier's judge. On a 32 GB+ card the default is Qwen 3.8 27B,
+which caught the fine-perception cases the 8B missed in the
+[benchmark](#measured-on-the-rtx-5090-2026-10-15).) Choose the backend per job: `auto_generate.py` with the
+default local Ollama judge for hands-off batches, and the assistant consensus backend (an interactive agent following
+[`../../workflows/agent/README.md`](../../workflows/agent/README.md); `auto_generate.py` refuses
+`--backend assistant`) when you want the strongest correction.
 
 ### …and it works **without a brand**, too — correcting *content*, not style
 
@@ -243,29 +286,107 @@ ComfyUI node `SaveImageTextDataSetToFolder` (`comfy_extras.nodes_dataset`), whic
 `agent_verdicts/<prefix>_00000.txt`; `LocalVLMJudge` reads that file (run-unique prefix,
 brief retry for the FS flush) and feeds it to `parse_verdict()`. That save node is
 `experimental` and ships in core ComfyUI — it is **not** a separate node pack — so it
-requires **ComfyUI ≥ 0.24.x**. This ComfyUI-QwenVL judge is now **optional** — the
-recommended path is **Qwen3-VL on Ollama** (`--backend api`), which needs no node pack at all.
+requires **ComfyUI ≥ 0.24.x**. This ComfyUI-QwenVL judge is now **opt-in** (`--backend local`) — the
+default is a local **Ollama** judge picked for the GPU (`--backend api`), which needs no node pack at all.
 
-- **Model:** `Qwen/Qwen3-VL-8B-Instruct` (Apache-2.0) — **~6–9 GB VRAM** (8B, Ollama Q4/q8).
-  Size ladder: **8B default · 32B sharpest · 30B-A3B MoE balance · 2B/4B small cards** (always the
-  `-instruct`, non-thinking variant). Served via Ollama as `qwen3-vl:8b-instruct`; for the optional ComfyUI node path, place weights in
+- **Model:** the Ollama judge comes from the [GPU tier](#local-models-by-gpu-tier). The node path runs
+  `Qwen/Qwen3-VL-8B-Instruct` (Apache-2.0; the `-instruct`, non-thinking variant), with weights in
   `models/LLM/Qwen-VL/` (catalogued in [`../../docs/CATALOG.md`](../../docs/CATALOG.md)).
 - **Node pack (optional):** [`1038lab/ComfyUI-QwenVL`](https://github.com/1038lab/ComfyUI-QwenVL)
   is **no longer the default/auto-checked pin** — it's an optional alternative to the Ollama judge.
   Before using it, **re-pin to a Qwen3-VL-capable commit (≥ v1.0.4) and re-scan**; the previously
   audited commit `fcd1ada` predates Qwen3-VL support.
 
-**VRAM / perf:** the 8B judge on Ollama (Q4/q8, ~6–9 GB) fits comfortably alongside an image
-model on a 32 GB card, but judging still adds a VLM load + inference per candidate, so a
-multi-seed batch is meaningfully slower than a plain generate. For lighter cards, drop down the
-size ladder (2B/4B) — judging quality drops accordingly; for the sharpest verdicts, step up to 32B
-(or the 30B-A3B MoE for a quality/cost balance).
+**VRAM / perf:** judging adds a model load + inference per candidate, so a multi-seed batch is
+meaningfully slower than a plain generate. The Ollama judge's size follows the
+[GPU tier](#local-models-by-gpu-tier), from 4.4 GB (the 4B) to 16.5 GB (Qwen 3.8 27B); the measurements
+there show why the 32B and 30B-A3B Qwen3-VL sizes are not defaults.
 
-**Security posture:** weights come from the **official Qwen repo**
-(`Qwen/Qwen3-VL-8B-Instruct`, Apache-2.0) only. The optional ComfyUI-QwenVL node pack, if used,
+**Security posture:** the node path's weights come from the **official Qwen repo**
+(`Qwen/Qwen3-VL-8B-Instruct`, Apache-2.0) only; the Ollama judges are pulled by tag from Ollama's library.
+The optional ComfyUI-QwenVL node pack, if used,
 must be **pinned** (no `@latest`) to a re-audited Qwen3-VL-capable commit (≥ v1.0.4),
 consistent with the rest of Chimera's third-party-code policy (same standard applied to the
 [MCP bridge](README.md) and the foley pack). Re-audit before any pin bump.
+
+## Local models by GPU tier
+
+A role with nothing configured (no `--judge-*` / `--codegen-*` / `--rewriter-*` flag, no shared `--llm-*`, no
+`CHIMERA_*` variable) falls back to a model Chimera picks, on the local Ollama (`http://127.0.0.1:11434/v1`,
+or `$OLLAMA_HOST`). The defaults were chosen on an RTX 5090 (32 GB) and most cards have less, so they come in
+three tiers picked from the GPU's memory, and smaller cards get lighter judges automatically:
+
+| Tier | GPU memory | Judge | Rewriter (`--rewrite-prompts`) | CAD code-gen (`--pipeline cad`) |
+|---|---|---|---|---|
+| **large** | 32 GB+ | `qwen3.8:27b` (thinking off) | `qwen3.8:27b` | `qwen3.8:27b` |
+| **medium** | 12–24 GB | `qwen3-vl:8b-instruct` | `qwen3-vl:8b-instruct` (the judge's model, so nothing extra loads) | `qwen3.8:27b`, partly on the CPU |
+| **small** | under 12 GB | `qwen3-vl:4b-instruct` | `qwen3-vl:4b-instruct` | `qwen3.8:27b`, mostly on the CPU (slow; point `--codegen-*` at a hosted model if you have one) |
+
+- **How the tier is picked.** The GPU's total memory comes from ComfyUI (`/system_stats`) when it answers,
+  else from a time-limited `nvidia-smi`. The cut-offs in code are 28 and 11 GiB, since a card reports a
+  little less than its size (a 32 GB card about 31.8 GiB, a 12 GB card 11.99). A 24 GB card gets the medium
+  tier: beside ComfyUI's image model it has no room for the 27B judge (about 22 GB with its context), so every
+  judgment would wait on ComfyUI emptying itself. If neither answers, the run takes the medium tier and says so.
+- **Choosing one.** `--llm-tier auto|large|medium|small`, or `CHIMERA_LLM_TIER` (the flag wins; `auto` picks
+  from the GPU). Anything you configure for a role still beats its tier model, in the usual order: role flag >
+  `CHIMERA_<ROLE>_*` > shared `--llm-*` > `CHIMERA_LLM_*` > tier. Each setting resolves on its own, so a base
+  URL set without a model gets the tier's model name.
+- **Thinking.** Qwen 3.8 is a hybrid thinking model. As a tier default it runs with
+  `reasoning_effort: "none"`, as benchmarked; a model you configure is never sent that default.
+- **What ran.** A run that falls back to tier models prints them, e.g. the CAD loop on a 32 GB card:
+  `[agent] local models, large tier (32 GB GPU): judge qwen3.8:27b, code-gen qwen3.8:27b (--llm-tier to change)`.
+- **Pulling the models.** `chimera doctor` reports the tier, whether Ollama has its models, and the exact
+  `ollama pull` commands for any that are missing:
+
+  | Tier | Pull |
+  |---|---|
+  | large | `ollama pull qwen3.8:27b` |
+  | medium | `ollama pull qwen3-vl:8b-instruct` (+ `ollama pull qwen3.8:27b` for the CAD loop) |
+  | small | `ollama pull qwen3-vl:4b-instruct` (+ `ollama pull qwen3.8:27b` for the CAD loop) |
+
+- **No configuration needed.** The CAD loop (`--pipeline cad`) used to stop and ask for
+  `CHIMERA_LLM_BASE_URL`; with nothing set it now runs on the tier's models, as does `--rewrite-prompts`.
+- **Checked before anything renders.** A role on a local Ollama needs Ollama answering and the model pulled.
+  If not, the run stops before the first render with the fix (start Ollama, or the `ollama pull` command)
+  rather than rendering every iteration and failing at each judging. A missing rewriter model only warns,
+  since the templated expander takes over. A local server that isn't Ollama (LM Studio, vLLM) is left alone
+  unless it sits at Ollama's address or port. When a key you set isn't sent to a role's hosted endpoint (an
+  `OPENAI_API_KEY` goes only to `api.openai.com`), the run prints a note naming the variable to set.
+
+### Measured on the RTX 5090 (2026-10-15)
+
+**Judge.** 34 cases with labels checked by eye: 11 plain ones and 23 hard ones that match most of the brief
+but miss one visible thing (a misplaced logo icon, two robots instead of three, a monitor in a "nothing else
+in frame" product shot, a missing raincoat, the wrong view angle, off-brand toy colors, two goat heads instead
+of one, a stray rod or floating slivers the 3D rubric fails). Each judge ran every case 3 times through
+Chimera's own judge code. Balanced accuracy is the mean of the right-PASS and right-FAIL rates.
+
+| Judge | Correct of 34 (mean of 3 runs) | Balanced accuracy | Per judgment | GPU memory |
+|---|---|---|---|---|
+| `qwen3.8:27b` (large tier) | **31.0** | **0.900** | 1.5 s | 16.5 GB |
+| `qwen3-vl:32b-instruct` | 30.0 | 0.888 | 14.6 s | 21.1 GB |
+| `qwen3-vl:8b-instruct` (medium tier) | 29.3 | 0.865 | 0.8 s | 6.6 GB |
+| `qwen3.6:27b-coding` | 29.3 | 0.849 | 1.5 s | 16.3 GB |
+| `qwen3-vl:4b-instruct` (small tier) | 27.7 | 0.817 | 0.6 s | 4.4 GB |
+| `qwen3-vl:30b-a3b-instruct` | 27.3 | 0.801 | 0.7 s | 18.7 GB |
+
+Qwen 3.8 27B caught the three fine-perception cases (the stray rod, the floating slivers, the misplaced logo
+icon) that the 8B missed on every run. The 32B came close at about ten times the time per judgment, and the
+30B-A3B MoE scored below the 4B.
+
+**CAD code-gen.** The real CAD loop on six parts (a cable organizer, a wall hook, a hex-key holder, a 12-blade
+fan rotor in a shroud, a phone stand and a 20-tooth spur gear), with the same judge (`qwen3-vl:8b-instruct`),
+the same seeds and up to 3 iterations each:
+
+| Code-gen | Passed | First try | Missed |
+|---|---|---|---|
+| `qwen3.8:27b` | **5 of 6** | 3 | the fan rotor |
+| `qwen3.6:27b-coding` | 4 of 6 | 2 | the wall hook, the hex-key holder |
+| `qwen3.5:9b` | 0 of 3 (run on the first three parts only) | 0 | all three |
+
+Qwen 3.8 27B also hit fewer script errors (2, against 4 for the coding model). A light 9B is not a usable
+code-gen, so every tier keeps the 27B, and a smaller card runs it partly on the CPU: slower, but the same
+model.
 
 ## 3D self-correction (Phase 3) — `--pipeline mesh3d`
 
@@ -320,10 +441,11 @@ at zero weld) with some boundary edges — baseline for surface-net extraction, 
 them rejected every real mesh. They stay in the sidecar for provenance (`DEFAULT_MAX_LOOSE_PARTS`, the
 fragmentation threshold, is tunable).
 
-**Backends.** Same `--backend` as the image loop: `local` (the optional ComfyUI Qwen3-VL judge node
-over the contact sheet) or `api` (the **recommended** Ollama Qwen3-VL judge) — or the gated `assistant`
-consensus (the agent judges the contact sheet with M vision passes — see
-[`../../workflows/agent/README.md`](../../workflows/agent/README.md)).
+**Backends.** Same `--backend` as the image loop: `api` (the **default**: the GPU tier's local Ollama judge) or
+`local` (the optional ComfyUI Qwen3-VL judge node over the contact sheet). The assistant consensus (the
+agent judges the contact sheet with M vision passes) runs with an interactive agent — see
+[`../../workflows/agent/README.md`](../../workflows/agent/README.md); `auto_generate.py` refuses
+`--backend assistant`.
 
 **Cost.** A mesh3d iteration runs two ComfyUI graphs + a Blender render, so `--max-iters` defaults to
 **3** (vs 4 for image); `--blender-timeout` budgets the render independently of the ComfyUI `--timeout`.
@@ -333,11 +455,13 @@ consensus (the agent judges the contact sheet with M vision passes — see
 ```
 python scripts/agent/auto_generate.py --pipeline mesh3d --subject "an armored knight on horseback" \
     --comfy-output-dir <ComfyUI output dir> [--brand <brand>] [--from-image concept.png] \
-    [--octree 256] [--samples 48] [--res 640 640] [--max-iters 3] [--backend local|api|assistant]
+    [--mesh-model trellis2|pixal3d|hunyuan21] [--octree 256] \
+    [--samples 48] [--res 640 640] [--max-iters 3] [--backend api|local]
 ```
 
-The winner's mesh lands in `outputs/3d/` (or `brands/<brand>/outputs/3d/`); the judged contact sheet
-and the `agent-run` sidecar (`modality:"3d"`, `winning_seed`) land in the images folder beside it.
+`--backend api` is the default; `--octree` applies only to `--mesh-model hunyuan21`. The winner's mesh
+lands in `outputs/3d/` (or `brands/<brand>/outputs/3d/`); the judged contact sheet and the `agent-run`
+sidecar (`modality:"3d"`, `winning_seed`) land in the images folder beside it.
 
 > **Status: built, GPU-free CI tested, and live-validated end-to-end (2026-06-14, Blender 5.1.2 /
 > RTX 5090).** The full **autonomous** loop ran concept (Z-Image) → Hunyuan3D mesh → `mesh_eval`
@@ -429,21 +553,33 @@ varies the concept image + seed; CAD geometry is **deterministic**, so the lever
 The loop: a brief → an **agent-authored FreeCAD Python script** → `generate.py cad --mode script
 --script <file>` executes it headless into a BREP solid + STL → `generate.py render --mode mesh` renders
 it → a VLM judges form/printability → the FIX feedback drives the **agent to revise the script** (e.g.
-"handle too thin" → bump wall thickness) → re-execute, repeat. No geometry gate is needed (FreeCAD BREP
-output is clean/manifold, unlike Hunyuan3D); `cad` already validates dims host-side.
+"handle too thin" → bump wall thickness) → re-execute, repeat. FreeCAD BREP output is manifold, but a
+script can still build **disconnected bodies**: the local judge passed a fan rotor whose 16 blades floated
+free of the hub. So since v0.6.0 the CAD loop applies the mesh3d **geometry gate** too, in strict mode
+(`GeometryAwareJudge(strict=True)`): a scripted part must come out as **one** solid, so any separate body
+fails with a `FIX: add one connected solid` the codegen acts on. (The mesh3d gate's 1%-of-the-mesh bar for
+"significant" parts can't apply here: with fine tessellation the hub alone hid the blades under it.) `cad`
+already validates dims host-side. FreeCAD 1.1 ships an unrelated top-level `App` package, so the script
+runner resolves a script's own `import App` to FreeCAD.
 
 **Two ways to drive the generator.** *Assistant-authored* (`cad --mode script`, the agent in Claude Code
 writes/revises the script by hand) **or fully autonomous** via **`auto_generate.py --pipeline cad
 --subject "..."`**, where a provider-agnostic LLM (below) writes + revises the FreeCAD script from the
 loop's FIX feedback — `LLM script → cad --mode script → Blender contact sheet → judge → revise`, reusing
-`run_loop`. `--pipeline cad --backend api` is a pure LLM+FreeCAD+Blender loop (no ComfyUI) — the
-**recommended** judge here is Ollama Qwen3-VL; with `--backend local` the optional ComfyUI Qwen3-VL
-judge node is used instead (and ComfyUI runs only for judging).
+`run_loop`. With the default `--backend api`, `--pipeline cad` is a pure LLM+FreeCAD+Blender loop (no
+ComfyUI) that needs no configuration: code-gen and judge fall back to the
+[GPU tier](#local-models-by-gpu-tier)'s local Ollama models. With `--backend local` the optional ComfyUI
+Qwen3-VL judge node is used instead (and ComfyUI runs only for judging).
 
-> ⚠️ The autonomous loop **`exec`s LLM-authored scripts**. They run with a host-side denylist + restricted
-> builtins + an import allowlist (`script_exec.py restrict=True`), which closes the python-level escapes —
-> but it is **not a true sandbox** (FreeCAD's own `Part.export`/`doc.saveAs` can still write files). Point
-> `--pipeline cad` only at an LLM you trust, on a machine you accept it touching.
+> ⚠️ The autonomous loop **`exec`s LLM-authored scripts**. They run with restricted builtins + an import
+> allowlist (`script_exec.py restrict=True`) behind a host-side denylist, which also rejects dunder-attribute
+> walks (`.__globals__`, `.__class__`, `__subclasses__`, frame objects such as `f_globals`), and `FreeCADCmd`
+> starts without credential-named environment variables (any name containing `KEY`, `TOKEN`, `SECRET`,
+> `PASS`, `CREDENTIAL` or `AUTH`, proxies, webhooks and `*_URL` / `*_URI` connection strings), so a script
+> can't read your API keys, and only files in the job's own folder count as its output. It is still **not a
+> sandbox**: Python
+> object internals can reach `os`, and FreeCAD's own `Part.export`/`doc.saveAs` can write files. Point
+> `--pipeline cad` only at a code-gen model you trust, on a machine you accept it touching.
 
 ### Bring your own LLM (`--backend api` / `--pipeline cad`)
 
@@ -459,22 +595,32 @@ endpoint works. Configure via env (or `--llm-base-url`/`--llm-model`):
 | OpenRouter | `https://openrouter.ai/api/v1` | e.g. `google/gemini-2.5-pro` | `CHIMERA_LLM_API_KEY` |
 | Local (Ollama / LM Studio / vLLM) | `http://localhost:11434/v1` | a local model | (omit) |
 
+A vendor's own key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) is only ever sent to that vendor's host
+(`https://api.openai.com`, `https://api.anthropic.com`); every other endpoint needs `CHIMERA_LLM_API_KEY` (or
+`CHIMERA_<ROLE>_API_KEY`), so a globally exported OpenAI key can't reach OpenRouter or a LAN box. Each key
+stays with its endpoint: `CHIMERA_<ROLE>_API_KEY` goes only to that role, and `CHIMERA_LLM_API_KEY` goes only
+to the shared base URL's host (`CHIMERA_LLM_BASE_URL` or `--llm-base-url`) when one is set, else to every
+role. The `Authorization` header is never forwarded on an HTTP redirect, and a key sent over plain `http://`
+to a non-loopback host prints a warning.
+
 Any OpenAI-compatible endpoint works — Gemini, OpenAI, Anthropic, OpenRouter, Groq, Together, or a local
 server — because `LLMClient` only speaks `/v1/chat/completions`. For the vision **judge** the model must be
-multimodal (Gemini, GPT-4o, Claude, or the recommended local Ollama **Qwen3-VL-8B**); for CAD **code-gen**
-any chat model works (locally, **Qwen3.6-27B** on Ollama).
+multimodal (Gemini, GPT-4o, Claude, or a local Ollama VLM such as the [tier defaults](#local-models-by-gpu-tier));
+for CAD **code-gen** any chat model can be plugged in, but its strength decides the result (locally,
+`qwen3.8:27b`, the code-gen in every tier, built 5 of 6 test parts and a 9B none of its 3).
 
 **Per-role endpoints.** Each loop role takes its own endpoint/model, falling back to the shared `--llm-*`
-above (precedence: role-CLI > role-env > shared-CLI > shared-env, resolved by `client_for_role`):
-**codegen** (`--codegen-base-url`/`--codegen-model`, `CHIMERA_CODEGEN_*`; `--pipeline cad`), **judge**
-(`--judge-*`, `CHIMERA_JUDGE_*`; any `--backend api`), **rewriter** (`--rewriter-*`, `CHIMERA_REWRITER_*`;
-`--rewrite-prompts` swaps the templated expander for `LLMExpander`, which rewrites prompts from the judge's
-FIX feedback and falls back to the template on any LLM error). This lets a strong code model do codegen
-while a separate vision model judges — e.g. `--codegen-model qwen/qwen3-coder` +
-`--judge-base-url http://localhost:11434/v1 --judge-model qwen3-vl:8b-instruct`. **An AI agent driving
-interactively supersedes all of this** — when Claude Code (or any IDE agent) is in the loop it *is* the
-codegen/judge/rewriter, and none of these endpoint settings or keys are read (Tier 0). These settings only
-affect unattended `auto_generate.py` runs.
+above and then to its [GPU tier](#local-models-by-gpu-tier)'s local model (precedence: role-CLI > role-env >
+shared-CLI > shared-env > tier, resolved by `client_for_role`): **codegen** (`--codegen-base-url`/`--codegen-model`,
+`CHIMERA_CODEGEN_*`; `--pipeline cad`), **judge** (`--judge-*`, `CHIMERA_JUDGE_*`; any `--backend api` run),
+**rewriter** (`--rewriter-*`, `CHIMERA_REWRITER_*`; `--rewrite-prompts` swaps the templated expander for
+`LLMExpander`, which rewrites prompts from the judge's FIX feedback and falls back to the template on any LLM
+error). With nothing set, all three run on local Ollama at `http://127.0.0.1:11434/v1` (or `$OLLAMA_HOST`).
+This lets a strong code model do codegen while a separate vision model judges — e.g. `--codegen-base-url
+https://openrouter.ai/api/v1 --codegen-model qwen/qwen3-coder` while the judge stays on its local Ollama
+default. **An AI agent driving interactively supersedes all of this** — when Claude Code (or any IDE agent)
+is in the loop it *is* the codegen/judge/rewriter, and none of these endpoint settings or keys are read.
+These settings only affect unattended `auto_generate.py` runs.
 
 **Thinking models.** Hybrid-thinking models can spend the whole token budget on reasoning and return empty
 content; Ollama ≥ 0.40 serves Qwen3.x this way by default (the 2026-10-14 smoke: Qwen3.6-27B codegen returned
@@ -482,33 +628,70 @@ nothing at all). When a reply is all reasoning and no content, `LLMClient` **ret
 `reasoning_effort: "none"`** and keeps that setting for the rest of the run. To skip the wasted first pass,
 or to choose a level, set it per role (same precedence as above): `--llm-reasoning-effort` /
 `CHIMERA_LLM_REASONING_EFFORT`, or `--codegen-` / `--judge-` / `--rewriter-reasoning-effort` /
-`CHIMERA_<ROLE>_REASONING_EFFORT` (`none` | `low` | `medium` | `high`). It is never sent unless configured or
-retried, because some providers reject the field. An explicit value is respected and never overridden. A run
-in which nothing passes now exits with status 1.
+`CHIMERA_<ROLE>_REASONING_EFFORT` (`none` | `low` | `medium` | `high`). It is sent only when configured, on
+that retry, or with a tier model that thinks (Qwen 3.8 starts at `none`), because some providers reject the
+field. An explicit value is respected and never overridden. A run in which nothing passes now exits with
+status 1.
 
-**Sharing one GPU with ComfyUI.** Ollama keeps a model resident for about 5 minutes after its last request.
-On a single 32 GB card a 27B codegen or rewriter model (plus its context cache) then starves ComfyUI, and
-ComfyUI 0.40 can even run out of CUDA memory inside its own `/free` and hang (seen 2026-10-14). So when an
-endpoint is a local Ollama (detected via `/api/version`), the loops unload their own resident models
-**before every ComfyUI render** and **when the run ends**, even on failure (`LLMClient.release`, Ollama's
-`keep_alive: 0`). Hosted endpoints are untouched. Reloading the 8B judge costs a few seconds per iteration;
-set `CHIMERA_KEEP_LLM_LOADED=1` if Ollama runs on a second GPU. By hand, `chimera free` unloads every Ollama
-model and then asks ComfyUI to free its VRAM, in that order, and `chimera doctor` reports both apps' GPU
-memory and warns when Ollama holds 8 GB or more.
+**Sharing one GPU with ComfyUI.** On Windows neither app sees the other's GPU memory: Ollama reported 30 GB
+free while ComfyUI held 15, and ComfyUI's own figure missed a resident Ollama model. Each one loads as if the
+card were its own, so the two together can overcommit it, and the driver then pages GPU memory to system RAM.
+On 2026-10-15 that froze a PC: after a day of renders ComfyUI held all but 0.1 GB, the judge loaded anyway,
+crawled past its 180 s timeout, and `nvidia-smi` hung before the machine went down. Ollama also keeps a model
+resident for about 5 minutes after its last request. So when an endpoint is a local Ollama (detected via
+`/api/version`), the loops keep the two apps apart:
+
+- **Before a model loads** (judge, rewriter, CAD codegen), the client asks ComfyUI, which does see its own
+  memory, how much of the card it leaves free. If that is less than the model needs (its weights plus its
+  context cache, read from Ollama: a 192k-token context adds about 13.5 GB to a 27B model, more with
+  `OLLAMA_NUM_PARALLEL` above 1; with no `num_ctx` or `OLLAMA_CONTEXT_LENGTH` set, Ollama 0.40 gives a model up
+  to its full trained context when the card looks free, 256k for the Qwen judges, so the estimate assumes that),
+  plus, on Windows, whatever Ollama already holds (ComfyUI can't see that there either; Linux and macOS drivers
+  count it), ComfyUI unloads its models (`/free`) and the loop waits up to 30 s for the memory. A model bigger
+  than the card always gets ComfyUI emptied. Once ComfyUI has emptied, a model that fits at a 32k context
+  loads, since Ollama sizes its context to the room it sees (with an f16 cache the full-context figure can
+  exceed the card). If even that never fits, or ComfyUI stops answering after showing a full card, the model
+  is **not** loaded: the iteration fails with "the GPU has no room for it". After a load, the loop warns when
+  Ollama took more than planned, which means its settings differ from the ones Chimera reads (see
+  [SETUP](../../docs/SETUP.md#local-models-for-the-self-correction-loops)). The check reads a local CUDA card only (an Apple mps or CPU ComfyUI reports system RAM, so the
+  loop skips it there).
+- **Before every render** (ComfyUI and, in the CAD loop, Blender) and **when the run ends**, even on failure,
+  the loops unload their own resident models (`LLMClient.release`, Ollama's `keep_alive: 0`) and wait until
+  Ollama lists them as gone; a model that won't unload stops that iteration rather than render beside it. The
+  CAD loop's code-gen unloads itself before Blender renders, and `--finalize` is skipped (with the command to
+  run it later) when the judge won't unload before its repaint.
+- **Before the first render**, they unload Ollama models the run didn't load (another tool's, or an earlier
+  run's), printing which.
+- **Whatever the ComfyUI URL**, the unloads run: one given by LAN address, host name or WSL IP may be this
+  machine, and an unneeded unload only costs a judge reload. The room check before a model loads needs a
+  ComfyUI given as `localhost` or `127.0.0.1`, though, and on another address an image run only warns about a
+  model Ollama won't unload, so give a ComfyUI on this machine as one of those.
+
+The checks apply to a "local" endpoint: `localhost`, `127.x`, `::1`, or the bind-all `0.0.0.0` / `::` (so
+`OLLAMA_HOST=0.0.0.0` works, read the way Ollama reads it: port 11434 when none is given). This machine's LAN
+address or host name doesn't count, so give a local Ollama or ComfyUI as `localhost` or `127.0.0.1`.
+
+Hosted and remote endpoints are untouched, and a remote ComfyUI is never asked to free. Reloading the judge
+costs a few seconds per iteration for the 8B, more for a 27B, and the image model reloads only when ComfyUI
+had to free it. Set `CHIMERA_KEEP_LLM_LOADED=1` only if Ollama runs on a second GPU. By hand, `chimera free`
+unloads every Ollama model and then asks ComfyUI to free its VRAM, in that order, and `chimera doctor` reports
+both apps' GPU memory and warns when Ollama holds 8 GB or more. Don't run other heavy GPU jobs beside a loop.
 
 ```
-python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" --backend api \
+python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug"   # the GPU tier's local models
+python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug" \
     --llm-base-url https://api.anthropic.com/v1 --llm-model claude-opus-4-8   # + CHIMERA_LLM_API_KEY in env
 ```
 
-`--backend api` also works on `--pipeline image`/`mesh3d`; `--judge-passes N` runs N LLM vision passes and
-majority-consensuses them (default 1). Config can come from env (`CHIMERA_LLM_BASE_URL`/`_MODEL`/`_API_KEY`,
-e.g. via `.env`) instead of the flags.
+`--backend api` is the default on every pipeline; `--judge-passes N` runs N LLM vision passes and
+majority-consensuses them (default 1). Config can come from environment variables
+(`CHIMERA_LLM_BASE_URL`/`_MODEL`/`_API_KEY`) instead of the flags; export them in your shell, since nothing
+loads `.env` automatically.
 
 > **Status (2026-06-15):** the assistant-authored path is shipped + live-validated (a parametric mug,
 > author→exec→render→judge→revise with a BREP rim fillet). The **autonomous LLM path** (`--pipeline cad`)
 > is **live-validated** too — a coder model drove a mounting bracket FreeCAD→render→judge→**fail→revise→PASS**
 > against a local Ollama endpoint, and the `--backend api` `LLMJudge` vision path was confirmed against a
-> local Ollama VLM. (Live validation surfaced + fixed five real CAD-loop bugs.) The agent layer now targets
-> **Qwen3.6-27B** (codegen) + **Qwen3-VL-8B** (judge). See
+> local Ollama VLM. (Live validation surfaced + fixed five real CAD-loop bugs.) Its local defaults are now
+> the [GPU tiers](#local-models-by-gpu-tier), with Qwen 3.8 27B writing the code in every tier. See
 > [`../cad/README.md`](../cad/README.md#--mode-script--generative-cad-self-correction).

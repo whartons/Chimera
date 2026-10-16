@@ -2,7 +2,8 @@
 
 Brand-neutral, production-tested recipes for common creator deliverables (live-streaming and
 small-shop work — the audiences in the [README](../../README.md)). They build on this module's
-Z-Image / FLUX.2 workflows plus a little host-side compositing. Swap in your own subject, palette,
+image workflows (Qwen-Image-2.1 by default, with Z-Image and FLUX.2 alternates) plus a little host-side
+compositing. Swap in your own subject, palette,
 and logo — the brand *data* stays private; only the **technique** lives here.
 
 ## Platform emotes / stickers

@@ -43,8 +43,10 @@ def export_shapes(objs, out_dir, stem, formats) -> list:
                 if o.isDerivedFrom("Mesh::Feature"):
                     combined.addMesh(o.Mesh)
                 elif getattr(o, "Shape", None) is not None:
+                    # 0.1 rad (~6 degrees) per facet: at 0.5 rad a circle came out as ~13 visible flats
+                    # in renders and prints (2026-10)
                     combined.addMesh(MeshPart.meshFromShape(
-                        Shape=o.Shape, LinearDeflection=0.1, AngularDeflection=0.5))
+                        Shape=o.Shape, LinearDeflection=0.1, AngularDeflection=0.1))
                 else:
                     raise ValueError(f"object {o.Name} has no Shape/Mesh to export to {f}")
             combined.write(path)

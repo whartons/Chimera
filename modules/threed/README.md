@@ -45,13 +45,15 @@ python scripts/generate.py 3d \
   cutout (it meshes the background too).
 - `--octree` (**Hunyuan3D only**) sets `VAEDecodeHunyuan3D`'s `octree_resolution` (default `256`).
   Higher values produce denser geometry at the cost of VRAM and file size;
-  lower values produce lighter meshes. See the `--octree` section below.
+  lower values produce lighter meshes. See the `--octree` section below. TRELLIS.2 and Pixal3D ignore
+  it (a note says so), and their sidecars don't record it.
 - `--format` picks the export format (default `glb`). ComfyUI only saves GLB,
   so `stl` and `obj` are converted **host-side** by `brandkit/mesh.py` (a
-  dependency-free glTF→STL/OBJ writer). All three carry geometry only — use
-  `glb` for viewing/sharing, `stl` for 3D printing, `obj` for CAD/Blender.
-  (STL/OBJ of a dense mesh are large: the example rover is ~18 MB GLB, but
-  ~53 MB STL / ~37 MB OBJ — generate them on demand rather than committing them.)
+  dependency-free glTF→STL/OBJ writer). STL and OBJ carry geometry only; the GLB keeps TRELLIS.2 and
+  Pixal3D's PBR textures, and it stays beside a converted STL/OBJ. Use `glb` for viewing/sharing, `stl` for
+  3D printing, `obj` for CAD/Blender. Conversion reads one-part GLBs (ComfyUI's output); for a GLB in
+  several parts use `generate.py render --mode finish --formats stl`. (STL/OBJ of a dense mesh are large —
+  generate them on demand rather than committing them.)
 - There is **no `--subject`** — this modality is image-conditioned, not
   text-conditioned. The geometry is driven entirely by the input image.
 - `--watermark` is silently ignored — there is no 2D canvas to composite onto.
@@ -62,7 +64,8 @@ Output routes to `brands/<brand>/outputs/3d/<brand>_image_<seed>.glb`.
 
 ## How it works — TRELLIS.2 / Pixal3D (default)
 
-One core graph (ComfyUI ≥ 0.40) serves both models; `brand:use_trellis2` switches between them:
+One core graph (ComfyUI ≥ 0.40) serves both models; `brand:use_trellis2` switches between them. Chimera
+folds that switch before queueing, so ComfyUI validates (and you need the files of) only the chosen model:
 
 1. **`RemoveBackground`** (BiRefNet) and **`ImageCropToMask`**: cut the subject out and square-crop it.
 2. **Conditioning:** `Trellis2Conditioning` (DINOv3 features of the cutout), or for Pixal3D
@@ -116,7 +119,7 @@ This is a limitation of the current native ComfyUI path, not of Hunyuan3D in
 general. In-ComfyUI PBR texturing (Hunyuan3D-Paint) would require a separate
 custom node pack that is wheel-blocked on this stack (see below) — but the
 self-correction loop **does** texture its winning mesh automatically via a
-Blender multi-view bake (`--finalize`, described below), and downstream texturing
+Blender multi-view bake (`--mesh-model hunyuan21 --finalize`, described below), and downstream texturing
 in Blender, Substance Painter, or similar tools works fine on the exported geometry.
 
 ### Why Hunyuan3D-Paint (in-ComfyUI PBR painting for Hunyuan meshes) is still deferred
@@ -142,10 +145,11 @@ Automatic Hunyuan3D-Paint texturing depends on a **compiled CUDA rasterizer**
   here.
 
 **The self-correction loop textures its winner automatically (shipped).**
-`auto_generate.py --pipeline mesh3d --finalize` runs the Blender **multi-view auto-repaint bake** on
-the winning mesh (SDXL depth-ControlNet + IPAdapter → `bake_multiview`) and emits a textured GLB — the
-supported in-pipeline texturing path on this stack (the in-ComfyUI Hunyuan3D-Paint below stays
-wheel-blocked). For a one-off on any GLB, `generate.py finalize-texture --auto-repaint` does the same.
+`auto_generate.py --pipeline mesh3d --mesh-model hunyuan21 --finalize` runs the Blender **multi-view
+auto-repaint bake** on the winning mesh (SDXL depth-ControlNet + IPAdapter → `bake_multiview`) and emits a
+textured GLB — the supported in-pipeline texturing path on this stack (the in-ComfyUI Hunyuan3D-Paint below
+stays wheel-blocked). TRELLIS.2 and Pixal3D meshes come out textured, so the loop refuses `--texture` /
+`--finalize` for them. For a one-off on any GLB, `generate.py finalize-texture --auto-repaint` does the same.
 
 **How to texture an exported mesh today** (all operate on the shape-only GLB):
 
@@ -188,7 +192,7 @@ as **one watertight solid**, not an assembly:
 - **Clean stray geometry first.** Hunyuan3D often meshes the concept image's flat
   background/ground as stray plane geometry. Before slicing, **weld** coincident vertices,
   **separate by loose parts**, and **drop near-planar fragments** (thinnest dimension < ~2% of
-  the longest). The Blender `mesh_finish` path (`generate.py render ... --finish`) does the
+  the longest). The Blender `mesh_finish` path (`generate.py render ... --mode finish`) does the
   weld / voxel-remesh / decimate / scale pass and exports a clean STL + GLB.
 - **Watertight + real wall thickness.** Slicers need a manifold, watertight solid; surface-net
   output can have thin or open shells — thicken/voxel-remesh as needed.
@@ -228,8 +232,12 @@ In the 2026-10 review (three photos, same seeds), TRELLIS.2 and Pixal3D both bea
 - TRELLIS.2 was the most faithful on two of three, and Pixal3D was cleaner on the third.
 
 **Hunyuan3D still wins on speed** (about 4×), and its dense shape-only mesh is a good start for **3D
-printing**: `--format stl` plus the `mesh_finish` path below. The Blender color bakes (`--texture`,
+printing**: `--format stl` plus the `mesh_finish` path above. The Blender color bakes (`--texture`,
 `--finalize`, `finalize-texture`) also target it.
+
+**TRELLIS.2 GLBs are big:** about 60–77 MB (700k faces plus PNG PBR textures). To share or commit one,
+`chimera render --from mesh.glb --mode finish --target-tris 70000 --formats glb` keeps its textures and
+writes a ~10 MB copy (decimated, JPEG textures capped at 2048 px).
 
 ## Local-only and offline
 

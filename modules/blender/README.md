@@ -1,8 +1,8 @@
 # `blender` — image-and-scene DCC bridge
 
-![A 360-degree headless Cycles turntable of a generated mesh](../../docs/images/chimera-sample-blender.gif)
+![A 360-degree headless Cycles turntable of a textured rover mesh](../../docs/images/chimera-sample-blender.gif)
 
-*Headless Cycles turntable of a generated mesh — `chimera render --from mesh.glb --turntable`. Brand-neutral sample.*
+*Headless Cycles turntable of the example brand's textured TRELLIS.2 rover: `chimera render --from mesh.glb --turntable`. Brand-neutral sample.*
 
 This module covers **two shipped paths** for driving Blender from Chimera:
 
@@ -88,9 +88,13 @@ Three modes, all live-validated on Blender 5.1 / RTX 5090:
   + focal object → Cycles render. This is the **ComfyUI → Blender handoff**: a
   ComfyUI-generated image becomes a scene element in a lit Blender set.
 - **`--mode finish`** — AI mesh → clean → optional `--watertight` voxel remesh →
-  decimate (`--target-tris`) → optional `--scale-mm` → material (or `--color project`)
-  → export STL / GLB (+ hero render). The **figurine / character-finish** pipeline for
-  print-ready output.
+  decimate (`--target-tris`) → optional `--scale-mm` → material → export STL / GLB (+ hero render).
+  The **figurine / character-finish** pipeline for print-ready output. `--color` picks the material:
+  `auto` (default) keeps a textured mesh's own materials, otherwise (or with `--watertight`) clay;
+  `material` is always clay; `project` projects `--project-image`; `keep` always keeps. Kept textures
+  skip the clean step (it would break a baked normal map), are capped at 2048 px and written as JPEG, so
+  `--target-tris 70000 --formats glb` slims a ~75 MB TRELLIS.2 GLB to about 10 MB. `keep` can't be
+  combined with `--watertight`, since the voxel remesh drops the UVs.
 
 All modes are **brand-aware**: outputs route to `brands/<brand>/outputs/` (or `outputs/`
 when brandless) with a `kind:"render"` sidecar. The test suite mocks the subprocess,
@@ -107,7 +111,8 @@ into the verdict (see [`../agent/self-correction.md`](../agent/self-correction.m
 camera (via `world_to_camera_view` — `bpy.ops.uv.project_from_view` is unusable under `--background`),
 shader-masks front faces vs a flat `back_fill` (`palette` color, or a `mirror` back-projection), and
 EMIT-bakes a `texture_res` albedo atlas; `mesh_eval` then exports a self-contained **textured GLB** and
-emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipeline mesh3d --texture`.
+emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipeline mesh3d --mesh-model
+hunyuan21 --texture` (TRELLIS.2 / Pixal3D meshes come out textured, so the loop refuses `--texture` for them).
 
 **Phase 4b — all-around multi-view bake.** Phase 4a colors a mesh from one front projection (faithful
 front, flat back). `generate.py finalize-texture --from <glb> --views front,right,back,left` finalizes a
@@ -123,8 +128,9 @@ concept. Runs through the same headless job runner; routes the GLB + a contact s
 `kind:"render" mode:"finalize-texture"` sidecar.
 
 Phase 3 (self-correction over renders), Phase 4a (front albedo texturing), and Phase 4b (the multi-view
-**bake** + **auto-repaint**) are all **shipped** (`auto_generate.py --pipeline mesh3d [--texture|--finalize]`;
-`generate.py finalize-texture [--auto-repaint]`); see [`../agent/self-correction.md`](../agent/self-correction.md).
+**bake** + **auto-repaint**) are all **shipped** (`auto_generate.py --pipeline mesh3d --mesh-model hunyuan21
+[--texture|--finalize]`; `generate.py finalize-texture [--auto-repaint]`); see
+[`../agent/self-correction.md`](../agent/self-correction.md).
 `--finalize` is the in-loop driver: it auto-runs this `finalize-texture --auto-repaint` bake on the
 self-correction loop's winning mesh and re-judges the textured result.
 

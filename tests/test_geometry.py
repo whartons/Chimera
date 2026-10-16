@@ -64,3 +64,17 @@ def test_tiny_accessory_shells_are_not_fragmentation():
 def test_many_significant_parts_still_flag():
     out = structural_issues({**_CLEAN, "loose_parts": 20, "major_parts": 11})
     assert len(out) == 1 and "11 significant parts" in out[0] and out[0].startswith("NOT-MET:")
+
+
+def test_a_shattered_mesh_fails_even_with_no_significant_part():
+    # 150 equal shards each fall under the 1% bar: major_parts read 0 and the old gate passed it
+    out = structural_issues({**_CLEAN, "loose_parts": 150, "major_parts": 0, "main_part_share": 0.007})
+    assert out and "shattered" in out[0] and "FIX: add one connected solid" in out[0]
+    assert structural_issues({**_CLEAN, "loose_parts": 12, "major_parts": 3, "main_part_share": 0.9}) == []
+
+
+def test_strict_mode_demands_one_solid_for_cad():
+    # a fan whose 16 blades floated free of a finely tessellated hub had major_parts == 1 and passed
+    bad = {**_CLEAN, "loose_parts": 17, "major_parts": 1, "main_part_share": 0.9}
+    assert structural_issues(bad) == [] and "17 separate solids" in structural_issues(bad, strict=True)[0]
+    assert structural_issues({**_CLEAN, "loose_parts": 1}, strict=True) == []

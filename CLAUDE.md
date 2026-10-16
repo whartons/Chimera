@@ -52,6 +52,7 @@ chimera/
 │   ├── CATALOG.md       # best models/templates per modality (+ licenses)
 │   ├── STACK.md         # dependency/stack inventory (Python · ComfyUI · node-pack pins · MCP · CI · host)
 │   ├── SETUP.md         # install notes
+│   ├── UPDATING.md      # the gated update runbook (re-audit a pin before it moves)
 │   └── BLACKWELL-TUNING.md  # RTX 50-series / cu130 tuning guide (measured numbers)
 ├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent, blender, cad
 ├── scripts/
@@ -94,8 +95,10 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   unmet criteria are fed back into the prompt → regenerate until it passes or hits an iteration cap.
   The core (`rubric`/`expander`/`judge`/`loop`) is judge-agnostic and model-free (unit-tested, no
   GPU); three backends slot in — a provider-agnostic OpenAI-compatible **LLMJudge** (`--backend api`,
-  the recommended path: **Qwen3-VL-8B-Instruct** served via Ollama), an optional headless local
-  **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass.
+  the default: unconfigured, it calls a local Ollama model from a GPU tier, **Qwen 3.8 27B** on 32 GB+ cards and a
+  Qwen3-VL 8B/4B on smaller cards, `--llm-tier` to choose), an optional headless
+  **Qwen3-VL** ComfyUI judge node (`--backend local`), and an assistant multi-judge-consensus pass (an
+  interactive agent following `workflows/agent/README.md`; `auto_generate.py` refuses `--backend assistant`).
   `--brand` is optional on `auto_generate.py` (brandless → `outputs/`).
 - **An MCP bridge**: a pinned, security-audited ComfyUI MCP server exposes pipeline actions
   so an assistant can drive ComfyUI. Build on an **existing** server (e.g. `comfyui-mcp`)
@@ -117,14 +120,16 @@ Two things live here (both built — see `modules/agent/self-correction.md`):
   → `cad` → `render` → judge → revise) are **shipped** — both **assistant-driven** (`cad --mode script`)
   and **autonomous** (`auto_generate.py --pipeline cad`, where a **provider-agnostic LLM** writes/revises
   the script — `scripts/agent/llm.py`, OpenAI-compatible/no-SDK, env-configured for
-  OpenAI/Anthropic/OpenRouter/local). The same backend gives an **`--backend api`** AI judge for any loop
-  (local Qwen stays the default). Each loop role — **codegen / judge / rewriter** — can take its own
-  per-role endpoint (`--codegen-*`/`--judge-*`/`--rewriter-*` + `CHIMERA_{CODEGEN,JUDGE,REWRITER}_*`,
-  specific-wins over the shared `--llm-*`/`CHIMERA_LLM_*` via `client_for_role`); **`--rewrite-prompts`**
+  OpenAI/Anthropic/OpenRouter/local). The same backend gives the **`--backend api`** AI judge for any loop
+  (the default; with nothing configured every role uses its GPU tier's local Ollama model, Qwen 3.8 27B on the
+  large tier, and any `--judge-*`/`--llm-*` flag or `CHIMERA_*` variable wins). Each loop role — **codegen / judge /
+  rewriter** — can take its own per-role endpoint (`--codegen-*`/`--judge-*`/`--rewriter-*` +
+  `CHIMERA_{CODEGEN,JUDGE,REWRITER}_*`, specific-wins over the shared `--llm-*`/`CHIMERA_LLM_*` via
+  `client_for_role`); **`--rewrite-prompts`**
   swaps in an `LLMExpander` that rewrites prompts from the judge's FIX feedback (falling back to the
   template). An **interactive AI agent in the IDE supersedes all of this** — the endpoint config/keys are
   read only by headless `auto_generate.py` runs. **Phase-4b in-loop finalize is shipped:** `auto_generate.py --pipeline
-  mesh3d --finalize` textures the winning mesh (multi-view auto-repaint bake) + re-judges it
+  mesh3d --mesh-model hunyuan21 --finalize` textures the winning mesh (multi-view auto-repaint bake) + re-judges it
   (informational, non-gating); cross-view-consistency conditioning shipped with the auto-repaint polish.
 
 ## Hardware
@@ -132,6 +137,9 @@ Baseline documented in `docs/SETUP.md` + `docs/BLACKWELL-TUNING.md`: RTX 5090 (3
 CUDA 12.8+ is the minimum to drive Blackwell at all; the **reference build is cu130 / torch
 2.10**, which unlocks comfy-kitchen's FP4 path (the headline ~2.7× win). Do **not** assume
 others have a 5090 — always note per-module VRAM needs and quantized (GGUF / NVFP4 / fp8) options.
+Defaults are chosen high because the reference box can run them; every default needs a documented
+smaller-card path (a lighter option, an override, or automatic tiers like the agent loop's `--llm-tier`),
+and the README's Hardware table must stay current.
 
 ## Keep the docs in sync (every change)
 These docs are **living** — update them in the SAME change that alters behavior, never "later". A
@@ -140,11 +148,12 @@ stale doc is a bug.
   `CHANGELOG.md` `[Unreleased]` entry. If it touches the agent loop or judge, also
   `modules/agent/self-correction.md`.
 - **Dependency, model, or node-pack pin** → `docs/STACK.md` **and** `docs/CATALOG.md` (plus the pin +
-  `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`NPM_PACKS` table in
-  `scripts/update_report.py`). Pin third-party packs by commit, never `@latest`; updating is gated by
+  `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`GITEA_PACKS`/`NPM_PACKS` tables
+  in `scripts/update_report.py`, plus `.mcp.json` for an MCP server). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
-- **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (the CI count uses
-  `[dev]` only; the `[images]`/pillow-gated tests skip there, so CI ≈ local − 7).
+- **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (CI's Linux leg installs
+  `[images]` and matches the local count; the Windows leg uses `[dev]` only, so its 8 Pillow-gated tests
+  skip there: Windows CI = local − 8).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump
   `pyproject.toml` `version`, then tag + create the GitHub release.
 

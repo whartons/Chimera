@@ -6,6 +6,15 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-16
+
+The model-refresh release. The 2026-10 quarterly review's winners are the new defaults: Qwen-Image-2.1
+(image), SeedVR2 (upscale), Wan 2.2 (video, with camera moves), Stable Audio 3 (music, plus a new sound-effects
+mode) and TRELLIS.2 (textured 3D), and the agent loops run on local Qwen models sized to the GPU. Replay now
+protects old renders from those changes. Also: ComfyUI 0.40 and Ollama 0.40 compatibility, a GPU-memory hand-off
+between them, a freecad-mcp security fix, and a security review that tightened API-key handling, replay, the CAD
+loop's FreeCAD process and the MCP approval gates.
+
 ### Security
 - **`freecad-mcp` `3745ff9 → 78bf023` (v0.1.22 → v0.1.27), fixing
   [GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q)**
@@ -22,6 +31,48 @@ All notable changes to Chimera are documented here. The format follows
   `tests/test_mcp_gates.py` enforces it. The other new tool, `get_async_status`, is read-only.
 - **Docs now require FreeCAD 1.1.4+.** Earlier releases have HIGH advisories triggered by opening a
   crafted `.FCStd` file ([FreeCAD advisories](https://github.com/FreeCAD/FreeCAD/security/advisories)).
+- **The agent loop's LLM keys only go where they belong.** With no `CHIMERA_*` key set, an `OPENAI_API_KEY`
+  (often exported for other tools) went to any base URL: OpenRouter, Gemini, a LAN server, a mistyped host.
+  Now `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` go only to `https://api.openai.com` / `https://api.anthropic.com`,
+  `CHIMERA_LLM_API_KEY` only to the shared endpoint's host when one is set (`CHIMERA_LLM_BASE_URL` /
+  `--llm-base-url`), and `CHIMERA_<ROLE>_API_KEY` only to its role. The `Authorization` header is no longer
+  copied onto an HTTP redirect, and a key sent over plain `http://` to another machine prints a warning.
+- **Replay no longer trusts the sidecar it replays.** Sidecars get shared (the example brand's are in this
+  repo), and a crafted one could upload any local file to a URL of its choosing: replay rendered on the
+  sidecar's `comfy_url`, and its file inputs could be absolute paths. Replay now renders on the local default
+  ComfyUI unless `--comfy-url` is given, and refuses a brand that isn't a folder name or a file input that is
+  absolute or climbs with `..`. File names ComfyUI reports for an output get the same check before anything is
+  moved into `outputs/`.
+- **Replay also checks the fields that name or upload a file** (a second review). A crafted sidecar's `mode`
+  or seed went into the output file name, so `replay --comfy-output-dir` could write a render and its JSON into
+  another folder, replacing a file of that name, and its inputs could name any file in the current folder
+  (`.env`, say) for upload. Replay now accepts only a mode its modality has, a whole-number seed and media files
+  as inputs, and every output name must be one plain file name (`.` and an empty name included).
+- **Sidecars no longer record local paths.** An absolute `--from-image`, `--from-video` or `--asset` was
+  stored as given, folder layout and user name included; sidecars now keep the file name.
+- **The CAD loop's FreeCAD process gets no credentials.** The loop runs LLM-written scripts, and their
+  restricted mode is not a sandbox: a probe walked Python object internals back to `os` and read all 104
+  environment variables, API keys included. FreeCADCmd and headless Blender now start without
+  credential-named variables (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASS*`, `*AUTH*`, `*SESSION*`, proxies,
+  webhooks, `*_URL` / `*_URI` connection strings, `*_PROFILE`, …), a FreeCAD job's reported outputs must sit in its own
+  folder (an LLM-written script could print a forged result naming any file to be moved into `outputs/`), and
+  the pre-filter also rejects dunder-attribute walks (`.__globals__`,
+  `.__subclasses__`, frame objects). Only point `--pipeline cad` at a codegen model you trust.
+- **18 more comfyui-mcp tools need approval** (`.claude/settings.json`; `tests/test_mcp_gates.py` pins the
+  set): ComfyUI-Manager's security settings (`configure_manager`), extra model paths, `scaffold_custom_node`
+  (code ComfyUI runs at startup), model downloads, node-pack bisects, `generate_node_skill` (writes a skill
+  file into any folder), paid partner API nodes (`generate_with_api_node`), issue reports, and the tools that
+  save workflows, defaults and snapshots. FreeCAD's `reload_document` moved from read-only to Tier 2: it
+  closes and reopens the document, discarding unsaved edits.
+- **Pillow ≥ 12.3** for the `images` extra; older versions carry six PYSEC advisories.
+- **`.gitignore` covers conventional secret files** (`.netrc`, `.npmrc`, `.pypirc`, `.envrc`, `*.pem`, `*.p12`,
+  `id_rsa*`, `credentials.json`, `service-account*.json`, `secrets.yaml`), which push protection and the
+  private-key hook don't catch.
+- **CI hardening.** Actions are pinned by commit SHA, checkouts don't keep the token, only the Codecov upload
+  job can mint an OIDC token (the jobs that install packages can't), and `pip-audit` runs in its own job.
+  Pre-commit adds `detect-private-key`. `.gitignore` adds `coverage.xml` (it embeds the absolute source
+  path) and restates the `.env` / `*.local.json` rules inside the example brand, whose re-include overrode
+  them.
 
 ### Added
 - **GPU-memory hand-off between ComfyUI and a local Ollama** (`scripts/brandkit/gpu.py`). The agent loops
@@ -68,11 +119,109 @@ All notable changes to Chimera are documented here. The format follows
   - **Briefs:** sound effects use the subject alone (no brand music tags). For music, an explicit
     `--bpm` / `--keyscale` joins the brief, since SA3 has no tempo or key inputs.
   - **Template:** `workflows/templates/brand-audio-sa3.json`.
-- **`replay --model <file>`** re-runs a recorded render on a different model with everything else as
-  recorded (subject, seed, settings), e.g. to run old brand work back on a newer model. **`replay
-  --accept-drift`** renders even when the brand or a template changed since (see Fixed).
+- **`audio --model acestep --lyrics "..."`**: words for ACE-Step to sing, with `[Verse 1]` / `[Chorus]` tags.
+  ACE-Step was kept as the vocals option, but Chimera sent it empty lyrics, so every render was instrumental.
+  Lyrics need room: in tests (by ear and by transcription) ACE-Step never sang six lines in a 20 s clip and
+  sang them in 40 s on most seeds (5–6 of 7), so a lyric render is at least 40 s unless `--duration` says
+  otherwise (shorter prints a warning), and the CLI reminds you to try another `--seed` if a render comes out
+  instrumental, since some seeds plan one regardless. Sidecars record the
+  lyrics, so replay sings them again; `--lyrics` with Stable Audio 3 or a non-music mode is an error. The
+  ACE-Step graph's sampler shift is now 3, as in Comfy's ACE-Step 1.5 templates (it was 1.73).
+- **`chimera --version`**, read from `pyproject.toml` (`scripts.brandkit.__version__` had said 0.1.0 since the
+  first release), and `chimera --help` now describes each modality command.
+- **`replay --model <file>`** re-runs a recorded render on a different model with the same subject and seed,
+  e.g. to run old brand work back on a newer model. Only the prompt is compared, and settings that belong to
+  the old model family (Wan or LTX clip timing, a Z-Image variant, a Hunyuan3D octree) give way to the new
+  family's defaults. **`replay --accept-drift`** renders even when the brand or a template changed since (see
+  Fixed).
 
 ### Fixed
+- **A self-correction run could freeze the PC** (2026-10-15, Windows). Neither app sees the other's GPU
+  memory there: Ollama reported 30 GB free while ComfyUI held 15. After a day of renders ComfyUI held all but
+  0.1 GB of a 32 GB card, the local judge loaded on top of it anyway, and the driver paged GPU memory to system
+  RAM. The judge crawled past its 180 s timeout, `nvidia-smi` hung, and the machine went down. The loops now
+  keep the two apps apart:
+  - before a local Ollama model loads, ComfyUI (which does see its own memory) is asked how much of the card it
+    leaves free. When that's less than the model needs (weights plus context cache, read from Ollama), ComfyUI
+    unloads its models and the loop waits for the room, and if the room never comes the model is not loaded;
+  - Ollama models the run didn't load are unloaded before its first render (the loops already unloaded their
+    own before every render);
+  - the CAD loop unloads its codegen model before Blender renders.
+
+  Verified on the reference machine: ComfyUI frees 15 GB in about a second, a 2-iteration loop on the default
+  judge kept it fully on the GPU, and a request for more than the card holds is refused without loading.
+  `CHIMERA_KEEP_LLM_LOADED=1` turns the unloading off (only for a second GPU).
+- **The judge's verdict could contradict its own checklist.** The rubric says PASS only if every criterion is
+  MET, but the parser read only the final verdict line, and a small judge often wrote "NOT-MET: the head is
+  completely absent" and then "Overall: PASS". That way the loop accepted a headless robot, a two-goat Chimera
+  and a portrait missing the requested raincoat. A criterion marked NOT-MET now fails the verdict. On a new
+  34-case judge benchmark (hard cases: wrong counts, misplaced elements, missing attributes, off-brand colors),
+  this took the default judge from 27 to 30 correct. Two more reviews found forms the first fix missed. A status
+  now counts when it is a table cell (`| 2 | … | NOT-MET |`), a count (`1 NOT-MET`), or the first status word
+  on a criterion's line (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `- Nothing floats free of the hub:
+  NOT-MET`, `Status: NOT-MET`), written with hyphens or typographic dashes (`NOT‑MET`, as hosted models write
+  it). A line that only says nothing is unmet keeps a PASS: `NOT MET: none`, `No NOT-MET criteria.`,
+  `Criteria: 4 MET, 0 NOT-MET`, `0/3 NOT-MET`, a MET reason on its own line, or the instructions echoed back
+  (each had failed correct renders and gone into the next prompt as a "Fix"). A final review caught that rule
+  passing broken renders: a criterion label in the rubric's own negative phrasing (`3. No missing or broken
+  parts - NOT-MET`, `a knight without a helmet`) read as a summary, and unnumbered lines counted only in a few
+  layouts (`- ❌ Palette: NOT-MET`, `| Palette | NOT-MET - yellow |`, `1 - Palette: NOT MET` passed). Now a
+  numbered criterion's status always counts, any other line's counts unless it reads as a summary, and
+  `Partially MET`, `not fully met` and `**NOT** MET` fail too: on a 32,190-reply grid of layouts, labels and
+  spellings there are no false PASSes or false FAILs left, where the v0.6 parser before this review had 4,544
+  false PASSes. A third review rewrote 204 real judge replies 24,426 ways and found three more ways a broken
+  render passed. A criterion whose reason says `overall … would not pass` was taken for the verdict line, so the
+  27B's bare `FAIL` came back as a PASS. The summary escapes let a numbered criterion off (`2. NOT-MET: none (the
+  top face is flat)`, `2. Holes drilled: 0/5 NOT-MET`). Softer wordings read as MET (`Mostly MET`, `Barely met`,
+  `Not quite met`, `MET (partially)`, a full-width `NOT－MET`). Now a numbered criterion, or a line marking one
+  NOT-MET, is never taken for the verdict, a numbered criterion's status always counts, and those wordings
+  fail. So does a PASS that admits an unmet criterion (`PASS - criterion 2 NOT-MET is minor`) or is negated
+  (`Does not pass`). The rubric's instructions echoed back are ignored: their `<comma-separated visual elements
+  to include>` had reached the next prompt as a term to add. Errors on the 24,426 cases went from 3,914 to 0,
+  all 204 real replies parse as before, and the grid stays clean. Scores on other scales read right too: `4 out of
+  5` is 0.8, `7` is 0.7, `85` is 0.85 (each read as 1.0 before), and `Scores: 0.4` or a value on the line
+  after `**Score:**` are read (they scored 0.0), as is a scale named first (`Score (0-1): 0.82`, `Score [0-5]: 4`
+  and `score: 0,85` read 0.0).
+- **The self-correction loop inverted its own fixes when a subject's styling fought the brand.** Found with
+  the local Qwen3-VL-8B judge while regenerating the README demo. Under a gunmetal brand, a subject such as
+  "a glossy candy-red toy rover" made the subject criterion demand the candy colors while the style, palette
+  and avoid criteria forbade them. The judge's FIX lines then contradicted each other ("add cartoonish toy
+  styling; avoid matte black"), and each pass pushed the render further off-brand. Now:
+  - the subject criterion judges the object itself, and the brand wins any styling conflict;
+  - a FIX may not contradict another criterion;
+  - the FIX parser reads what small judges actually write: either order, `remove …`, `none needed`, `X and
+    Y` lists, sentence breaks (`2.5 mm` stays whole), and a verb switch mid-clause; a verb carries on until
+    the next one (`avoid X; Y; Z` avoids all three). It no longer caps all consensus passes together at 10
+    terms, which had dropped later passes' avoid lists;
+  - the expander drops `add` terms that contain an `avoid` term or one of the brand's negative traits, and
+    `avoid` terms that would strip the brand's own style or palette, however long the brand's phrases.
+    Palette hex codes now match too, and a hyphenated word counts as one word, so cutting `toy` no longer
+    guts `toy-like` or `toyota`;
+  - in branded runs, the loop removes the styling the judge flagged from the subject **and** the rubric
+    before the next pass, keeping the object itself (a cut that would orphan its noun is skipped). The run
+    sidecar records the corrected subject, and `--finalize` repaints with it;
+  - the palette criterion names each color by hue and lightness (`near-black (#1c1f22)`, `red (#c8442e)`,
+    tan, olive, navy, teal, off-white…; `#rgb` and `#rrggbbaa` codes too) and accepts a scheme built from a
+    subset of them. The judge can't read hex codes, so it had failed a correct near-black and slate render
+    as "monochromatic, not the brand palette";
+  - a failed render no longer feeds its error text into the next prompt (the judge's last issues carry on);
+    the CAD code-gen still gets its own last FreeCAD error, so it can fix the script.
+- **CAD scripts that `import App` failed on FreeCAD 1.1.** FreeCAD 1.1 ships an unrelated top-level `App`
+  package, so a script's own `import App` replaced the namespace's `App` alias with a module that has no
+  `Vector`. Two of three iterations of a live CAD loop died on it. A script's `App` import now resolves to
+  FreeCAD in both the restricted (LLM) and trusted modes. The codegen prompt now also documents rotation
+  (`shape.rotate(center, axis, degrees)` on a copy), after the local codegen model called a nonexistent
+  `Matrix.rotate` in all three iterations of a fan-rotor run.
+- **Blender renders had a hard black band across the top.** The camera kept Blender's default 100-unit clip
+  range, which cut the floor off behind a millimetre-scale CAD part. The studio floor also ended inside the
+  frame behind upright objects. The clip range and floor now scale with the object, so the floor falls off
+  into shadow. This affects `render`, turntables, and the mesh3d/CAD loop stills.
+- **The CAD loop passed parts that came out in pieces.** It skipped the mesh3d geometry gate on the theory
+  that BREP output is clean, but a script can still build disconnected bodies: the local judge passed a fan
+  rotor whose 16 blades floated free of the hub (17 separate solids). The CAD loop now writes the geometry
+  checks beside each contact sheet and judges through `GeometryAwareJudge` in strict mode: a scripted part
+  must come out as one solid. (The 1%-of-vertices significance bar the mesh3d loop uses can't apply here:
+  with fine tessellation the hub alone held enough vertices to hide the blades under it.)
 - **Foley re-timed a 16 fps clip to 25 fps when PyAV wasn't installed** (it played about 1.6× too fast). The
   fps probe needs PyAV (an optional extra), so without it foley fell back to 25 fps, LTX's rate. Foley now
   reads a Chimera clip's exact fps, frame count and size from the clip's own sidecar first. Verified on a
@@ -103,18 +252,213 @@ All notable changes to Chimera are documented here. The format follows
   down), and the fixed-distance camera cropped compact objects such as CAD boxes. The camera distance is now
   solved from the lens field of view so the whole bounding box fits, and imports centre the origin so
   turntables spin in place. Affects `render --mode mesh`, the mesh3d/CAD loop stills, and finalize renders.
+- **A replay overwrote the render it reproduced.** It keeps the recorded seed, so with `--comfy-output-dir`
+  it routed onto the original file and replaced its sidecar, which is permanent for gitignored brand
+  outputs. A replay now takes the render's standard name only when it is free, else `<name>_replay` (then
+  `_replay2`, …), so it never replaces a file.
+- **`replay --model` across model families always stopped on drift.** Each family builds its own negative
+  (Z-Image none, LTX and Wan their own lists), so every cross-family re-run reported "negative changed".
+  With `--model`, only the prompt is compared now; an override naming the recorded model keeps every check
+  (it had switched them all off). A cross-family video replay also carried the old family's clip settings:
+  an LTX clip replayed on Wan rendered at 25 fps (about 1.56× too fast), and a Wan clip on LTX came out
+  silent at 16 fps. The new family's defaults now apply; a Z-Image `--variant` or a Hunyuan3D octree is
+  dropped the same way.
+- **A replay stamped a watermark the original didn't have** when the brand had since turned
+  `watermark.enabled_default` on. Replay keeps the recorded decision.
+- **A replay that stopped on drift had already unloaded every ComfyUI model.** The GPU is now freed just
+  before queueing, after the drift and flag checks.
+- **Video lengths snap to what the model renders** (Wan 4k+1 frames, LTX 8k+1). Wan's Fun Camera crashed
+  at run time on any other length, after loading the 14B models; plain Wan and LTX silently rendered fewer
+  frames than the sidecar recorded, and foley sized its audio to the recorded length. A note says when
+  `--length` changes.
+- **Bad flag combinations are caught before the GPU is freed or the start frame uploaded**, and two more
+  are errors: `--quality` with LTX-2.3 (it was ignored) and `--model wan22-camera` without `--camera` (it
+  loaded the camera model into the plain graph). `audio --mode sfx` under 1 s (Stable Audio 3's minimum)
+  and a music model on `--mode foley` are now clean errors instead of a ComfyUI traceback. `--variant` on a
+  non-Z-Image model and `--octree` on TRELLIS.2/Pixal3D print a note and stay out of the sidecar; `--fps` on
+  Wan notes that it only changes the playback speed.
+- **ComfyUI rejecting a job printed a traceback.** A validation error (a model file it doesn't have, a value
+  out of range) is now one line with a `chimera doctor` hint, and an HTTP error from ComfyUI is reported as
+  that rather than as "can't reach ComfyUI".
+- **Models in subfolders were sorted into the wrong family.** A Qwen-Image model in a `qwen/` subfolder ran
+  in the FLUX.2 graph; family checks now read the file name.
+- **A TRELLIS.2 run needed the Pixal3D and MoGe files installed** (about 6 GB it never loads), and failed
+  with "Value not in list" without them, because ComfyUI validates both branches of the graph's model
+  switch. The 3D graph is now folded to the chosen model before it is queued.
+- **`render --mode finish` turned textured meshes to clay.** `--color auto` (the new default) keeps a
+  textured mesh's own materials, such as a TRELLIS.2 PBR GLB, and exports them as JPEG textures: the example
+  brand's 77 MB GLB came out at 9.6 MB. `--color material|project|keep` choose explicitly; `keep` with
+  `--watertight` is refused, since the remesh drops the UVs.
+- **`chimera doctor` reported installed models as missing** (ComfyUI 0.40's v3 nodes list their choices in a
+  new shape, e.g. BiRefNet) and only checked models with `--brand`. It reads both shapes now, and checks
+  every modality's default model files, read off the default graphs themselves.
+- **One dropped connection ended a long render.** `wait()` gave up on the first failed poll; it now rides
+  out brief drops (20 in a row) before reporting ComfyUI as unreachable, in one line.
+- **Blender/FreeCAD jobs lost their result line on non-ASCII output** (Windows decoded it as cp1252). Job
+  output is read as UTF-8, and a wrong `--blender-bin` / `--freecad-bin` is a one-line error.
+- **Restricted CAD scripts couldn't define classes** (`__build_class__` was missing from their builtins).
+- **Agent runs reused seeds `1000+i`**, so a second run replaced the first run's winner. Each run now draws
+  a random base, printed so `--seeds` can repeat it.
+- **Repeating an identical job failed with "cannot find the file".** ComfyUI serves a job identical to an
+  earlier one (same seed, prompt and model) from its cache and reports the earlier output file, which Chimera
+  had already moved into its own output folder. Each queued job's save node now gets a unique file-name
+  suffix, so the cached render is written to a fresh file; a reported file that is still missing is a
+  one-line error.
+- **The GPU hand-off had gaps** (a second review of the freeze fix):
+  - the room check failed open: an error after ComfyUI had shown a full card (its `/free` failing, a poll
+    timing out) read as "ComfyUI isn't running", and the model loaded anyway. It now refuses;
+  - it only trusts a local CUDA card. Apple's mps and the CPU report system RAM, which made every local judge
+    refuse on a Mac, and DirectML reports a placeholder that let everything through;
+  - a model bigger than the card now always empties ComfyUI first (capped to the card, it could "fit" beside
+    ComfyUI's models), and on Windows the room asked for covers the models Ollama already holds, which ComfyUI
+    can't see there;
+  - unloading a model waits until Ollama has let go of it, and a loop won't render beside one that stays loaded;
+  - the CAD loop unloads the judge and rewriter before its renders too (only code-gen was unloaded), and one
+    failed check of a local Ollama (restarting, starting late) no longer turns the checks off for the run;
+  - model names match the way Ollama resolves them (`Judge:8B`, `registry.ollama.ai/library/…`), and the
+    context-cache estimate counts `OLLAMA_NUM_PARALLEL` and an f16 cache when flash attention is off;
+  - `OLLAMA_HOST=0.0.0.0` (Ollama's own LAN setting) became `http://0.0.0.0` on port 80, which Windows can't
+    connect to, and turned the checks off elsewhere. It now means this machine on port 11434, like Ollama;
+  - an `nvidia-smi` error ("NVML library version: 560.35") read as a 0.5 GB card, which picked the small
+    tier, and a remote ComfyUI's card picked the tier for the local Ollama.
+- **A loop that repeated a seed (`--seeds 7,7,7`) reported a winner whose file held a later pass.** Each pass
+  of a repeated seed now gets its own files (`agent_7`, `agent_7_2`, …); a shorter `--seeds` list is topped up
+  with fresh seeds (it fell back to `1000+i`, which collided across runs).
+- **FIX directives lost their meaning.** `avoid gaps between blades and hub` split into "gaps between blades"
+  and "hub", so "hub" was cut from "a fan rotor with a central hub"; a list now splits at "and" / "or" except
+  inside a pair ("between A and B", "both", "either"), so `avoid red paint and chrome trim` still avoids both.
+  Cutting a flagged term from the subject keeps the object's noun. The brand guard now also keeps palette
+  colors the judge asks to avoid by their rubric names ("avoid near-black" for `#1c1f22`), and the rubric names
+  purple, magenta, orange, pink, coral and slate colors right (`#800080` read as "dark pink", `#FFA500` as
+  "gold"; `#ff00ff` is magenta and `#ff6b6b` coral, not purple and pink).
+- **The CAD loop rejected harmless scripts and misreported failures.** `socket_depth`, `sockets` or a
+  `# ball-and-socket` comment failed the pre-filter, so a "hex socket organizer" brief failed every iteration;
+  it now rejects only a line that imports one of those modules (a shape named `socket`, or `# dims from
+  http://…`, is fine, and restricted scripts can't import them anyway). A rejected first script's reason now
+  reaches the retry, an LLM, GPU or Blender error (a render timeout, a locked file) is no longer reported to
+  code-gen as a script failure, and a code-gen model that won't unload stops the iteration before Blender renders
+  beside it. The code-gen prompt now
+  states what the loop checks: the part must be one connected solid, and a cut only removes material that is
+  there. In a live run on that organizer brief, the model had cut its sockets into the tray's empty cavity
+  (nothing removed, 0 of 4 iterations), then added rims floating in the cavity (7 pieces); with both rules
+  stated, the first iteration came out right.
+- **Replay refused brands that `new-brand` creates** (a space, `&`, accented letters); both now share one rule.
+  On Windows, a replay whose brand was typed in a different case could also replace the render it reproduced;
+  it no longer does.
+- **Blender exports carried the startup file's Cube** as a second scene: the factory scene's selected Cube rode
+  along with `use_selection`. Every Blender job now starts from an empty file, and the example brand's GLB was
+  re-exported without it (still 9.6 MB, one scene).
+- **`--format stl|obj` deleted the GLB**, which for TRELLIS.2 and Pixal3D held the only textured copy; it now
+  stays beside the STL/OBJ. A GLB in several parts is refused rather than cut to its first part.
+- **Mistakes that printed a traceback are one line:** an unknown brand or a bad `brand.yaml` value (an unknown
+  `threed.format` is now caught when the brand loads, before the GPU render; `null` means the default),
+  replaying a file that isn't a sidecar, ComfyUI timing out, and `finalize-texture --auto-repaint` with ComfyUI
+  down or rejecting the graph.
+- **Flags a mode ignored are errors:** `--upscale-model` without `--upscale`, and `--bpm` / `--keyscale` outside
+  music; a `--watermark` logo is checked before anything uploads; `3d --format stl` without
+  `--comfy-output-dir` says it stays a GLB; `render --mode finish --formats STL,GLB` exported nothing (case).
+- **The agent loop checks its local models before it renders.** v0.6 made a local Ollama model the default
+  judge, and with Ollama stopped or the model not pulled a run rendered every iteration (meshes and Blender
+  stills included) and only then failed at each judging, ending with "winning image: None". It now stops first
+  with the fix: start Ollama, or `ollama pull <model>`. A missing `--rewrite-prompts` model only warns, since
+  the templated expander takes over. A v0.5 setup that relied on `OPENAI_API_KEY` for another host (OpenRouter,
+  say) gets a note that the key isn't sent there, where it got HTTP 401 after every render.
+- **Replay, a third review:**
+  - it accepts the other image and video types ComfyUI reads (`.gif`, `.jfif`, `.avif`, `.heic` images; `.m4v`,
+    `.mpg`, `.wmv` clips);
+  - a hand-edited or damaged sidecar (`"schema": "2"`, a text duration, no subject, `format: fbx`) fails with
+    the field named, where it crashed mid-render, or after a whole 3D render for `fbx`;
+  - a sidecar from before v0.6.0 has no settings record, so replay says what it can't check, and an ACE-Step
+    one reports the sampler shift change (1.73 → 3) as drift;
+  - `replay --model sa3` of an ACE-Step render (and the reverse) no longer stops on the BPM and key that Stable
+    Audio 3 writes into its brief;
+  - foley sidecars record the timing and size the render used, so a replay without PyAV, or of a clip whose
+    own sidecar is gone, renders the same graph (it stopped on drift at 25 fps / 5 s);
+  - a relative input path is stored with `/`, so a sidecar made on Windows replays elsewhere, and a sidecar
+    saved with a BOM (Windows PowerShell 5.1) reads.
+- **Video and product renders can start from the brand's own renders** (`outputs/images/`), as 3D and relight
+  already could. The README's image → video → 3D chain failed with "not found", and so did its replay.
+- **Without Pillow, JPEG, WebP and GIF sizes are read from the file's header** (only PNG's were), so a
+  watermarked or product render builds the same graph with or without the `images` extra, and a replay on the
+  other kind of install reports no drift.
+- **More one-line errors:** `finalize-texture` with neither `--views` nor `--auto-repaint` (an
+  `AttributeError`); a Blender or FreeCAD job that lists a file it didn't write (reported as ComfyUI's, with a
+  `--comfy-output-dir` hint); a missing Blender during `--auto-repaint` (labelled "ComfyUI"); `auto_generate
+  --brand` with an unknown brand or a bad `brand.yaml`, and `--seeds 7,x`; and a brand or file name the
+  Windows console can't encode, in a piped run (it crashed after queueing the job).
+- **The GPU hand-off under-sized the medium and small tiers' judges.** With no `num_ctx` or
+  `OLLAMA_CONTEXT_LENGTH` set, Ollama 0.40 sizes a model's context to the VRAM it sees, up to the model's full
+  trained length. On a free 32 GB card the 8B and 4B judges loaded with a 256k context (16.3 and 14.2 GB), while
+  the hand-off assumed 32k (9.1 and 6.1 GB), so beside a loaded ComfyUI they would have overcommitted the card:
+  the PC-freeze path. The estimate now assumes the full trained context unless one is pinned, counts the cache
+  only on a hybrid model's attention layers (Qwen 3.8 keeps one every 4th layer), and sizes a missing
+  `value_length` from the key length: with a q4_0 cache, 17.9 GB for the 8B, 15.0 for the 4B, 24.5 for the 27B.
+  Re-checked live on each tier (the 8B now asks ComfyUI to unload first, where before it would have loaded beside
+  it); measured on the 27B, the cache grew 0.72 GB from a 32k to a 128k context, under the estimate's 1.8. With
+  Ollama's default f16 cache the full-context figure can exceed the card, so the check also accepts once
+  ComfyUI has emptied and the model fits at a 32k context (Ollama sizes the context to the room it sees):
+  otherwise every judge load was refused whenever the desktop or a browser held 3 GB. After a load, the loop
+  warns when Ollama took more than planned, since the check reads Ollama's settings from Chimera's own
+  environment; SETUP.md says where to set them.
+- **`chimera update-check` called a ComfyUI ahead of the latest release outdated** (0.41.1 against the v0.41.0
+  release; ComfyUI tags versions before it publishes them as releases). It now compares version numbers (`0.41`
+  equals `v0.41.0`, and a release candidate comes before its release), and both update checks query
+  `Comfy-Org/ComfyUI` directly (the old path only answered through a redirect).
+- **A brand name that isn't a folder name is refused before anything renders** (`generate.py` and
+  `auto_generate.py`). It was refused only when routing the output, after the GPU work, leaving the file in
+  ComfyUI's folder.
+- **The GPU hand-off fits more setups:** `--finalize` is skipped with the command to run it later, rather than
+  repainting beside a judge that won't unload; the models Ollama already holds count toward the room asked of
+  ComfyUI on Windows only (Linux and macOS drivers already include them, so a second local model waited 30 s and
+  fell back); and an image run on a ComfyUI at a non-loopback address, which the room check doesn't cover, warns
+  about another app's model that won't unload instead of stopping.
 
 ### Changed
+- **The agent loops run on local Ollama models sized to your GPU, with nothing to configure.**
+  `auto_generate.py` judges with `--backend api` by default, and each role you haven't configured (judge,
+  prompt rewriter, CAD code-gen) falls back to a local Ollama model from a tier picked by the GPU's memory:
+
+  | Tier | GPU | Judge and rewriter | CAD code-gen |
+  |---|---|---|---|
+  | large | 32 GB+ | Qwen 3.8 27B | Qwen 3.8 27B |
+  | medium | 12–24 GB | Qwen3-VL 8B Instruct | Qwen 3.8 27B, partly on the CPU |
+  | small | under 12 GB | Qwen3-VL 4B Instruct | Qwen 3.8 27B, mostly on the CPU |
+
+  The defaults were chosen on an RTX 5090, and smaller cards get lighter judges automatically. A 24 GB card
+  gets the medium tier: beside ComfyUI's image model it has no room for the 27B judge (about 22 GB with its
+  context), so every judgment would wait on ComfyUI emptying itself. `--llm-tier` /
+  `CHIMERA_LLM_TIER` overrides the tier; per-role flags and `CHIMERA_*` variables still win; `chimera doctor`
+  reports the tier and any `ollama pull` it needs. The CAD loop no longer refuses to start without a
+  configured LLM endpoint. Measured on a new 34-case judge benchmark (3 runs each): Qwen 3.8 27B 31.0 correct
+  (balanced accuracy 0.90, 1.5 s per judgment), Qwen3-VL 32B 30.0 (14.6 s), 8B 29.3, Qwen 3.6 27B-coding 29.3,
+  4B 27.7, 30B-A3B 27.3. On a six-part CAD code-gen test Qwen 3.8 27B built 5 (3 on the first try), Qwen 3.6
+  27B-coding 4, and Qwen 3.5 9B none of the three it tried, so every tier keeps the 27B for code-gen. The
+  previous judge default, `--backend local`, needs the optional, unpinned ComfyUI-QwenVL pack; pass it to
+  keep using it.
+- **ComfyUI ≥ 0.40 is required for the new defaults.** Their nodes are core in 0.40, so no extra node packs are
+  needed. On an older build (≥ 0.24), set `--model` or a brand pin to keep the earlier models, plus
+  `--upscale-model 4x-UltraSharp.pth` for image upscaling and `--mesh-model hunyuan21` for the mesh3d loop;
+  `audio --mode sfx` needs 0.40. `docs/SETUP.md` lists the default downloads (about 119 GB in all, no Hugging
+  Face login).
 - **Reference build: ComfyUI 0.40.0** (Comfy Desktop 1.1.7), smoke-validated 2026-10-14 with every output
   checked as created by the run: txt2img, relight, upscale, video, foley, music, 3D, finalize-texture, render,
-  cad, and the image/mesh3d/cad agent loops on local Ollama models.
-- **Video on ComfyUI ≥ 0.40 needs the bundled LTXVideo patch**
+  cad, and the image/mesh3d/cad agent loops on local Ollama models. Re-validated 2026-10-15 on the new
+  defaults: Qwen-Image txt2img, product edit + SeedVR2 upscale, relight, Wan 2.2 image-to-video and a camera
+  move, foley on a Wan clip, Stable Audio 3 music and sound effects, TRELLIS.2 3D + render, cad, the three agent
+  loops, replay, and doctor. Re-checked on ComfyUI 0.41.1 after the GPU fix (doctor, image, product edit +
+  SeedVR2, sfx, Wan 2.2, TRELLIS.2, each local-model tier on the image loop and the large tier on the CAD loop),
+  after the second review (the image and CAD loops, image replay, ACE-Step with lyrics, TRELLIS.2 with
+  `--format stl`, and a Blender finish export), and after the third (the image and CAD loops on the large
+  tier, the endpoint check, replays of genuine v0.5.1 sidecars, a Wan clip started from a brand render with
+  foley on it, that foley replayed without PyAV or the clip's sidecar, the video replay, and a Blender
+  render).
+- **LTX-2.3 on ComfyUI ≥ 0.40 needs the bundled LTXVideo patch** (Wan 2.2, the default, runs on core nodes)
   ([`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)).
   ComfyUI 0.40 passes attention inputs as `AttentionTensorContainer`s, and the pack's STG guidance returned
   one where a tensor belongs, so every STG render failed. Not yet fixed upstream as of `44c8a36`.
-- **Default image model: Z-Image Turbo → Qwen-Image-2.1** for brandless runs, new brands
-  (`brands/_template`), and brand kits that don't pin `defaults.model` (those previously fell back to FLUX.2).
-  Brands that pin a model are unchanged; the public example-brand keeps Z-Image. Old renders replay on their
+- **Default image model → Qwen-Image-2.1:** from Z-Image Turbo for brandless runs, and from FLUX.2 for new
+  brands (`brands/_template`) and brand kits that don't pin `defaults.model`.
+  Brands that pin a model are unchanged. The public example-brand now uses Qwen-Image-2.1 too, and its whole showcase was regenerated on the new defaults. Old renders replay on their
   recorded model; `chimera replay <sidecar> --model qwen_image_2.1_int8_convrot.safetensors` re-runs one on
   the new model. Note for forks: Qwen-Image-2.1 is under the Qwen research license (Z-Image is Apache-2.0).
 - **Default `image --upscale` model: 4x-UltraSharp (ESRGAN) → SeedVR2 7B**, a one-step diffusion upscaler
@@ -147,6 +491,35 @@ All notable changes to Chimera are documented here. The format follows
     Blender color bakes.
   - **mesh3d loop:** it now judges the textured model, with the textured rubric. `--texture` / `--finalize`
     require `--mesh-model hunyuan21`; on a textured mesh they would overwrite its textures.
+  - **Geometry gate:** the fragmentation check counts only significant parts (islands with at least 1% of the
+    mesh). TRELLIS.2 models small details such as eyes and antenna tips as separate shells, so a clean toy
+    robot the judge scored 1.0 failed on 12 raw parts (3 significant). Checks files from older runs fall back
+    to the raw count. A mesh that shattered into many similar pieces, none holding half of it, fails too:
+    150 equal shards each fell under the 1% bar, so the count read 0 and passed.
+
+- **CAD STL/OBJ exports tessellate curves finer** (angular deflection 0.5 → 0.1 rad). At 0.5, a circle came
+  out as about 13 visible flats in renders and prints. Round parts' STLs grow about 1.6×.
+- **Tests can't reach the network or a developer's settings.** A socket-level guard refuses every connection
+  (one test sent a GET to a running ComfyUI), `CHIMERA_*` and vendor key variables are cleared (VS Code loads
+  `.env` into test runs), and git is faked for provenance. CI's Linux leg installs the `images` extra, so the
+  contact sheet the judge scores is tested there; Windows CI stays on `[dev]` and proves the no-Pillow paths.
+
+### Docs
+- **All README media regenerated on the new defaults.**
+  - A new hero: the classical fire-breathing Chimera on Qwen-Image-2.1 with a SeedVR2 detail pass.
+  - The self-correction demo, re-run fully locally with the Ollama Qwen3-VL judge.
+  - The image → video → 3D strip: one robot drawn by Qwen-Image, animated by Wan 2.2 and meshed by TRELLIS.2.
+  - A textured Blender turntable and a new CAD part.
+  - The whole example-brand showcase: images, fleet, video, foley, music and a textured TRELLIS.2 mesh.
+- `docs/SETUP.md` lists what the defaults download and where Comfy-Org's `split_files/` files go.
+- A docs pass against the code: the judge default, FreeCAD ≥ 1.1.4 everywhere, what `doctor` checks, the
+  extra steps on ComfyUI 0.24–0.39, the example brand's model and how its GLB was made, FLUX.2's product
+  denoise (0.65), the `--backend assistant` tier (interactive only), and what the MCP pins don't cover (their
+  dependencies still float, and comfyui-mcp's optional `cloudflared` downloads its binary at install).
+- The Brand Kits guide said a brand's `negative` shaped FLUX.2 images. No image recipe samples with it:
+  Qwen-Image-2.1 and FLUX.2 run at CFG 1, where ComfyUI skips the negative pass, and Z-Image zeroes its
+  negative. It only changes video sampled above CFG 1 (LTX-2.3, Wan 2.2 `--quality full`), and the
+  self-correction loop judges renders against it. Word the positive to keep things out of an image.
 
 ### Erratum
 - The **v0.5.0** notes overstated its validation ("smoke-validated live across image, video, 3D … and the full
@@ -732,7 +1105,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/whartons/Chimera/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/whartons/Chimera/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/whartons/Chimera/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/whartons/Chimera/compare/v0.3.0...v0.4.0

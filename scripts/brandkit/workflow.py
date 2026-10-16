@@ -3,7 +3,7 @@ Nodes are addressed by stable _meta.title (see nodes.find_node_by_title), not nu
 from __future__ import annotations
 from pathlib import Path
 from .manifest import BrandManifest
-from .nodes import find_node_by_title, NodeNotFound, assert_free_ids, load_template, node as _n
+from .nodes import find_node_by_title, NodeNotFound, assert_free_ids, load_template, model_file, node as _n
 from .watermark import logo_geometry
 
 _TEMPLATES = {
@@ -38,8 +38,9 @@ SEEDVR2_VAE = "seedvr2_ema_vae_fp16.safetensors"
 UPSCALE_FACTOR = 4
 
 
-def _family(model):
-    name = (model or "").lower()
+def family(model):
+    """'zimage' | 'qwen' | 'flux2' (anything else runs the FLUX.2 graph), from the model's file name."""
+    name = model_file(model)
     if name.startswith("z_image"):
         return "zimage"
     if name.startswith("qwen_image"):
@@ -47,11 +48,11 @@ def _family(model):
     return "flux2"
 
 
-def _load_template(repo_root: Path, family: str, mode: str) -> dict:
-    fam = _TEMPLATES[family]
-    if mode not in fam:
-        raise ValueError(f"unknown mode {mode!r}; expected one of {list(fam)}")
-    return load_template(repo_root, fam[mode])
+def _load_template(repo_root: Path, fam: str, mode: str) -> dict:
+    modes = _TEMPLATES[fam]
+    if mode not in modes:
+        raise ValueError(f"unknown mode {mode!r}; expected one of {list(modes)}")
+    return load_template(repo_root, modes[mode])
 
 
 def _apply_common(wf: dict, m: BrandManifest, positive: str, negative: str, seed: int, model: str):
@@ -95,9 +96,9 @@ def resolve_image_model(mode, variant, model):
     default); FLUX.2 (and anything non-z_image) loads the given model name as-is. `relight` is a
     FLUX.2 (ReferenceLatent) capability, so a non-FLUX.2 model resolves to DEFAULT_RELIGHT_MODEL —
     keeping the graph and the sidecar in agreement on a single source of truth."""
-    if mode == "relight" and _family(model) != "flux2":
+    if mode == "relight" and family(model) != "flux2":
         return DEFAULT_RELIGHT_MODEL
-    if _family(model) == "zimage":
+    if family(model) == "zimage":
         return _ZIMAGE_VARIANTS[_zimage_variant(mode, variant, model)]["model"]
     return model
 
@@ -107,7 +108,7 @@ def needs_free_before(mode, variant, model):
     diffusion model) is disk-streamed by ComfyUI 0.40's comfy-aimdo, and that load fails with Windows
     error 1450 ("HostBuffer.read_file_slice failed") while other models are still staged — freeing
     first fixes it (2026-10-14 smoke). Z-Image graphs keep the fast back-to-back default."""
-    return _family(resolve_image_model(mode, variant, model)) == "flux2"
+    return family(resolve_image_model(mode, variant, model)) == "flux2"
 
 
 def resolved_upscale_model(manifest, upscale_model=None):
@@ -241,11 +242,11 @@ def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negati
     # brand default correctly resolves to FLUX.2 and loads the FLUX.2 relight template (not a missing
     # zimage/relight one). resolve_image_model is a passthrough for normal FLUX.2/Z-Image runs.
     resolved = resolve_image_model(mode, variant, model)
-    family = _family(resolved)
-    wf = _load_template(Path(repo_root), family, mode)   # fresh parse per call — mutation-safe
-    if family == "zimage":
+    fam = family(resolved)
+    wf = _load_template(Path(repo_root), fam, mode)   # fresh parse per call — mutation-safe
+    if fam == "zimage":
         _apply_zimage(wf, m, positive, seed, mode, variant, model)
-    elif family == "qwen":
+    elif fam == "qwen":
         _apply_qwen(wf, m, positive, negative, seed, resolved)
     else:
         # FLUX/other: write the resolved model — the same value _resolve_model_used records — so a
@@ -287,7 +288,7 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
         kw["source_image"] = asset
     wf = build_workflow(repo_root, manifest, mode=mode, positive=positive,
                         negative=negative, seed=seed, **kw)
-    if mode == "product" and _family(resolve_image_model(mode, variant, model or manifest.defaults.model)) == "qwen":
+    if mode == "product" and family(resolve_image_model(mode, variant, model or manifest.defaults.model)) == "qwen":
         canvas = None   # a Qwen edit renders at the brand size, not at the product photo's size
     if watermark and mode != "logo":  # logo mode already composites a logo
         from .watermark import inject_image_watermark

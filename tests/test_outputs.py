@@ -146,3 +146,138 @@ def test_run_graph_to_file_queues_waits_selects_and_reuses_history(tmp_path):
                     for nid, n in rec["outputs"].items() for i in n["images"]]
     p = run_graph_to_file(C(), wf, tmp_path, timeout=123)
     assert p == _P(tmp_path) / "sub" / "a.png"
+
+
+# --- a replay never replaces the render it reproduces (2026-10 review, P1) ---------------------------
+def test_route_keep_existing_takes_the_next_free_name(tmp_path):
+    out = tmp_path / "brands" / "b" / "outputs" / "images"; out.mkdir(parents=True)
+    (out / "b_txt2img_7.png").write_bytes(b"ORIGINAL"); (out / "b_txt2img_7.json").write_text("{}")
+    names = []
+    for i in range(3):
+        src = tmp_path / f"r{i}.png"; src.write_bytes(b"REPLAY")
+        names.append(route_output(tmp_path, "b", src, "txt2img", 7, keep_existing=True).name)
+    assert names == ["b_txt2img_7_replay.png", "b_txt2img_7_replay2.png", "b_txt2img_7_replay3.png"]
+    assert (out / "b_txt2img_7.png").read_bytes() == b"ORIGINAL"
+
+
+def test_route_keep_existing_counts_a_sidecar_without_its_render(tmp_path):
+    # a 3D render converted to STL leaves no GLB under its stem, only the .stl + sidecar
+    out = tmp_path / "outputs" / "3d"; out.mkdir(parents=True)
+    (out / "image_5.stl").write_text("solid"); (out / "image_5.json").write_text("{}")
+    src = tmp_path / "m.glb"; src.write_bytes(b"glb")
+    assert route_output(tmp_path, None, src, "image", 5, keep_existing=True).name == "image_5_replay.glb"
+
+
+def test_route_keep_existing_uses_the_plain_name_when_free(tmp_path):
+    src = tmp_path / "a.png"; src.write_bytes(b"x")
+    assert route_output(tmp_path, "b", src, "txt2img", 9, keep_existing=True).name == "b_txt2img_9.png"
+
+
+@pytest.mark.parametrize("sub, name", [("", "C:/Users/x/notes.docx"), ("", "/etc/passwd"),
+                                        ("../..", "x.png"), ("a/../../b", "x.png"), ("C:/", "x.png")])
+def test_comfy_output_path_refuses_names_outside_the_output_dir(tmp_path, sub, name):
+    # the names come from ComfyUI's /history: a hostile server could point the CLI at any local file
+    with pytest.raises(NoOutputError, match="outside"):
+        outputs.comfy_output_path(tmp_path, sub, name)
+
+
+def test_comfy_output_path_keeps_a_normal_subfolder(tmp_path):
+    assert outputs.comfy_output_path(tmp_path, "video", "clip_00001_.mp4") == tmp_path / "video" / "clip_00001_.mp4"
+    assert outputs.comfy_output_path(tmp_path, "", "img.png") == tmp_path / "img.png"
+
+
+
+# --- a repeated identical job still writes a new file (2026-10) ------------------------------------------
+def test_fresh_output_name_makes_each_queued_save_unique():
+    def wf():
+        return {"9": {"class_type": "SaveImage", "_meta": {"title": "brand:save"},
+                      "inputs": {"filename_prefix": "brand_txt2img", "images": ["8", 0]}}}
+    a, b = outputs.fresh_output_name(wf()), outputs.fresh_output_name(wf())
+    pa, pb = a["9"]["inputs"]["filename_prefix"], b["9"]["inputs"]["filename_prefix"]
+    assert pa.startswith("brand_txt2img_") and pb.startswith("brand_txt2img_") and pa != pb
+    assert outputs.fresh_output_name({"1": {"class_type": "X", "inputs": {}}}) == {"1": {"class_type": "X", "inputs": {}}}
+
+
+def test_run_graph_to_file_queues_a_fresh_output_name(tmp_path):
+    seen = {}
+
+    class C:
+        def queue_prompt(self, w):
+            seen["prefix"] = w["9"]["inputs"]["filename_prefix"]
+            return "pid"
+
+        def wait(self, pid, max_wait=None):
+            return {"pid": {"outputs": {"9": {"images": [{"filename": "a.png", "subfolder": ""}]}}}}
+
+        def output_files_by_node(self, pid, history=None):
+            return [("9", "a.png", "", "output")]
+    wf = {"9": {"class_type": "SaveImage", "_meta": {"title": "brand:save"}, "inputs": {"filename_prefix": "agent"}}}
+    outputs.run_graph_to_file(C(), wf, tmp_path)
+    assert seen["prefix"].startswith("agent_") and seen["prefix"] != "agent"
+
+
+def test_route_output_says_clearly_when_the_reported_file_is_missing(tmp_path):
+    with pytest.raises(NoOutputError, match="isn't in its output folder"):
+        route_output(tmp_path, "b", tmp_path / "gone.png", "txt2img", 1)
+
+
+
+# --- names that arrive from outside stay one plain name (2026-10 review) ---------------------------------
+@pytest.mark.parametrize("name, ok", [("rover.png", True), ("my brand", True), ("Café & Co", True), ("", False),
+                                      (".", False), ("..", False), ("a/b", False), ("a\\b", False), ("c:x", False),
+                                      ("x.", False), (" x", False), ("a\tb", False)])
+def test_plain_name(name, ok):
+    assert outputs.plain_name(name) is ok
+
+
+def test_route_output_refuses_a_mode_or_brand_that_is_a_path(tmp_path):
+    from scripts.brandkit.outputs import NoOutputError
+    src = tmp_path / "r.png"
+    src.write_bytes(b"x")
+    with pytest.raises(NoOutputError, match="plain names"):
+        route_output(tmp_path, None, src, "../../evil", 42)
+    with pytest.raises(NoOutputError, match="plain names"):
+        route_output(tmp_path, "..", src, "txt2img", 42)
+    with pytest.raises(NoOutputError):
+        route_output(tmp_path, "b", tmp_path, "txt2img", 1)      # a folder isn't an output file
+    assert src.exists()
+
+
+def test_comfy_output_path_refuses_an_empty_or_dot_name(tmp_path):
+    # '.' passed the check and moved ComfyUI's whole output folder into the brand's outputs
+    from scripts.brandkit.outputs import NoOutputError, comfy_output_path
+    for bad in ("", ".", ".."):
+        with pytest.raises(NoOutputError):
+            comfy_output_path(tmp_path, "", bad)
+
+
+def test_a_replay_name_ignores_case_like_windows_does(tmp_path):
+    (tmp_path / "Example_txt2img_9.png").write_bytes(b"orig")
+    assert outputs._unused_stem(tmp_path, "example_txt2img_9") == "example_txt2img_9_replay"
+
+
+
+# --- 2026-10 test review --------------------------------------------------------------------------------
+def test_plain_name_refuses_an_ntfs_stream_name():
+    assert not outputs.plain_name("rover.png:hidden")
+
+
+def test_a_longer_seed_does_not_count_as_taken(tmp_path):
+    (tmp_path / "b_txt2img_70.png").write_bytes(b"x")
+    assert outputs._unused_stem(tmp_path, "b_txt2img_7") == "b_txt2img_7"
+
+
+def test_run_graph_to_file_refuses_a_history_name_outside_the_output_dir(tmp_path):
+    class C:
+        def queue_prompt(self, w): return "pid"
+        def wait(self, pid, max_wait=None): return {"pid": {}}
+        def output_files_by_node(self, pid, history=None): return [("9", "notes.docx", "../..", "output")]
+    wf = {"9": {"class_type": "SaveImage", "_meta": {"title": "brand:save"}, "inputs": {"filename_prefix": "a"}}}
+    with pytest.raises(outputs.NoOutputError, match="outside"):
+        outputs.run_graph_to_file(C(), wf, tmp_path)
+
+
+def test_route_output_names_the_app_that_listed_a_missing_file(tmp_path):
+    # a Blender or FreeCAD job used to be reported as ComfyUI's, with a --comfy-output-dir hint
+    with pytest.raises(outputs.NoOutputError, match="Blender listed ghost.png as an output"):
+        route_output(tmp_path, "b", tmp_path / "ghost.png", "mesh", 1, producer="Blender")

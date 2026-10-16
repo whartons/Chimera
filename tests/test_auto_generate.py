@@ -70,3 +70,21 @@ def test_resolve_manifest_with_brand_loads_its_yaml(tmp_path):
     assert m.name == "ACME"
     assert m.style == "rugged tactical"
     assert "#1c1f22" in m.palette
+
+
+def test_write_run_sidecar_records_the_corrected_subject(tmp_path):
+    import argparse, json
+    from scripts.agent.auto_generate import _write_run_sidecar
+    from scripts.agent.loop import LoopResult, IterRecord
+    from scripts.agent.judge import Verdict
+    img = tmp_path / "win.png"; img.write_bytes(b"x")
+    v = Verdict(passed=True, score=1.0, issues=[])
+    res = LoopResult(best_image=str(img), best_verdict=v, passed=True,
+                     history=[IterRecord(iter=0, seed=1, prompt="p", verdict=v)], subject="a rover")
+    args = argparse.Namespace(brand="b", subject="a rover, candy-red bodywork", backend="api", comfy_url="http://x")
+    _write_run_sidecar(res, args, tmp_path)
+    meta = json.loads(img.with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["subject"] == "a rover, candy-red bodywork" and meta["corrected_subject"] == "a rover"
+    res.subject = args.subject                       # unchanged subject: no extra key
+    _write_run_sidecar(res, args, tmp_path)
+    assert "corrected_subject" not in json.loads(img.with_suffix(".json").read_text(encoding="utf-8"))

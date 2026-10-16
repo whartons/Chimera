@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chimera"
-version = "0.5.1"
+version = "0.6.0"
 description = "Agentic generative + Digital Content Creation / CAD hub: ComfyUI, Blender, and FreeCAD under one self-correcting, MCP-driven agent layer (image, video, audio, 3D, CAD)."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,7 +23,7 @@ dependencies = ["pyyaml>=6"]
 # `pip install -e .[dev]` for the test + lint + coverage tooling.
 dev = ["pytest>=8", "ruff>=0.10", "pytest-cov>=5"]
 # Optional host-side helpers, loaded only if present (graceful fallbacks otherwise):
-images = ["pillow>=10"]   # non-PNG logo sizing (see generate._image_size)
+images = ["pillow>=12.3"]   # non-PNG logo sizing (see generate._image_size); 12.3 fixes 6 PYSEC advisories
 video = ["av>=12"]        # foley fps/duration auto-probe (see generate._probe_video)
 
 [project.urls]
@@ -51,6 +51,7 @@ select = ["F", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["preflight: runs auto_generate's real endpoint check (conftest stubs it for every other test)"]
 
 # Coverage is opt-in via `pytest --cov` (CI enables it); not in addopts so a plain `pytest` still
 # runs without pytest-cov installed.

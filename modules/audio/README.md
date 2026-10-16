@@ -4,7 +4,7 @@ Three modes of audio generation in a single unified CLI entry point:
 
 - **`--mode music`**: text → on-brand instrumental stinger, loop or track, output as an `.mp3` (V0).
   - **Default: Stable Audio 3 Medium**, which won the 2026-10 listening comparison by a wide margin.
-  - **`--model acestep`:** ACE-Step 1.5 XL Turbo (e.g. for songs with lyrics/vocals).
+  - **`--model acestep`:** ACE-Step 1.5 XL Turbo, which sings `--lyrics` (Stable Audio 3 makes instrumentals).
   - Both take the brand's `audio.music_tags` from `brand.yaml`.
 - **`--mode sfx`** — Stable Audio 3's **sound-effects** mode: text → a short sound effect (stinger
   whooshes, sword rings, UI and alert sounds) → `.mp3`.
@@ -44,7 +44,19 @@ The brief is the brand's `audio.music_tags` plus `--subject`.
 - **Stable Audio 3** has no tempo or key inputs, so an explicit `--bpm` / `--keyscale` joins the brief
   (e.g. "…, 128 BPM, in A minor"). The brand's ACE-tuned `music_bpm` / `music_keyscale` defaults don't.
 - **ACE-Step** (`--model acestep`) takes the brief as `TextEncodeAceStepAudio1.5` tags, and uses BPM / key
-  directly.
+  directly. **`--lyrics`** gives it words to sing, with section tags such as `[Verse 1]` and `[Chorus]` on
+  their own lines; without it ACE-Step makes an instrumental. From a file: `--lyrics "$(cat song.txt)"`
+  (PowerShell: `--lyrics (Get-Content song.txt -Raw)`). The sidecar records the lyrics, so a replay sings them
+  again. `--lyrics` with Stable Audio 3, sfx or foley is an error.
+- **Lyrics need room, and not every seed sings.** In 2026-10 tests (by ear and by transcription), six lines
+  of lyrics never got sung in a 20 s clip and were sung in 40 s on most seeds (5–6 of 7), usually from the first
+  seconds, with either tag style. Some seeds plan an instrumental anyway; a lower sampling temperature made that
+  worse. So with `--lyrics` and no `--duration` Chimera renders at least 40 s (the brand's `music_duration` if
+  that is longer), a shorter `--duration` prints a warning, and the CLI reminds you to **try another `--seed`**
+  if a render comes out instrumental. Write lyrics that fill the length (a long clip with a few lines mostly came
+  out instrumental) and name the voice in the subject (e.g. "male vocals").
+- **Stable Audio 3 renders at least 1 s** (ComfyUI's minimum); a shorter `--duration` is an error before
+  anything is queued. Render 1 s and trim it.
 
 Override any key via CLI; CLI always wins over `brand.yaml`.
 
@@ -59,7 +71,7 @@ python scripts/generate.py audio --mode sfx \
 ```
 
 Stable Audio 3 with its prompt enhancer in sound-effects mode. The brief is the subject alone: a sound
-effect doesn't inherit the brand's musical tags. Default length 4 s. Output:
+effect doesn't inherit the brand's musical tags. Default length 4 s, minimum 1 s. Output:
 `…/outputs/audio/<brand>_sfx_<seed>.mp3`.
 
 ### Foley (video → SFX)
@@ -80,9 +92,12 @@ python scripts/generate.py audio \
   `outputs/video/`, `outputs/`, `references/`, or `products/` folder (searched in
   that order; `outputs/video/` is where the media-type router puts generated clips).
   The filler takes fps/duration/size from the clip's own Chimera sidecar, or probes them with **PyAV**;
-  use `--fps` and `--duration` to override.
+  use `--fps` and `--duration` to override. The foley sidecar records the values it used, so a replay needs
+  neither PyAV nor the clip's sidecar.
 - Output routes to `brands/<brand>/outputs/video/<brand>_foley_<seed>.mp4` (a foley
   clip is a video, so it lands under `video/`).
+- Foley always runs HunyuanVideo-Foley: `--model sa3` or `--model acestep` (music models) is an error,
+  raised before the clip is uploaded.
 - `--watermark` composites the brand logo over the **source frame batch**
   before the mux step. The SFX audio edge is untouched.
 
@@ -94,7 +109,6 @@ audio:
   music_bpm: 120
   music_keyscale: "C minor"
   music_duration: 8.0
-  foley: "hunyuan"            # backend selector
   foley_negative: "music, speech, voice, singing, noisy, harsh"
 ```
 
@@ -126,14 +140,15 @@ The graph uses:
 1. **`UNETLoader`** — loads `acestep_v1.5_xl_turbo_bf16.safetensors` from
    `models/diffusion_models/`.
 2. **`ModelSamplingAuraFlow`** — wraps the model for the AuraFlow sampler
-   schedule (shift 1.73).
+   schedule (shift 3, as in every Comfy ACE-Step 1.5 template; Chimera had 1.73 until 2026-10, so `replay`
+   of an older ACE-Step render reports the change and renders a new take only with `--accept-drift`).
 3. **`DualCLIPLoader`** — loads **both** `qwen_0.6b_ace15.safetensors` and
    `qwen_4b_ace15.safetensors` with `type: ace` (both are required; the loader
    will fail if either is missing).
 4. **`VAELoader`** — `ace_1.5_vae.safetensors`.
-5. **`TextEncodeAceStepAudio1.5`** — encodes the genre/style tags plus optional
-   lyrics. CFG scale 2.0 (note: this is the text-encode CFG, separate from the
-   KSampler CFG).
+5. **`TextEncodeAceStepAudio1.5`** — encodes the genre/style tags plus the
+   `--lyrics` (empty for an instrumental). CFG scale 2.0 (note: this is the
+   text-encode CFG, separate from the KSampler CFG).
 6. **`ConditioningZeroOut`** — serves as the negative conditioning (no explicit
    negative text prompt needed for the turbo path).
 7. **`EmptyAceStep1.5LatentAudio`** — allocates the latent buffer.
@@ -169,8 +184,12 @@ The graph uses:
 | Music (ACE-Step Turbo) | ~12–14 GB | `--free-before` default ON |
 | Foley (HunyuanVideo-Foley) | ~12–16 GB peak | `force_offload` default ON; offloads between passes |
 
-`--free-before` (default ON for the `audio` modality) calls `clear_vram` via
-the MCP bridge before enqueuing, unloading any resident image or video models.
+`--free-before` (default ON for the `audio` modality) asks ComfyUI to unload its models (`POST /free`) just
+before queueing, so resident image or video models don't crowd the audio graph.
+
+**Smaller cards:** these figures were measured on a 32 GB card. With less memory ComfyUI loads the pieces in
+turn and offloads what doesn't fit to system RAM, so the graphs still run, more slowly (not measured here).
+ACE-Step needs about the same as Stable Audio 3, and no lighter music model is wired into Chimera yet.
 
 ## Watermark
 

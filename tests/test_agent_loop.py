@@ -155,8 +155,9 @@ def test_loop_survives_failed_iteration_and_returns_later_success():
     assert res.history[0].verdict.score == 0.0
     assert "iteration failed" in res.history[0].verdict.issues[0]
     assert res.history[1].verdict.passed is True
-    # the failure's issues are threaded into the next expand() call
-    assert exp.calls[1]["prior_issues"] == res.history[0].verdict.issues
+    # the failure text is NOT threaded into the next prompt ("Fix: iteration failed: ..." used to land in
+    # the image prompt); with no judge verdict yet, the next expand() gets no prior issues
+    assert exp.calls[1]["prior_issues"] is None
 
 
 def test_loop_all_iterations_fail_returns_without_raising():
@@ -184,3 +185,73 @@ def test_loop_history_records_iter_seed_prompt_verdict():
     assert get(h0, "seed") == 1000
     assert get(h0, "prompt") == "pos:rover"
     assert get(h0, "verdict").passed is False
+
+
+class FlagStylingThenPassJudge:
+    """Fails once flagging the subject's off-brand styling, then passes; records each rubric."""
+    def __init__(self):
+        self.rubrics = []
+
+    def judge(self, image_path, rubric):
+        self.rubrics.append(rubric)
+        if len(self.rubrics) == 1:
+            return Verdict(passed=False, score=0.3, issues=[
+                "2. NOT-MET: toy-like. FIX: add matte armor; avoid candy-red, rugged tactical"])
+        return Verdict(passed=True, score=0.9, issues=[])
+
+
+def test_branded_loop_corrects_the_subject_and_rubric_but_never_the_brand():
+    from scripts.agent.rubric import build_rubric
+    exp, gen, judge = RecordingExpander(), RecordingGenerate(), FlagStylingThenPassJudge()
+    subject = "a rover, candy-red bodywork"
+    res = run_loop(expander=exp, judge=judge, generate=gen, manifest=_m(), subject=subject,
+                   rubric=build_rubric(_m(), subject), max_iters=3)
+    assert res.passed and [c["subject"] for c in exp.calls] == [subject, "a rover"]
+    assert res.subject == "a rover"                               # the corrected subject leaves the loop
+    r0, r1 = judge.rubrics
+    assert "candy-red" in r0.criteria[0] and "candy-red" not in r1.criteria[0] and r1.subject == "a rover"
+    assert any("rugged tactical" in c for c in r1.criteria)      # 'avoid rugged tactical' never strips the brand
+
+
+def test_brandless_loop_never_rewrites_the_subject():
+    from scripts.brandkit.manifest import default_manifest
+    exp, gen, judge = RecordingExpander(), RecordingGenerate(), FlagStylingThenPassJudge()
+    run_loop(expander=exp, judge=judge, generate=gen, manifest=default_manifest(),
+             subject="a rover, candy-red bodywork", max_iters=3)
+    assert [c["subject"] for c in exp.calls] == ["a rover, candy-red bodywork"] * 2
+
+
+class JudgeFailJudge:
+    """Fails iter 0 with a real judge issue; later calls pass."""
+    def __init__(self):
+        self.n = 0
+
+    def judge(self, image_path, rubric):
+        self.n += 1
+        if self.n == 1:
+            return Verdict(passed=False, score=0.2, issues=["2. NOT-MET: off-style. FIX: add matte armor"])
+        return Verdict(passed=True, score=0.9, issues=[])
+
+
+class FailSecondGenerate(RecordingGenerate):
+    def __call__(self, pos, neg, seed):
+        out = super().__call__(pos, neg, seed)
+        if len(self.calls) == 2:
+            raise RuntimeError("prompt p1 did not finish in 900s")
+        return out
+
+
+def test_a_failed_iteration_keeps_the_last_judge_issues():
+    exp, gen, judge = RecordingExpander(), FailSecondGenerate(), JudgeFailJudge()
+    res = run_loop(expander=exp, judge=judge, generate=gen, manifest=_m(), subject="rover", max_iters=3)
+    assert res.passed and len(res.history) == 3
+    want = ["2. NOT-MET: off-style. FIX: add matte armor"]
+    assert exp.calls[1]["prior_issues"] == want and exp.calls[2]["prior_issues"] == want
+
+
+
+def test_seed_names_give_a_repeated_seed_its_own_file():
+    # --seeds 7,7,7 re-renders one seed: under one name a later pass replaced the reported winner's file
+    from scripts.agent.loop import SeedNames
+    name = SeedNames()
+    assert [name(7), name(8), name(7), name(7)] == [7, 8, "7_2", "7_3"]

@@ -192,3 +192,60 @@ def test_run_finalize_texture_job_error_exits(tmp_path, monkeypatch):
     views_abs = ",".join(str(repo / v) for v in ("f.png", "r.png", "b.png", "l.png"))
     with pytest.raises(SystemExit):
         G.run_finalize_texture(_ft(from_=str(repo / "win.glb"), views=views_abs), repo, argparse.ArgumentParser())
+
+
+
+def test_auto_repaint_reports_comfyui_trouble_in_one_line(tmp_path, monkeypatch, capsys):
+    # ComfyUI being down, or rejecting the SDXL graph (a missing ControlNet), printed a traceback
+    import urllib.error
+    monkeypatch.setattr(G, "_resolve_asset", lambda *a, **k: tmp_path / "c.png")
+
+    class _Down:
+        def __init__(self, url):
+            pass
+
+        def free(self):
+            raise urllib.error.URLError("refused")
+    args = _ft(auto_repaint=True, concept="c.png", subject="x", comfy_output_dir=str(tmp_path))
+    monkeypatch.setattr(G, "ComfyClient", _Down)
+    with pytest.raises(SystemExit) as e:
+        G._auto_repaint_views(args, tmp_path / "m.glb", 1, None, tmp_path, argparse.ArgumentParser())
+    assert e.value.code == 1 and "finalize-texture: ComfyUI" in capsys.readouterr().err
+
+    class _Up(_Down):
+        def free(self):
+            pass
+    monkeypatch.setattr(G, "ComfyClient", _Up)
+    monkeypatch.setattr(G.finalize_core, "repaint_views",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("HTTP 400: controlnet missing")))
+    with pytest.raises(SystemExit) as e:
+        G._auto_repaint_views(args, tmp_path / "m.glb", 1, None, tmp_path, argparse.ArgumentParser())
+    assert e.value.code == 1 and "controlnet missing" in capsys.readouterr().err
+
+
+def test_finalize_texture_names_a_missing_brand_in_one_line(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        G.run_finalize_texture(_ft(brand="nope"), tmp_path, argparse.ArgumentParser())
+    assert e.value.code == 2
+
+
+
+def test_finalize_texture_without_views_or_auto_repaint_says_what_it_needs(capsys):
+    # crashed with AttributeError: 'NoneType' object has no attribute 'split'
+    with pytest.raises(SystemExit) as e:
+        G._validate_finalize(_ft(views=None), argparse.ArgumentParser())
+    assert e.value.code == 2 and "--views needs at least one image" in capsys.readouterr().err
+
+
+def test_auto_repaint_blames_blender_not_comfyui_when_blender_is_missing(tmp_path, monkeypatch, capsys):
+    import types
+    monkeypatch.setattr(G, "_resolve_asset", lambda *a, **k: tmp_path / "c.png")
+    monkeypatch.setattr(G, "ComfyClient", lambda url: types.SimpleNamespace(free=lambda: None))
+    monkeypatch.setattr(G.finalize_core, "repaint_views", lambda *a, **k: (_ for _ in ()).throw(
+        G.blender_runner.BlenderJobError("blender executable not found")))
+    args = _ft(auto_repaint=True, concept="c.png", subject="x", comfy_output_dir=str(tmp_path))
+    with pytest.raises(SystemExit) as e:
+        G._auto_repaint_views(args, tmp_path / "m.glb", 1, None, tmp_path, argparse.ArgumentParser())
+    err = capsys.readouterr().err
+    assert e.value.code == 1 and "finalize-texture failed: blender executable not found" in err
+    assert "ComfyUI" not in err

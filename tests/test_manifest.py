@@ -152,3 +152,20 @@ def test_subsection_int_accepted_for_float_field(tmp_path):
     p = tmp_path / "b.yaml"
     p.write_text("name: B\ndefaults: { guidance: 4 }\n", encoding="utf-8")
     assert load_manifest(p).defaults.guidance == 4.0
+
+
+
+def test_a_brand_3d_format_is_checked_when_the_brand_loads(tmp_path):
+    # an unknown format was only found after the GPU render, as a traceback with the GLB left unrecorded
+    p = tmp_path / "brand.yaml"
+    p.write_text('name: "B"\nthreed: { format: fbx }\n', encoding="utf-8")
+    with pytest.raises(ManifestError, match="threed.format"):
+        load_manifest(p)
+
+
+
+def test_a_null_threed_format_means_the_default(tmp_path):
+    # `format: null` made every subcommand for the brand fail, image and audio included (2026-10 review)
+    p = tmp_path / "brand.yaml"
+    p.write_text("name: b\nthreed: { model: null, format: null }\n", encoding="utf-8")
+    assert load_manifest(p).threed.format is None

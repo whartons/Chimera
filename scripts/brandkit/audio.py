@@ -6,7 +6,7 @@
 - foley: HunyuanVideo-Foley (video -> synced SFX). LOCAL ONLY — uses ONLY the registered HunyuanFoley
   nodes + safetensors weights, never the pack's bundled CLI scripts (torch.load pickle-RCE)."""
 from __future__ import annotations
-from .nodes import load_template as _load, node as _n
+from .nodes import load_template as _load, model_file, node as _n
 
 SA3_MODEL = "stable_audio_3_medium.safetensors"
 ACESTEP_MODEL = "acestep_v1.5_xl_turbo_bf16.safetensors"
@@ -14,6 +14,11 @@ DEFAULT_MUSIC_MODEL = SA3_MODEL
 DEFAULT_FOLEY_MODEL = "hunyuanvideo_foley_fp8_e4m3fn.safetensors"
 ALIASES = {"sa3": SA3_MODEL, "stable-audio-3": SA3_MODEL, "acestep": ACESTEP_MODEL, "ace-step": ACESTEP_MODEL}
 SFX_DURATION = 4.0      # seconds, when --duration isn't given (a sound effect, not a track)
+SA3_MIN_SECONDS = 1.0   # EmptyLatentAudio's minimum; a shorter --duration failed validation in ComfyUI
+# ACE-Step 1.5 never sang six lines of lyrics in a 20 s clip and sang them in 40 s on most seeds (5-6 of 7;
+# 2026-10, by ear and by transcription), whatever the tag format, so a lyric render gets at least this long
+# unless --duration says otherwise. Some seeds plan an instrumental regardless: try another seed.
+LYRICS_SECONDS = 40.0
 _SA3_MODE = {"music": "Music", "sfx": "SFX"}   # the enhancer's system prompt per Chimera mode
 
 
@@ -24,6 +29,11 @@ def canonical(name):
 
 def is_sa3(model_file):
     return "stable_audio" in (model_file or "").lower()
+
+
+def _is_music_model(model):
+    name = model_file(canonical(model))
+    return is_sa3(name) or "acestep" in name
 
 
 def resolved_model(manifest, mode="music", model=None):
@@ -61,10 +71,10 @@ def _build_sa3(repo_root, manifest, *, positive, seed, mode="music", duration=No
 
 
 def _build_music(repo_root, manifest, *, positive, seed, duration=None, bpm=None,
-                 keyscale=None, model=None, **opts) -> dict:
+                 keyscale=None, model=None, lyrics=None, **opts) -> dict:
     a = manifest.audio
     model = resolved_model(manifest, "music", model)
-    duration = duration if duration is not None else a.music_duration
+    duration = duration if duration is not None else music_seconds(manifest, lyrics)
     bpm = bpm if bpm is not None else a.music_bpm
     keyscale = keyscale or a.music_keyscale
     wf = _load(repo_root, "brand-audio-music.json")
@@ -75,6 +85,7 @@ def _build_music(repo_root, manifest, *, positive, seed, duration=None, bpm=None
     enc["duration"] = duration
     enc["bpm"] = bpm
     enc["keyscale"] = keyscale
+    enc["lyrics"] = lyrics or ""   # empty = an instrumental
     _n(wf, "brand:sampler")["inputs"]["seed"] = seed
     _n(wf, "brand:latent")["inputs"]["seconds"] = duration
     return wf
@@ -109,19 +120,45 @@ def _build_foley(repo_root, manifest, *, positive, negative, seed, watermark=Fal
     return wf
 
 
+def music_seconds(manifest, lyrics=None):
+    """A music render's length when --duration isn't given: the brand's music_duration, raised to
+    LYRICS_SECONDS when there are lyrics (a stinger-length clip came out instrumental)."""
+    d = manifest.audio.music_duration
+    return max(d, LYRICS_SECONDS) if lyrics else d
+
+
+def check_options(manifest, mode, *, model=None, duration=None, lyrics=None):
+    """Raise ValueError for a request the mode can't render. generate.py calls it before it frees the GPU
+    or uploads a foley clip; build() runs it too."""
+    if lyrics and mode != "music":
+        raise ValueError(f"--lyrics are sung by ACE-Step in music mode; audio --mode {mode} has no vocals")
+    if mode == "foley":
+        if model and _is_music_model(model):
+            raise ValueError(f"--model {model} makes music; foley runs HunyuanVideo-Foley (drop --model)")
+        return
+    if mode not in _SA3_MODE:
+        raise ValueError(f"unknown audio mode {mode!r}; expected music, sfx or foley")
+    file = resolved_model(manifest, mode, model)
+    if mode == "sfx" and not is_sa3(file):
+        raise ValueError("audio --mode sfx is Stable Audio 3's sound-effects mode: drop --model "
+                         f"({file} makes music)")
+    if lyrics and is_sa3(file):
+        raise ValueError("--lyrics need ACE-Step, which sings them: add --model acestep (Stable Audio 3 makes "
+                         "instrumentals)")
+    if is_sa3(file) and duration is not None and duration < SA3_MIN_SECONDS:
+        raise ValueError(f"Stable Audio 3 renders at least {SA3_MIN_SECONDS:g} s (got --duration {duration:g}); "
+                         "render 1 s and trim it")
+
+
 def build(repo_root, manifest, *, positive, negative="", seed, watermark=False,
           mode="music", **opts) -> dict:
+    check_options(manifest, mode, model=opts.get("model"), duration=opts.get("duration"), lyrics=opts.get("lyrics"))
     if mode == "foley":
         return _build_foley(repo_root, manifest, positive=positive, negative=negative,
                             seed=seed, watermark=watermark, **opts)
-    if mode not in _SA3_MODE:
-        raise ValueError(f"unknown audio mode {mode!r}; expected music, sfx or foley")
     # music / sfx have no visual canvas, so `watermark` is not applied (generate.py also gates it off);
     # neither model takes a brand negative (ACE-Step zeroes it; SA3's negative stays empty).
     model = resolved_model(manifest, mode, opts.pop("model", None))
     if is_sa3(model):
         return _build_sa3(repo_root, manifest, positive=positive, seed=seed, mode=mode, model=model, **opts)
-    if mode == "sfx":
-        raise ValueError("audio --mode sfx is Stable Audio 3's sound-effects mode: drop --model "
-                         f"({model} makes music)")
     return _build_music(repo_root, manifest, positive=positive, seed=seed, model=model, **opts)

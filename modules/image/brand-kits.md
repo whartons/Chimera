@@ -22,18 +22,27 @@ needed**); two thin CLIs wire it together:
 | `scripts/generate.py` | Unified CLI (`image` subcommand; per-modality subcommands) |
 | `scripts/train_brand_lora.py` | LoRA trainer scaffold CLI (dry-run by default) |
 
-Everything except `comfy.py` is testable without a server, so `python -m pytest -q`
+Everything except `comfy.py` is testable without a server, so `python -m pytest`
 covers the whole core offline.
 
 ## The three on-brand mechanisms
 
 **① Prompt injection — always on.** `build_prompt()` composes
-`prefix → subject → style → palette → suffix` into the positive prompt and uses the
-manifest `negative` **on the FLUX.2 graphs**. The Z-Image templates hard-wire
-`ConditioningZeroOut` as their negative (the validated recipe for that family), so a
-brand's `negative` text only takes effect on FLUX.2 (`--model flux2_*`). Zero downloads;
+`prefix → subject → style → palette → suffix` into the positive prompt. Zero downloads;
 works for every brand immediately. This is the backbone — even brands with no logo/LoRA
 get consistent look from style + palette words.
+
+The manifest `negative` goes into the image and video graphs' negative text (video appends its own
+family's list) and the sidecar records what the graph carries. Z-Image has no negative text (it zeroes
+its negative with `ConditioningZeroOut`, even the CFG-4 `base` variant, so its sidecars record `""`), and
+audio never takes it: music and sfx have no text negative (Stable Audio 3's stays empty, ACE-Step zeroes
+its conditioning), and foley uses `audio.foley_negative` instead.
+
+No image recipe samples with it: Qwen-Image-2.1 and FLUX.2 run at CFG 1, where ComfyUI skips the negative
+pass entirely. It changes the output only for video sampled **above CFG 1**: LTX-2.3 and Wan 2.2
+`--quality full`. To keep something out of an image, word the positive instead. The self-correction loop
+does use it: the rubric asks the judge to confirm the render avoids these traits, `brand_guard` drops any
+FIX `add` term that names one, and a brand with only a negative still gets the loop's subject correction.
 
 **② IP-Adapter style/subject reference — V2, opt-in (deferred).** The manifest already
 carries an `ip_adapter{}` block (parsed, `enabled: false` by default). FLUX.2 IP-Adapter
@@ -50,21 +59,24 @@ toggle and lands in a separate V2 plan — adding it doesn't disturb V1.
 
 ## Modes → templates
 
-`--mode` selects one of three generic, API-format graphs in `workflows/templates/`. The
-**default backend is Z-Image** — the filler dispatches to the `brand-zimage-*` templates when the
-model name starts with `z_image`; passing a `flux2*` model name routes to the parallel FLUX.2 graphs
-instead. The filler addresses nodes by a stable `_meta.title` (see `brandkit/nodes.py`), so re-saving
+`--mode` selects one of four generic, API-format graphs in `workflows/templates/`: `txt2img`, `logo`
+and `product` (table below), plus `relight`, which always uses FLUX.2 (`brand-flux2-relight.json`). The
+**default backend is Qwen-Image-2.1**. The filler picks the graph family from the model name:
+`qwen_image*` → the `brand-qwen-image-*` graphs, `z_image*` → `brand-zimage-*`, and `flux2*` → the
+FLUX.2 graphs. It addresses nodes by a stable `_meta.title` (see `brandkit/nodes.py`), so re-saving
 a graph in ComfyUI can't silently misroute an edit.
 
-| Mode | Template (default · Z-Image) | What it does |
+| Mode | Template (default · Qwen-Image-2.1) | What it does |
 |---|---|---|
-| `txt2img` | `brand-zimage-txt2img.json` | on-brand text-to-image (the verified Z-Image graph) |
-| `logo` | `brand-zimage-logo-overlay.json` | txt2img → composite `logos/<png>` (alpha-correct) at a corner |
-| `product` | `brand-zimage-product.json` | img2img: re-render `products/<png>` into a new scene |
+| `txt2img` | `brand-qwen-image-txt2img.json` | on-brand text-to-image |
+| `logo` | `brand-qwen-image-logo-overlay.json` | txt2img → composite `logos/<png>` (alpha-correct) at a corner |
+| `product` | `brand-qwen-image-product.json` | reference edit: the encoder sees `products/<png>` and places that product in a new scene at the brand's size |
 
-The **FLUX.2 fallback** uses the parallel `brand-txt2img.json` / `brand-logo-overlay.json` /
-`brand-product-mockup.json` graphs, selected by setting a `flux2*` model in `brand.yaml` or via
-`--model` (see [`../../docs/CATALOG.md`](../../docs/CATALOG.md)).
+The earlier backends stay one setting away: set the model in `brand.yaml` or pass `--model`
+(see [`../../docs/CATALOG.md`](../../docs/CATALOG.md)). **Z-Image** (`z_image_turbo_*`, the
+default before v0.6.0) uses the `brand-zimage-*` graphs; its `product` mode is an img2img
+re-render at the product photo's size. **FLUX.2** (`flux2*`) uses `brand-txt2img.json` /
+`brand-logo-overlay.json` / `brand-product-mockup.json`, and is also what `--mode relight` runs on.
 
 The logo overlay uses `LoadImage`'s mask output as the composite alpha and computes
 x/y from `logo.position` + `logo.margin` against the canvas, so the logo stays
@@ -82,9 +94,10 @@ gitignored. Pass `--comfy-output-dir` so the orchestrator knows where to pick th
 ## Testing
 
 ```bash
-python -m pytest -q          # the offline core: manifest, prompt, workflow, outputs, comfy, training
+python -m pytest             # the offline core: manifest, prompt, workflow, outputs, comfy, training
 ```
 
 End-to-end generation (needs a running ComfyUI at `127.0.0.1:8000` with the relevant
 models) is exercised against the tracked `brands/example-brand/`, whose committed
-outputs + reproducibility sidecars are produced entirely by the CLI.
+outputs + reproducibility sidecars were produced by the CLI. The 3D mesh was then slimmed with
+`chimera render --mode finish` (textures kept); its sidecar describes the TRELLIS.2 render it came from.

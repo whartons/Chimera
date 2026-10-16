@@ -26,24 +26,42 @@ RENDER_CHECKS_SUFFIX = ".checks.json"
 DEFAULT_MAX_LOOSE_PARTS = 8
 
 
-def structural_issues(checks: dict, *, max_loose_parts: int = DEFAULT_MAX_LOOSE_PARTS) -> list[str]:
-    """Gross, VLM-invisible geometry defects as NOT-MET lines. Missing/None keys are treated as good.
+_ONE_SOLID = " FIX: add one connected solid; avoid disconnected floating pieces"   # reaches the CAD codegen too
+# A mesh whose largest island holds less than this share, with more than max_loose_parts islands, has
+# shattered: 150 equal shards each fall under the 1% `major_parts` bar, so that count alone read 0 and passed.
+MIN_MAIN_SHARE = 0.5
+
+
+def structural_issues(checks: dict, *, max_loose_parts: int = DEFAULT_MAX_LOOSE_PARTS,
+                      strict: bool = False) -> list[str]:
+    """Gross, VLM-invisible geometry defects as NOT-MET lines (each with a FIX directive, so the expander
+    and the CAD codegen act on them). Missing/None keys are treated as good.
 
     Does NOT fail on non-manifold or open/boundary edges — those are baseline for surface-net
-    image-to-3D output (see module docstring), so failing on them rejects every real mesh. Fails only
-    on an empty/degenerate mesh or a fragmentation into more than `max_loose_parts` islands."""
+    image-to-3D output (see module docstring), so failing on them rejects every real mesh. Fails on an
+    empty/degenerate mesh, more than `max_loose_parts` significant parts, or a shattered mesh (many islands,
+    none dominant). `strict` (CAD) requires ONE solid by raw island count: a scripted part has no tiny
+    shells to forgive, and with fine tessellation a hub's vertex count hid 16 floating blades under the 1%
+    bar (2026-10)."""
     issues: list[str] = []
+    lp = int(checks.get("loose_parts", 1) or 1)
     major = checks.get("major_parts")
-    if major is not None:
-        if int(major) > max_loose_parts:
-            issues.append(f"NOT-MET: mesh fragmented into {int(major)} significant parts (each at least 1% "
-                          f"of the mesh; more than {max_loose_parts}, so the form did not generate as one "
-                          "coherent solid)")
-    else:
-        lp = int(checks.get("loose_parts", 1) or 1)
-        if lp > max_loose_parts:
-            issues.append(f"NOT-MET: mesh fragmented into {lp} disconnected parts "
-                          f"(more than {max_loose_parts}; the form did not generate as one coherent solid)")
+    share = checks.get("main_part_share")
+    if strict:
+        if lp > 1:
+            issues.append(f"NOT-MET: the part came out as {lp} separate solids instead of one fused solid."
+                          + _ONE_SOLID)
+    elif major is not None and int(major) > max_loose_parts:
+        issues.append(f"NOT-MET: mesh fragmented into {int(major)} significant parts (each at least 1% "
+                      f"of the mesh; more than {max_loose_parts}, so the form did not generate as one "
+                      "coherent solid)." + _ONE_SOLID)
+    elif major is not None and share is not None and lp > max_loose_parts and float(share) < MIN_MAIN_SHARE:
+        issues.append(f"NOT-MET: mesh shattered into {lp} pieces and the largest holds only "
+                      f"{float(share):.0%} of it (the form did not generate as one coherent solid)." + _ONE_SOLID)
+    elif major is None and lp > max_loose_parts:
+        issues.append(f"NOT-MET: mesh fragmented into {lp} disconnected parts "
+                      f"(more than {max_loose_parts}; the form did not generate as one coherent solid)."
+                      + _ONE_SOLID)
     # An explicit 0 means an empty mesh (flag it); a missing key or None means "not measured"
     # (treat as good, consistent with the other checks) — so guard on `is not None`.
     tc = checks.get("tri_count")

@@ -8,13 +8,15 @@ import re, shutil
 from pathlib import Path
 
 from .manifest import load_manifest, ManifestError
+from .nodes import model_file
+from .outputs import brand_name_ok
 
 _LEVEL_MARK = {"ok": "[ok]  ", "warn": "[warn]", "fail": "[FAIL]", "info": "[info]"}
 
 
 def new_brand(repo_root, name) -> Path:
     """Copy brands/_template/ to brands/<name>/, refuse if it exists, seed the name: field."""
-    if not name or "/" in name or "\\" in name or name.startswith("."):
+    if not brand_name_ok(name):
         raise ValueError(f"invalid brand name {name!r}: use a simple folder-safe name")
     src = Path(repo_root) / "brands" / "_template"
     if not src.is_dir():
@@ -53,8 +55,7 @@ def lint_brand(repo_root, brand, manifest=None) -> list[tuple[str, str]]:
     if m.name.strip().lower() == "your brand":
         out.append(("warn", "name is still the template placeholder 'Your Brand'"))
 
-    model = (m.defaults.model or "").lower()
-    if model.startswith(("qwen_image", "z_image", "flux2")):
+    if model_file(m.defaults.model).startswith(("qwen_image", "z_image", "flux2")):
         out.append(("ok", f"defaults.model family recognized ({m.defaults.model})"))
     else:
         out.append(("warn", f"defaults.model {m.defaults.model!r} doesn't match a known image "

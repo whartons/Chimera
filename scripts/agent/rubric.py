@@ -34,7 +34,8 @@ class Rubric:
             "For each numbered criterion, state MET or NOT-MET with a one-line reason. For any "
             "NOT-MET criterion, append on the SAME line a concrete fix in this exact format: "
             "'FIX: add <comma-separated visual elements to include>; avoid <comma-separated traits "
-            "to remove>'.",
+            "to remove>'. A fix must satisfy every criterion at once: never add a trait another "
+            "criterion says to avoid, and never avoid a trait another criterion requires.",
         ]
         for i, c in enumerate(self.criteria, 1):
             lines.append(f"{i}. {c}")
@@ -44,6 +45,84 @@ class Rubric:
             "MET, otherwise FAIL. On a separate line give a score from 0 to 1 (e.g. 'score: 0.82')."
         )
         return "\n".join(lines)
+
+
+_HUES = ((15, "red"), (45, "orange"), (65, "yellow"), (160, "green"), (200, "cyan"), (250, "blue"),
+         (285, "purple"), (320, "magenta"), (345, "pink"), (360, "red"))
+
+
+def _hue_name(hue, light, chroma):
+    """Name a chromatic color by hue band, with the special cases a judge reads differently: brown and tan
+    are dark or muted oranges, gold a mid yellow-orange (a vivid one stays orange), navy a dark blue, teal
+    a dark cyan, purple a dark magenta, pink a pale light red (a vivid one is coral), and a low-chroma blue
+    or green a blue-grey or green-grey (slate)."""
+    base = next(n for limit, n in _HUES if hue < limit)
+    if base == "magenta" and light < 0.4:
+        base = "purple"   # CSS purple (#800080) is a dark magenta; #ff00ff is magenta, not purple
+    if base == "orange" or (base == "yellow" and hue < 52):
+        if light < 0.42:
+            return "brown"
+        if chroma < 0.35:
+            return "tan"
+        if 34 <= hue and light < 0.62 and (hue >= 42 or chroma < 0.8):
+            return "gold"
+    if base == "yellow" and light < 0.35:
+        return "olive"
+    if base == "blue" and light < 0.25:
+        return "navy"
+    if base == "cyan" and light < 0.45:
+        return "teal"
+    if base == "red" and light > 0.7:
+        return "pink" if chroma < 0.45 else "coral"   # #ffc0cb is pink; #ff6b6b and salmon are not
+    if chroma < 0.16 and base in ("blue", "cyan", "green"):
+        return ("dark " if light < 0.3 else "light " if light > 0.75 else "") + base + "-grey"
+    return ("dark " if light < 0.3 else "light " if light > 0.75 else "") + base
+
+
+def color_words(hex_color) -> str:
+    """'#c8442e' -> 'red (#c8442e)': a plain color name for the judge. A small VLM can't read hex codes
+    as colors; on a correct near-black/slate/steel render it failed the palette criterion as
+    'monochromatic, not the brand palette' (2026-10). Accepts #rgb, #rrggbb and #rrggbbaa; other entries
+    pass through unchanged. Greys are told apart by chroma, not HLS saturation (which calls a navy or an
+    off-white 'saturated')."""
+    import colorsys
+    import re
+    h = str(hex_color).strip()
+    m = re.fullmatch(r"#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})", h)
+    if not m:
+        return h
+    x = m.group(1)
+    x = "".join(c * 2 for c in x) if len(x) == 3 else x[:6]
+    r, g, b = (int(x[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    hue, light, _ = colorsys.rgb_to_hls(r, g, b)
+    chroma = max(r, g, b) - min(r, g, b)
+    if light > 0.88:
+        name = "off-white" if chroma > 0.04 else "near-white"
+    elif chroma < 0.1:
+        name = ("near-black" if light < 0.15 else "dark grey" if light < 0.35 else "grey" if light < 0.65
+                else "light grey")
+    elif light < 0.06:
+        name = "near-black"
+    else:
+        name = _hue_name(hue * 360, light, chroma)
+    return f"{name} ({h})"
+
+
+def _palette_criterion(manifest, lead):
+    return (f"{lead} " + ", ".join(color_words(c) for c in manifest.palette)
+            + "; a scheme built from only some of these colors is on-palette.")
+
+
+def _subject_criterion(noun, subject, manifest) -> str:
+    """'Clearly depicts' the subject. With brand traits it judges the object itself and lets the brand
+    win: a subject such as 'a glossy candy-red toy rover' under a gunmetal brand otherwise has the
+    judge demand the candy colors here and forbid them in the brand criteria, and its FIX directives
+    invert the correction (2026-10, Qwen3-VL-8B)."""
+    base = f"The {noun} clearly depicts: {subject}."
+    if not (manifest.style or manifest.palette or manifest.negative):
+        return base
+    return (base + " Judge the object itself (what it is, its parts and their count); where the subject's "
+            "styling words conflict with the brand criteria below, the brand wins.")
 
 
 def build_rubric(manifest, subject: str, *, modality: str = "image", textured: bool = False) -> Rubric:
@@ -61,7 +140,7 @@ def build_rubric(manifest, subject: str, *, modality: str = "image", textured: b
         # No 'high quality (sharp, well-composed)' criterion: an untextured clay render's sharpness
         # is a renderer/camera property, not a fact about the model's geometry.
         criteria = [
-            f"The {noun} clearly depicts: {subject}.",
+            _subject_criterion(noun, subject, manifest),
             f"Proportions and silhouette are correct for {subject} "
             "(no stretched, melted, or collapsed regions).",
             "The model is complete — no missing, broken, or fused limbs/parts.",
@@ -73,10 +152,7 @@ def build_rubric(manifest, subject: str, *, modality: str = "image", textured: b
                 "a plain or palette-filled back/underside is acceptable."
             )
             if manifest.palette:
-                criteria.append(
-                    "The coloring uses the brand palette: "
-                    + ", ".join(str(c) for c in manifest.palette) + "."
-                )
+                criteria.append(_palette_criterion(manifest, "The coloring stays within the brand palette:"))
         # style/negative apply to both textured and untextured 3d — phrased via `noun` (DRY)
         if manifest.style:
             criteria.append(f"The form's style matches: {manifest.style}.")
@@ -86,15 +162,11 @@ def build_rubric(manifest, subject: str, *, modality: str = "image", textured: b
         # N orbit panels as N separate objects (see CONTACT_SHEET_PREAMBLE).
         return Rubric(subject=subject, criteria=criteria, noun=noun, preamble=CONTACT_SHEET_PREAMBLE)
 
-    criteria = [f"The image clearly depicts: {subject}."]
+    criteria = [_subject_criterion("image", subject, manifest)]
     if manifest.style:
         criteria.append(f"The visual style matches: {manifest.style}.")
     if manifest.palette:
-        criteria.append(
-            "The brand color palette is present/dominant: "
-            + ", ".join(str(c) for c in manifest.palette)
-            + "."
-        )
+        criteria.append(_palette_criterion(manifest, "The image's colors stay within the brand palette:"))
     criteria.append(
         "The image is high quality (sharp, well-composed, no obvious artifacts)."
     )

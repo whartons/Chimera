@@ -18,6 +18,24 @@
       "mcp__comfyui__stop_comfyui",
       "mcp__comfyui__start_comfyui",
       "mcp__comfyui__restart_comfyui",
+      "mcp__comfyui__download_model",
+      "mcp__comfyui__download_civitai_model",
+      "mcp__comfyui__configure_manager",
+      "mcp__comfyui__add_extra_path",
+      "mcp__comfyui__remove_extra_path",
+      "mcp__comfyui__scaffold_custom_node",
+      "mcp__comfyui__generate_node_skill",
+      "mcp__comfyui__bisect_start",
+      "mcp__comfyui__bisect_good",
+      "mcp__comfyui__bisect_bad",
+      "mcp__comfyui__bisect_reset",
+      "mcp__comfyui__generate_with_api_node",
+      "mcp__comfyui__report_issue",
+      "mcp__comfyui__save_workflow",
+      "mcp__comfyui__lock_workflow",
+      "mcp__comfyui__save_node_snapshot",
+      "mcp__comfyui__set_defaults",
+      "mcp__comfyui__set_default_workspace",
       "mcp__blender__execute_blender_code",
       "mcp__blender__execute_blender_code_for_cli",
       "mcp__blender__render_viewport_to_path",
@@ -34,7 +52,8 @@
       "mcp__freecad__edit_object",
       "mcp__freecad__delete_object",
       "mcp__freecad__insert_part_from_library",
-      "mcp__freecad__run_fem_analysis"
+      "mcp__freecad__run_fem_analysis",
+      "mcp__freecad__reload_document"
     ]
   }
 }

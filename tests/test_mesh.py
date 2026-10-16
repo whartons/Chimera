@@ -162,3 +162,22 @@ def test_write_helpers_directly(tmp_path):
     assert stl.read_bytes()[80:84] == struct.pack("<I", 1)
     obj = write_obj(verts, faces, tmp_path / "x.obj")
     assert "f 1 2 3" in obj.read_text().splitlines()
+
+
+
+def test_a_multi_part_glb_is_refused_not_cut_to_its_first_part(tmp_path):
+    import pytest
+    from scripts.brandkit.mesh import convert
+    verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
+    bin_data = b"".join(struct.pack("<3f", *v) for v in verts) + struct.pack("<3I", 0, 1, 2)
+    prim = {"attributes": {"POSITION": 0}, "indices": 1}
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(bin_data)}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36},
+                            {"buffer": 0, "byteOffset": 36, "byteLength": 12}],
+            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                          {"bufferView": 1, "componentType": 5125, "count": 3, "type": "SCALAR"}],
+            "meshes": [{"primitives": [prim]}, {"primitives": [prim]}]}
+    p = tmp_path / "two.glb"
+    _assemble_glb(gltf, bin_data, p)
+    with pytest.raises(ValueError, match="2 mesh parts"):
+        convert(p, "stl")

@@ -1,8 +1,8 @@
 # `cad` — parametric CAD bridge
 
-![A machined L-bracket with bolt holes, authored by a FreeCAD script and rendered in Blender](../../docs/images/chimera-sample-cad.png)
+![A shrouded fan rotor with 18 twisted blades, built by a FreeCAD script and rendered in Blender](../../docs/images/chimera-sample-cad.png)
 
-*Generative script-mode part — an agent-authored FreeCAD script (`chimera cad --mode script`) → STEP/STL, rendered headless in Blender. Brand-neutral sample.*
+*Script-mode part: [`examples/turbofan.py`](examples/turbofan.py) (18 lofted blades twisting from 55° at the root to 25° at the tip, fused to a hub, spinner and shroud) run with `chimera cad --mode script` → STEP/STL, rendered headless in Blender. Brand-neutral sample.*
 
 This module is the glue that lets an AI assistant **drive a live FreeCAD session**:
 create and edit parametric solids, run FEM simulations, export STEP/STL/glTF, and
@@ -133,35 +133,45 @@ repeat. It runs two ways:
   iteration.
 - **Fully autonomous** — **`auto_generate.py --pipeline cad --subject "..."`**: a **provider-agnostic
   LLM** (`scripts/agent/llm.py` — any OpenAI-compatible endpoint: **Gemini / OpenAI / Anthropic /
-  OpenRouter / local Ollama**, env-configured via `CHIMERA_LLM_*`) writes + revises the script across
-  iterations. The judge is the **recommended Ollama Qwen3-VL** via `--backend api`, or the optional
-  ComfyUI Qwen3-VL judge node via `--backend local`. With `--backend api` it's a pure LLM+FreeCAD+Blender
-  loop (no ComfyUI). See
-  [`../agent/self-correction.md`](../agent/self-correction.md#bring-your-own-llm---backend-api----pipeline-cad)
-  for the provider table. (Built + **live-validated** against a local Ollama endpoint; the agent layer now
-  targets **Qwen3.6-27B** for codegen and **Qwen3-VL-8B** for the vision judge.)
+  OpenRouter / local Ollama**, configurable via `CHIMERA_LLM_*`) writes + revises the script across
+  iterations. It runs with **no configuration**: code-gen is **Qwen 3.8 27B** on a local Ollama in every GPU
+  tier, and the judge is `--backend api`, the default, on the tier's local model (Qwen 3.8 27B on 32 GB+ cards, a
+  Qwen3-VL 8B or 4B on smaller ones; `--llm-tier` to choose). `--backend local` uses the optional ComfyUI
+  Qwen3-VL judge node instead. With `--backend api` it's a pure LLM+FreeCAD+Blender loop (no ComfyUI). See
+  [`../agent/self-correction.md`](../agent/self-correction.md#local-models-by-gpu-tier) for the tiers and
+  the code-gen measurements, and
+  [its provider table](../agent/self-correction.md#bring-your-own-llm---backend-api----pipeline-cad).
+  (Built + **live-validated** against a local Ollama endpoint.)
 
 **Per-role endpoints (autonomous runs only; an interactive AI agent needs none of this).** Codegen
 (`--codegen-*` / `CHIMERA_CODEGEN_*`) and the judge (`--judge-*` / `CHIMERA_JUDGE_*`) each take their own
-OpenAI-compatible endpoint, falling back to the shared `--llm-*` / `CHIMERA_LLM_*`. Model & hardware tiers:
+OpenAI-compatible endpoint, falling back to the shared `--llm-*` / `CHIMERA_LLM_*`, then to the GPU tier's
+local model. Model & hardware setups:
 
 | Setup | Codegen | Judge | GPU |
 |-------|---------|-------|-----|
 | Interactive (IDE agent) | the agent | the agent | none (FreeCAD/Blender local) |
-| No GPU, hosted API | `--backend api` hosted multimodal (Gemini free tier / GPT-4o / Claude) | same model | none |
-| Mixed | `--codegen-model` strong hosted coder | `--backend api` Ollama Qwen3-VL-8B (~6–9 GB) | judge GPU only |
-| Fully local | `--codegen-model qwen3.6-27b` (Ollama) | `--backend api` Ollama Qwen3-VL-8B (recommended) or `--backend local` ComfyUI Qwen3-VL node | per model |
+| No GPU, hosted API | `--llm-base-url <host> --llm-model <model>`: a hosted multimodal model (Gemini free tier / GPT-4o / Claude) | same model | none |
+| Mixed | `--codegen-base-url <host> --codegen-model <coder>` strong hosted coder | `--backend api` the tier's local judge (4.4–16.5 GB) | judge GPU only |
+| Fully local (the default, nothing to set) | Qwen 3.8 27B on Ollama, in every tier (partly on the CPU below 24 GB) | `--backend api` the tier's local judge, or `--backend local` ComfyUI Qwen3-VL node | per tier |
 
-Codegen quality drives success: a 7B *coder* works, a 7B *vision* model does not. The loop self-corrects
-from the FreeCAD error it feeds back, so a decent coder recovers in a couple of iterations.
+Codegen quality drives success. The first live run (2026-06) found a 7B *coder* gets a mounting bracket to a
+pass where a 7B *vision* model does not; on the 2026-10 six-part test, Qwen 3.8 27B built 5, a 27B coding
+model 4, and a 9B none of the 3 it tried. The loop self-corrects from the FreeCAD error it feeds back, so a
+strong coder recovers in a couple of iterations.
 
 > ⚠️ **`--mode script` `exec()`s the script unsandboxed** in the `FreeCADCmd` process (no network,
 > isolated process, but full Python — same trust as running a FreeCAD macro you wrote). **Run only
 > scripts you authored or audited.** The **autonomous** `--pipeline cad` path runs LLM-authored scripts
-> with a host-side denylist **plus** restricted builtins + an import allowlist (`script_exec.py
-> restrict=True`) — a best-effort speed bump, still **not** a true sandbox (FreeCAD's own file I/O is
-> reachable), so point it only at an LLM you trust. This is a first-party CLI capability, *not* an MCP
-> tool, so the per-tool gates below don't apply; the gated MCP `execute_code` is the separate GUI path.
+> with a host-side denylist (which also rejects dunder-attribute walks such as `.__globals__`,
+> `.__class__`, `__subclasses__` and frame objects) **plus** restricted builtins + an import allowlist
+> (`script_exec.py restrict=True`). Every `cad` job's `FreeCADCmd` also starts without credential-named
+> environment variables (any name containing `KEY`, `TOKEN`, `SECRET`, `PASS`, `CREDENTIAL` or `AUTH`, plus
+> proxies, webhooks and `*_URL` / `*_URI` connection strings), so a script can't read your API keys, and only
+> files in the job's own folder are taken as its output. It is a best-effort speed bump, still **not** a sandbox (Python object
+> internals can reach `os`, and FreeCAD's own file I/O is reachable), so point it only at a code-gen model
+> you trust. This is a first-party CLI capability, *not* an MCP tool, so the per-tool gates below don't
+> apply; the gated MCP `execute_code` is the separate GUI path.
 
 **Still roadmap:** sketch/constraint modeling, FEM headless, and assemblies. Keep a FreeCAD window open
 with the addon active for live MCP-assisted editing.
@@ -194,8 +204,8 @@ filter, and browser-request refusal asserted from source.
 | Tier | Policy | Tools |
 |---|---|---|
 | **1 — always per-call approval (RCE / unbounded mutation)** | require explicit approval on every call | `execute_code`, `execute_code_async`, `execute_code_headless`, `create_object`, `edit_object`, `delete_object` |
-| **2 — approval + path/host allowlist** | require approval; path/host must be explicitly vetted | `insert_part_from_library`, `run_fem_analysis` |
-| **3 — auto-allow (read-only)** | frictionless; no side-effects | `create_document`, `get_view`, `get_objects`, `get_object`, `get_parts_list`, `list_documents`, `reload_document`, `get_rpc_status`, `get_async_status` |
+| **2 — approval + path/host allowlist** | require approval; path/host must be explicitly vetted | `insert_part_from_library`, `run_fem_analysis`, `reload_document` (closes and reopens the document, discarding unsaved edits) |
+| **3 — auto-allow (read-only)** | frictionless; no side-effects | `create_document`, `get_view`, `get_objects`, `get_object`, `get_parts_list`, `list_documents`, `get_rpc_status`, `get_async_status` |
 
 Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.json).
 
@@ -207,8 +217,9 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
 - **Approve `insert_part_from_library` paths.** Upstream now confines library paths, but the
   tool still writes into your document; check the path before approving any call.
 - **Pin from commit, never floating tag.** Always launch from the pinned git ref
-  `78bf023` so the server cannot change under you. If the addon reports a version mismatch and
-  suggests `uvx freecad-mcp@latest`, **don't**: bump the pin (and re-audit) instead.
+  `78bf023` so the server's own code can't change under you (its Python dependencies, `mcp[cli]` and
+  `validators`, still resolve within their ranges when `uvx` installs it). If the addon reports a
+  version mismatch and suggests `uvx freecad-mcp@latest`, **don't**: bump the pin (and re-audit) instead.
 - **Re-audit on every pin bump.** When the pin is advanced, re-run the full audit
   against the diff before committing. Runbook:
   [`../../docs/UPDATING.md`](../../docs/UPDATING.md).
@@ -228,10 +239,10 @@ The server exposes exactly **17 tools**, grouped as:
 - **Parametric ops (Tier 1 — mutation):** `create_object`, `edit_object`,
   `delete_object`
 - **Documents / introspect (Tier 3 — read-only):** `create_document`,
-  `list_documents`, `reload_document`, `get_objects`, `get_object`, `get_view`,
+  `list_documents`, `get_objects`, `get_object`, `get_view`,
   `get_parts_list`, `get_rpc_status`, `get_async_status`
-- **Library / FEM (Tier 2 — path/host approval):** `insert_part_from_library`,
-  `run_fem_analysis`
+- **Library / FEM / reload (Tier 2 — approval):** `insert_part_from_library`,
+  `run_fem_analysis`, `reload_document` (closes and reopens the document, so unsaved edits are lost)
 - **Code-exec (Tier 1 — RCE):** `execute_code`, `execute_code_async`,
   `execute_code_headless` (headless `freecadcmd` subprocess; Chimera's own unattended path
   is `generate.py cad --mode script`)

@@ -336,3 +336,335 @@ def test_run_reports_an_unrenderable_combination_as_a_cli_error(monkeypatch, tmp
             raise SystemExit(f"error: {msg}")
     with pytest.raises(SystemExit, match="Fun Camera"):
         generate.run(_img_args(seed=1), repo, _Ap())
+
+
+
+# --- 2026-10 review: replay side effects ------------------------------------------------------------
+class _CountingComfy(FakeComfy):
+    def __init__(self, url=None):
+        self.freed = 0
+        self.wf = None
+
+    def free(self, **k):
+        self.freed += 1
+
+
+def test_a_replay_routes_beside_the_original_instead_of_replacing_it(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    meta, fake = _recorded_render(repo, monkeypatch)
+    out = repo / "brands" / "b" / "outputs" / "images"; out.mkdir(parents=True)
+    (out / "b_txt2img_5.png").write_bytes(b"ORIGINAL"); (out / "b_txt2img_5.json").write_text("{}")
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (comfyout / "out.png").write_bytes(b"REPLAY")
+    generate.run(_img_args(seed=5, comfy_output_dir=str(comfyout), expect=meta, accept_drift=False,
+                           model_override=None), repo, _StubAp())
+    assert (out / "b_txt2img_5.png").read_bytes() == b"ORIGINAL" and (out / "b_txt2img_5.json").read_text() == "{}"
+    assert (out / "b_txt2img_5_replay.png").read_bytes() == b"REPLAY" and (out / "b_txt2img_5_replay.json").exists()
+
+
+def test_a_replay_stopped_by_drift_frees_nothing(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    meta, _ = _recorded_render(repo, monkeypatch)
+    fake = _CountingComfy()
+    monkeypatch.setattr(generate, "ComfyClient", lambda url: fake)
+    (repo / "brands" / "b" / "brand.yaml").write_text(
+        'name: "B"\nstyle: "neon noir"\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\n', encoding="utf-8")
+    with pytest.raises(SystemExit):
+        generate.run(_img_args(seed=5, expect=meta, accept_drift=False, model_override=None, free_before=True),
+                     repo, _StubAp())
+    assert fake.freed == 0 and fake.wf is None
+
+
+def test_a_replay_keeps_the_recorded_watermark_decision(monkeypatch, tmp_path):
+    # the brand turned watermark.enabled_default on after the render: the replay must not stamp it
+    repo = _tmp_repo(tmp_path)
+    meta, fake = _recorded_render(repo, monkeypatch)
+    (repo / "brands" / "b" / "brand.yaml").write_text(
+        'name: "B"\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\nwatermark: { enabled_default: true }\n',
+        encoding="utf-8")
+    fake.wf = None
+    generate.run(_img_args(seed=5, expect=meta, accept_drift=False, model_override=None), repo, _StubAp())
+    assert not any("watermark" in n.get("_meta", {}).get("title", "") for n in fake.wf.values())
+
+
+def test_comfyui_rejecting_the_graph_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    repo = _tmp_repo(tmp_path)
+
+    class _Rejects(FakeComfy):
+        def queue_prompt(self, wf):
+            raise RuntimeError("ComfyUI validation errors: {'3': 'Value not in list: unet_name'}")
+    monkeypatch.setattr(generate, "ComfyClient", _Rejects)
+    with pytest.raises(SystemExit) as e:
+        generate.run(_img_args(seed=1), repo, _StubAp())
+    assert e.value.code == 1 and "Value not in list" in capsys.readouterr().err
+
+
+def test_main_replay_ignores_the_sidecars_comfy_url(monkeypatch, tmp_path, capsys):
+    data = {"schema": 2, "modality": "image", "mode": "txt2img", "brand": "b", "seed": 7,
+            "inputs": {"subject": "x"}, "comfy_url": "http://attacker.invalid:8000"}
+    sidecar = tmp_path / "s.json"
+    sidecar.write_text(json.dumps(data), encoding="utf-8")
+    seen = []
+    monkeypatch.setattr(generate, "run", lambda args, repo_root, ap: seen.append(args.comfy_url))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(sidecar)])
+    generate.main()
+    assert seen == ["http://127.0.0.1:8000"] and "attacker.invalid" in capsys.readouterr().err
+
+
+def test_tracked_sidecars_hold_no_local_paths():
+    # sidecars are committed for the example brand: none may carry a drive, a root path or a home folder
+    import re
+    bad = re.compile(r"^[A-Za-z]:[\\/]|^/(?!/)|[\\/](Users|home)[\\/]")
+    hits = []
+
+    def walk(v, where):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                walk(x, f"{where}.{k}")
+        elif isinstance(v, list):
+            for i, x in enumerate(v):
+                walk(x, f"{where}[{i}]")
+        elif isinstance(v, str) and bad.search(v):
+            hits.append(f"{where}: {v}")
+    for p in sorted((ROOT / "brands" / "example-brand" / "outputs").rglob("*.json")):
+        walk(json.loads(p.read_text(encoding="utf-8")), p.name)
+    assert hits == []
+
+
+
+def test_free_before_unloads_comfyui_just_before_queueing(monkeypatch, tmp_path):
+    # after the drift and flag checks, so a stopped replay or a bad flag frees nothing
+    repo = _tmp_repo(tmp_path)
+    order = []
+
+    class _Ordered(FakeComfy):
+        def free(self, **k):
+            order.append("free")
+
+        def queue_prompt(self, wf):
+            order.append("queue")
+            return super().queue_prompt(wf)
+    monkeypatch.setattr(generate, "ComfyClient", _Ordered)
+    generate.run(_img_args(seed=2, free_before=True), repo, _StubAp())
+    assert order == ["free", "queue"]
+
+
+
+def test_a_missing_reported_file_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    repo = _tmp_repo(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()          # FakeComfy reports out.png; it isn't there
+    with pytest.raises(SystemExit) as e:
+        generate.run(_img_args(seed=4, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    assert e.value.code == 1 and "isn't in its output folder" in capsys.readouterr().err
+
+
+
+# --- the 2026-10 review: one-line errors, flags a mode ignores, 3D formats ---------------------------------
+class _ErrAp:
+    def error(self, msg):
+        raise SystemExit(f"ap.error: {msg}")
+
+
+def _main(monkeypatch, *argv):
+    monkeypatch.setattr(sys, "argv", ["generate.py", *argv])
+    generate.main()
+
+
+def test_an_unknown_brand_is_one_clean_error(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    with pytest.raises(SystemExit, match="brand 'nope'"):
+        generate.run(_img_args(brand="nope"), repo, _ErrAp())
+
+
+def test_a_missing_watermark_logo_is_caught_before_anything_uploads(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    uploads = []
+
+    class _C(FakeComfy):
+        def upload_image(self, p):
+            uploads.append(p)
+            return "x"
+    monkeypatch.setattr(generate, "ComfyClient", _C)
+    (repo / "brands" / "b" / "products").mkdir()
+    (repo / "brands" / "b" / "products" / "rover.png").write_bytes(b"x")
+    with pytest.raises(SystemExit, match="watermark"):
+        generate.run(_img_args(mode="product", asset="rover.png", watermark=True), repo, _ErrAp())
+    assert uploads == []
+
+
+def test_comfyui_timing_out_is_one_line(monkeypatch, capsys):
+    monkeypatch.setattr(generate, "run", lambda *a: (_ for _ in ()).throw(TimeoutError("timed out")))
+    with pytest.raises(SystemExit) as e:
+        generate._run_comfy(_img_args(), Path("."), _StubAp())
+    assert e.value.code == 1 and "stopped answering" in capsys.readouterr().err
+
+
+def test_flags_the_mode_would_ignore_are_errors(monkeypatch, capsys):
+    monkeypatch.setattr(generate, "_run_comfy", lambda *a: pytest.fail("must not render"))
+    with pytest.raises(SystemExit):
+        _main(monkeypatch, "image", "--subject", "x", "--upscale-model", "4x-UltraSharp.pth")
+    assert "add --upscale" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        _main(monkeypatch, "audio", "--mode", "sfx", "--subject", "whoosh", "--bpm", "120")
+    assert "music settings" in capsys.readouterr().err
+
+
+def test_replaying_a_file_that_is_not_a_sidecar_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    png = tmp_path / "r.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n\x00\xff")
+    lst = tmp_path / "l.json"
+    lst.write_text("[1, 2]", encoding="utf-8")
+    for f in (png, lst, tmp_path / "missing.json"):
+        with pytest.raises(SystemExit):
+            _main(monkeypatch, "replay", str(f))
+        assert "sidecar" in capsys.readouterr().err
+
+
+def _repo_3d(tmp_path):
+    repo = _tmp_repo(tmp_path)
+    shutil.copytree(ROOT / "workflows" / "templates", repo / "workflows" / "templates", dirs_exist_ok=True)
+    (repo / "brands" / "b" / "products").mkdir()
+    (repo / "brands" / "b" / "products" / "rover.png").write_bytes(b"x")
+    return repo
+
+
+class _Comfy3D(FakeComfy):
+    def output_files_by_node(self, pid):
+        return [("999", "out.glb", "", "output")]
+
+
+def _3d_args(**over):
+    return _img_args(modality="3d", mode="image", from_image="rover.png", format="stl", **over)
+
+
+def test_3d_stl_keeps_the_textured_glb_beside_it(monkeypatch, tmp_path):
+    # TRELLIS.2 bakes its textures into the GLB, which converting to STL used to delete
+    import scripts.brandkit.mesh as mesh
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+
+    def fake_convert(p, fmt):
+        out = Path(p).with_suffix("." + fmt)
+        out.write_bytes(b"stl")
+        return out
+    monkeypatch.setattr(mesh, "convert", fake_convert)
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir()
+    (comfyout / "out.glb").write_bytes(b"glb")
+    generate.run(_3d_args(seed=5, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    d = repo / "brands" / "b" / "outputs" / "3d"
+    assert (d / "b_image_5.glb").exists() and (d / "b_image_5.stl").exists() and (d / "b_image_5.json").exists()
+
+
+def test_a_3d_file_that_will_not_convert_is_one_line(monkeypatch, tmp_path, capsys):
+    import scripts.brandkit.mesh as mesh
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    monkeypatch.setattr(mesh, "convert", lambda p, fmt: (_ for _ in ()).throw(ValueError("out.glb has 2 mesh parts")))
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir()
+    (comfyout / "out.glb").write_bytes(b"glb")
+    with pytest.raises(SystemExit) as e:
+        generate.run(_3d_args(seed=5, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    assert e.value.code == 1 and "the GLB is at" in capsys.readouterr().err
+
+
+def test_3d_stl_without_an_output_dir_says_it_stays_a_glb(monkeypatch, tmp_path, capsys):
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    generate.run(_3d_args(seed=5), repo, _StubAp())
+    assert "ComfyUI's GLB only" in capsys.readouterr().err
+
+
+
+# --- 2026-10 third review -----------------------------------------------------------------------------
+def test_run_refuses_a_history_name_outside_the_output_dir(monkeypatch, tmp_path, capsys):
+    repo = _tmp_repo(tmp_path)
+
+    class Hostile(FakeComfy):
+        def output_files_by_node(self, pid): return [("999", "secret.png", "../outside", "output")]
+    monkeypatch.setattr(generate, "ComfyClient", Hostile)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (tmp_path / "outside").mkdir(); (tmp_path / "outside" / "secret.png").write_bytes(b"S")
+    with pytest.raises(SystemExit):
+        generate.run(_img_args(seed=1, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    assert (tmp_path / "outside" / "secret.png").exists() and "outside" in capsys.readouterr().err
+
+
+def test_run_applies_the_default_free_before(monkeypatch, tmp_path):
+    repo, freed = _tmp_repo(tmp_path), []
+
+    class C(FakeComfy):
+        def free(self, **k): freed.append(1)
+    monkeypatch.setattr(generate, "ComfyClient", C)
+    monkeypatch.setattr(generate, "_default_free_before", lambda args, m: True)   # e.g. a FLUX.2 or video job
+    generate.run(_img_args(seed=2, free_before=None), repo, _StubAp())
+    assert freed == [1]
+
+
+def test_a_foley_sidecar_records_the_timing_it_used(monkeypatch, tmp_path):
+    # probed at 30 fps / 7.2 s; replayed where the probe can't run, the old record fell back to 25 fps / 5 s
+    repo = _tmp_repo(tmp_path)
+    shutil.copy(ROOT / "workflows" / "templates" / "brand-audio-foley.json",
+                repo / "workflows" / "templates" / "brand-audio-foley.json")
+    clip = repo / "brands" / "b" / "references" / "clip.mp4"
+    clip.parent.mkdir(parents=True); clip.write_bytes(b"v")
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (30.0, 7.2, 640, 360))
+
+    class C(FakeComfy):
+        def upload_video(self, p): return "clip.mp4"
+        def output_files_by_node(self, pid): return [("999", "out.mp4", "", "output")]
+    monkeypatch.setattr(generate, "ComfyClient", C)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir(); (comfyout / "out.mp4").write_bytes(b"A")
+    generate.run(_img_args(modality="audio", mode="foley", subject="footsteps", from_video="clip.mp4", seed=3,
+                           comfy_output_dir=str(comfyout)), repo, _StubAp())
+    side = next((repo / "brands" / "b" / "outputs").rglob("b_foley_3.json"))
+    inputs = json.loads(side.read_text(encoding="utf-8"))["inputs"]
+    assert {k: inputs[k] for k in ("fps", "duration", "width", "height")} == \
+        {"fps": 30.0, "duration": 7.2, "width": 640, "height": 360}
+
+
+def test_replay_reads_a_sidecar_saved_with_a_bom_and_says_what_an_old_one_cannot_check(monkeypatch, tmp_path,
+                                                                                       capsys):
+    sidecar = tmp_path / "s.json"
+    sidecar.write_text(json.dumps({"schema": 2, "modality": "image", "mode": "txt2img", "brand": "b", "seed": 7,
+                                   "inputs": {"subject": "x"}}), encoding="utf-8-sig")   # PowerShell 5.1 adds a BOM
+    captured = {}
+    monkeypatch.setattr(generate, "run", lambda args, repo_root, ap: captured.update(seed=args.seed))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(sidecar)])
+    generate.main()
+    assert captured == {"seed": 7} and "predates Chimera v0.6.0" in capsys.readouterr().err
+
+
+def test_a_sidecar_missing_a_key_is_one_clean_error(monkeypatch, tmp_path, capsys):
+    p = tmp_path / "s.json"
+    p.write_text(json.dumps({"schema": 2, "modality": "image", "mode": "txt2img", "seed": 7}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["generate.py", "replay", str(p)])
+    with pytest.raises(SystemExit) as e:
+        generate.main()
+    assert e.value.code == 2 and "cannot replay" in capsys.readouterr().err
+
+
+def test_a_brand_that_is_not_a_folder_name_stops_before_anything_renders(monkeypatch, capsys):
+    # route_output refused it after the render, leaving the file in ComfyUI's folder
+    monkeypatch.setattr(generate, "ComfyClient", lambda *a, **k: pytest.fail("nothing may reach ComfyUI"))
+    monkeypatch.setattr(sys, "argv", ["generate.py", "image", "--brand", ".hidden", "--subject", "x"])
+    with pytest.raises(SystemExit) as e:
+        generate.main()
+    assert e.value.code == 2 and "isn't a brand folder name" in capsys.readouterr().err
+
+
+def test_main_escapes_what_the_console_cannot_encode(monkeypatch):
+    # a piped run on Windows (cp1252) crashed on a non-Latin brand name after the job was queued
+    import io
+    import scripts.brandkit.scaffold as scaffold
+    out = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(scaffold, "lint_brand", lambda root, brand: [("ok", f"{brand} \u2192 fine")])
+    monkeypatch.setattr(sys, "argv", ["generate.py", "lint", "--brand", "\u6771\u4eac-brand"])
+    with pytest.raises(SystemExit):
+        generate.main()
+    out.flush()
+    assert b"\\u2192" in out.buffer.getvalue()

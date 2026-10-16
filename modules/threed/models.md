@@ -13,7 +13,7 @@ nodes (`Trellis2*`, `Pixal3DConditioning`, `MoGe*`, `RemoveBackground`, `UnwrapM
 `ApplyTextureToMesh`, `Save3DAdvanced`, …) are core in ComfyUI 0.40. The weights are the Comfy-Org int8
 "convrot" builds; nothing is gated (the old `facebook/dinov3` login is not needed).
 
-| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License | Needed by |
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License | Loaded by |
 |------|-----------------|----------------------------------|------|---------|-----------|
 | `trellis_2_int8_convrot.safetensors` | `Comfy-Org/TRELLIS.2` | `diffusion_models/` | ~4.9 GB | ✅ MIT | TRELLIS.2 |
 | `pixal3d_int8_convrot.safetensors` | `Comfy-Org/Pixal3D` | `diffusion_models/` | ~5.2 GB | ✅ MIT | Pixal3D |
@@ -22,6 +22,10 @@ nodes (`Trellis2*`, `Pixal3DConditioning`, `MoGe*`, `RemoveBackground`, `UnwrapM
 | `dino_v3_L_naf_fp32.safetensors` | `Comfy-Org/Pixal3D` | `clip_vision/` | ~1.1 GB | ⚠️ repo lists MIT; upstream DINOv3 is under Meta's DINOv3 license | both |
 | `birefnet.safetensors` | `Comfy-Org/BiRefNet` | `background_removal/` | ~0.4 GB | ✅ MIT | both |
 | `moge_2_vitl_normal_fp16.safetensors` | `Comfy-Org/MoGe` | `geometry_estimation/` | ~0.6 GB | ✅ MIT | Pixal3D |
+
+**Download only what your model loads:** the TRELLIS.2 row plus the four "both" rows (about 9 GB) for the
+default, or the two Pixal3D rows plus the four "both" rows for `--model pixal3d`. Chimera folds the shared
+graph's model switch at build time, so ComfyUI never validates the other model's loaders.
 
 ---
 
@@ -63,6 +67,31 @@ Hunyuan3D 2.1 is distributed under a Tencent community license. Personal,
 non-commercial use is not restricted. **Verify terms before any commercial
 distribution** — recorded here as neutral reference for anyone who forks.
 License text is in the `Comfy-Org/hunyuan3D_2.1_repackaged` repository.
+
+---
+
+## Optional: auto-repaint bake models (Hunyuan3D path)
+
+Only for coloring a shape-only mesh: `generate.py finalize-texture --auto-repaint` (which
+`auto_generate.py --pipeline mesh3d --mesh-model hunyuan21 --finalize` runs on the winner) paints the
+mesh's views with SDXL depth-ControlNet + IPAdapter in ComfyUI. TRELLIS.2 and Pixal3D come out textured
+and don't need any of this.
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | License |
+|------|-----------------|----------------------------------|---------|
+| `ip-adapter-plus_sdxl_vit-h.safetensors` *(IPAdapter model)* | `h94/IP-Adapter` | `ipadapter/` | Apache-2.0 |
+| `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` *(CLIP-Vision ViT-H, the repo's image_encoder)* | `h94/IP-Adapter` | `clip_vision/` | MIT |
+| `controlnet-depth-sdxl-1.0.safetensors` *(depth ControlNet)* | `xinsir/controlnet-depth-sdxl-1.0` | `controlnet/` | Apache-2.0 |
+| `sd_xl_base_1.0.safetensors` *(SDXL base)* | `stabilityai/stable-diffusion-xl-base-1.0` | `checkpoints/` | CreativeML-OpenRAIL++ |
+
+The graph loads these exact file names (`scripts/brandkit/repaint.py`), so save each download under the
+name above.
+
+**Node pack:** `cubiq/ComfyUI_IPAdapter_plus`, **pinned at audited commit `a0f451a`** (never `@latest`).
+Clone `https://github.com/cubiq/ComfyUI_IPAdapter_plus` into `ComfyUI/custom_nodes/`, then
+`git checkout a0f451a`. Audit verdict: safe-with-precautions — clean deps (torch/comfy/PIL/einops), no
+network, telemetry or exec; only the niche `IPAdapterEmbeds` loader does `torch.load`, so don't feed it
+untrusted `.ipadpt` files. Re-scan before advancing the pin.
 
 ---
 

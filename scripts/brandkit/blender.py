@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-from .dcc import MANIFEST_TAG, find_executable, run_and_parse
+from .dcc import MANIFEST_TAG, find_executable, run_and_parse, scrubbed_env
 
 __all__ = ["MANIFEST_TAG", "BlenderJobError", "find_blender", "run_template"]
 _DEFAULT_GLOB = r"C:\Program Files\Blender Foundation\Blender *\blender.exe"
@@ -36,4 +36,5 @@ def run_template(template_path, params: dict, *, blender_bin=None, timeout=600,
     argv = [exe, "--background", "--factory-startup", "--python-exit-code", "1",
             "--python", str(template_path), "--", json.dumps(params)]
     return run_and_parse(argv, timeout=timeout, _runner=_runner, error_cls=BlenderJobError,
-                         exe_label="blender", job_label="blender", reason="template error?")
+                         exe_label="blender", job_label="blender", reason="template error?",
+                         env=scrubbed_env())   # no job needs API keys; FreeCAD jobs get the same

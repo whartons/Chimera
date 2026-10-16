@@ -7,7 +7,7 @@
   LTXAVTextEncoderLoader (gemma), never the cloud encoder. In the 2026-10 review it always added a camera
   push-in or pan and drifted a face's identity, which is why Wan became the default."""
 from __future__ import annotations
-from .nodes import assert_free_ids, find_node_by_title, load_template, node as _n
+from .nodes import assert_free_ids, find_node_by_title, load_template, model_file, node as _n
 
 LTX23_MODEL = "ltx-2.3-22b-dev-nvfp4.safetensors"
 # Wan 2.2 runs two experts (high-noise, then low-noise). The HIGH file names the model (what --model,
@@ -43,8 +43,8 @@ def canonical(name):
     return ALIASES.get((name or "").lower(), name)
 
 
-def is_wan(model_file):
-    return (model_file or "").lower().startswith("wan")
+def is_wan(model):
+    return model_file(model).startswith("wan")
 
 
 def resolved_model(manifest, model=None, camera=None):
@@ -62,22 +62,57 @@ def _snap16(n):
     return max(16, int(n) // 16 * 16)
 
 
+def _snap_frames(n, k):
+    """ComfyUI renders k*m+1 frames (Wan k=4, LTX k=8) and floors any other length, and Wan's Fun Camera
+    embedding crashes on one. Snap here so the graph, the sidecar and foley's clip timing agree."""
+    return max(1, (int(n) - 1) // k * k + 1)
+
+
+def is_camera_model(model):
+    return "fun_camera" in model_file(model)
+
+
 def resolved_settings(manifest, *, model=None, camera=None, quality=None, length=None, fps=None,
                       width=None, height=None, audio=None):
     """Every resolved knob of a render: explicit value, else the family default. Shared by build() and
     the sidecar so a replay reproduces the clip. LTX falls back to the brand video: block (its
     length/fps/audio were tuned for LTX); Wan to its native 81 frames at 16 fps, sizes snapped to
     multiples of 16, silent, `fast` quality for plain image-to-video and `full` for camera moves (the
-    4-step Fun Camera kept the camera locked but cut the scene's motion to about a third)."""
+    4-step Fun Camera kept the camera locked but cut the scene's motion to about a third). Lengths snap
+    down to the frame count the family really renders (LTX 8k+1, Wan 4k+1)."""
     v = manifest.video
     mfile = resolved_model(manifest, model, camera)
     if not is_wan(mfile):
         return {"model": mfile, "width": width or v.width, "height": height or v.height,
-                "length": length or v.length, "fps": fps or v.fps,
+                "length": _snap_frames(length or v.length, 8), "fps": fps or v.fps,
                 "audio": v.audio if audio is None else audio, "quality": None, "camera": None}
     return {"model": mfile, "width": _snap16(width or v.width), "height": _snap16(height or v.height),
-            "length": length or WAN_LENGTH, "fps": fps or WAN_FPS, "audio": False,
+            "length": _snap_frames(length or WAN_LENGTH, 4), "fps": fps or WAN_FPS, "audio": False,
             "quality": quality or ("full" if camera else "fast"), "camera": camera}
+
+
+def check_options(manifest, *, model=None, camera=None, quality=None, upscale=False):
+    """Raise ValueError for a request the resolved family can't render. generate.py calls it before it
+    frees the GPU or uploads the start frame; build() runs it too."""
+    if camera is not None and camera not in CAMERA_POSES:
+        raise ValueError(f"unknown camera move {camera!r}; expected one of: {', '.join(CAMERA_POSES)}")
+    if quality is not None and quality not in _WAN_QUALITY:
+        raise ValueError(f"unknown quality {quality!r}; expected one of: {', '.join(_WAN_QUALITY)}")
+    mfile = resolved_model(manifest, model, camera)
+    if not is_wan(mfile):
+        if camera:
+            raise ValueError("camera moves need Wan 2.2's Fun Camera model: drop --model ltx23 (or pass "
+                             "--model wan22)")
+        if quality:
+            raise ValueError("--quality picks Wan 2.2's sampling (fast or full); LTX-2.3 has one: drop "
+                             "--quality, or pass --model wan22")
+        return
+    if upscale:
+        raise ValueError("video --upscale is LTX's latent upscaler: render with --model ltx23, or ask Wan for "
+                         "the size you want with --width/--height")
+    if is_camera_model(mfile) and not camera:
+        raise ValueError("the Wan 2.2 Fun Camera model needs a camera move: add --camera (static keeps it "
+                         "locked), or use --model wan22")
 
 
 def resolved_upscale_model(manifest, upscale_model=None):
@@ -161,21 +196,12 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
           upscale=False, upscale_model=None, **opts) -> dict:
     if not from_image:
         raise ValueError("video i2v requires from_image")
-    if camera is not None and camera not in CAMERA_POSES:
-        raise ValueError(f"unknown camera move {camera!r}; expected one of: {', '.join(CAMERA_POSES)}")
-    if quality is not None and quality not in _WAN_QUALITY:
-        raise ValueError(f"unknown quality {quality!r}; expected one of: {', '.join(_WAN_QUALITY)}")
+    check_options(manifest, model=model, camera=camera, quality=quality, upscale=upscale)
     r = resolved_settings(manifest, model=model, camera=camera, quality=quality, length=length, fps=fps,
                           width=width, height=height, audio=audio)   # audio None = brand video.audio (LTX)
     if is_wan(r["model"]):
-        if upscale:
-            raise ValueError("video --upscale is LTX's latent upscaler: render with --model ltx23, or ask Wan for "
-                             "the size you want with --width/--height")
         wf = _build_wan(repo_root, positive, negative, seed, from_image, r)
     else:
-        if camera:
-            raise ValueError("camera moves need Wan 2.2's Fun Camera model: drop --model ltx23 (or pass "
-                             "--model wan22)")
         wf = _build_ltx(repo_root, manifest, positive, negative, seed, from_image, r, upscale, upscale_model)
     if watermark:
         from .watermark import inject_video_watermark

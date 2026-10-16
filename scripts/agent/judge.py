@@ -27,21 +27,84 @@ class Judge(ABC):
 
 
 # standalone PASS / FAIL verdict tokens (word-boundaried, case-insensitive) so
-# 'passable' / 'compass' / 'failsafe' never trip the overall verdict.
+# 'passable' / 'compass' / 'failsafe' never trip the overall verdict; a negated pass ('Does not pass') is a FAIL.
 _PASS = re.compile(r"\bpass(?:ed)?\b", re.IGNORECASE)
-_FAIL = re.compile(r"\bfail(?:ed)?\b", re.IGNORECASE)
-_SCORE = re.compile(
-    r"score[^\d\-]{0,4}(-?\d+(?:\.\d+)?)\s*(/\s*(\d+(?:\.\d+)?)|%)?", re.IGNORECASE)
-# Issues are the rubric's genuine NOT-MET lines only. A plain 'MET - ...' line never
-# contains 'not met', so MET criteria (even ones mentioning 'avoids'/'missing') are excluded.
-_NOTMET = re.compile(r"\bnot[\s\-]?met\b|\bunmet\b", re.IGNORECASE)
+_FAIL = re.compile(r"\bfail(?:ed)?\b|(?:\bnot|\bnever|\bcannot|n't)\s+(?:a\s+)?pass(?:ed)?\b", re.IGNORECASE)
+_SCORE = re.compile(r"\bscores?\b(?:\s*[(\[][^)\]\n]*[)\]])?[^\d\n]{0,8}?(-?\d+(?:[.,]\d+)?)\s*"
+                    r"(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?", re.IGNORECASE)
+# the scale a judge names before the value ('Score (0-1): 0.82', 'Score [1-10]: 8', 'Score (out of 5): 4'); it
+# read as the value
+_SCORE_RANGE = re.compile(r"[(\[]\s*(?:[01]\s*(?:[-–]|to)\s*|(?:out\s+)?of\s+)(\d+(?:\.\d+)?)\s*[)\]]",
+                          re.IGNORECASE)
+# a bare value on the line after a 'Score:' label ('**Score:**' with '0.85' below it)
+_SCORE_VALUE = re.compile(r"^[\s*_`]*(-?\d+(?:[.,]\d+)?)\s*(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?[\s*_`.]*$",
+                          re.IGNORECASE)
+# NOT-MET / NOT MET / NOT_MET / **NOT** MET, and with typographic or full-width dashes
+_DASH = r"[\s_*\-‐-―−－﹣]*"
+# 'Partially MET', 'Barely met', 'not quite met', 'MET (partially)' are not MET: the rubric passes only what is
+# clearly and fully satisfied. 'not only met' (but exceeded) is MET, and 'nothing' / 'note' are not 'not'.
+_STATUS = re.compile(rf"(?<![A-Za-z])((?:not(?:(?![a-z])|(?=met)){_DASH}(?:(?!(?:only|just|merely|simply)\b)[a-z]+\s+)?"
+                     rf"|(?:partially|partly|mostly|largely|nearly|almost|somewhat|half|semi|barely|hardly|scarcely"
+                     rf"|marginally){_DASH})met|unmet|met\s*\(\s*(?:partially|partly|mostly|largely|barely)(?:\s+met)?"
+                     rf"\s*\)|met)(?![A-Za-z])", re.IGNORECASE)
+_COUNTED = re.compile(rf"(?<![\d./])[1-9]\d*\s*(?:criteria\s+|criterion\s+)?(?:not{_DASH}met|unmet)(?![A-Za-z])",
+                      re.IGNORECASE)
+# a count written label-first ('Met: 4  Not met: 0'): the number decides
+_LABEL_COUNT = re.compile(rf"(?<![A-Za-z])(?:not{_DASH}met|unmet)\s*[:=]\s*(\d+)\s*(?:[,;|)]|$)", re.IGNORECASE)
+_NOTHING_AFTER = re.compile(r"^[\W_]*(?:criteria|criterion|items?)?[\W_]*(?:none|nothing|n/?a|0|zero)\b"
+                            r"[^A-Za-z0-9(]*(?:\(.*\))?[\W_]*$", re.IGNORECASE)
+_ZERO_BEFORE = re.compile(r"(?<![\d.])0\s*(?:/\s*\d+\s*)?(?:criteria\s+|criterion\s+)?$", re.IGNORECASE)
+# 'no NOT-MET criteria', 'none of them are unmet', 'nothing is unmet', 'for any NOT-MET criterion': a negation or
+# a condition just before the word, with only words between (a ' - ' or ':' separator ends it), makes an
+# unnumbered line a summary or an instruction. Not a numbered line: that is a criterion, whose label may read
+# 'No missing or broken parts' or 'a knight without a helmet' (both were read as summaries, passing broken
+# renders, 2026-10 review).
+_NEGATED = re.compile(r"\b(?:no|none|nothing|zero|without|any|if)\b[\w\s']{0,30}$", re.IGNORECASE)
+_NUMBERED = re.compile(r"^[\s*#>|_\-]*(?:criterion\s*)?\d+\s*[.):|]", re.IGNORECASE)
+_MARKS = "❌✅✔✖✗✘"   # the check and cross marks judges put before a status
+_CELL_TRIM = " \t*_`" + _MARKS
+
+
+def _line_unmet(line):
+    """True when a line of a judge's reply marks a criterion NOT-MET: a table cell holding only the status, a
+    non-zero count ('1 NOT-MET'), or the line's first status word, NOT-MET (any spelling, 'partially met'
+    included). Fail-safe: a numbered line is a criterion, so its status always counts. Only an unnumbered summary
+    or instruction is let off: a negation just before the word ('No NOT-MET criteria', 'nothing is unmet', 'For
+    any NOT-MET criterion ...'), nothing after it ('NOT MET: none'), a zero count ('0/3 NOT-MET', 'Not met: 0') or
+    'unless'. Each of those failed correct renders, and the same escapes on a criterion ('1. NOT-MET: none (the top
+    face is flat)') or a rule tight enough to require a label layout passed broken ones (2026-10 reviews)."""
+    if "|" in line:
+        cells = [c for c in (c.strip(_CELL_TRIM) for c in line.split("|")) if _STATUS.fullmatch(c)]
+        if cells:
+            return cells[0].lower() != "met"
+    numbered = bool(_NUMBERED.match(line))
+    lc = None if numbered else _LABEL_COUNT.search(line)
+    if lc:
+        return int(lc.group(1)) > 0
+    if _COUNTED.search(line):
+        return True
+    m = _STATUS.search(line)
+    if not m or m.group(1).lower() == "met":
+        return False
+    if numbered:
+        return True
+    before, after = line[:m.start()], line[m.end():]
+    if _NOTHING_AFTER.match(after) or re.match(r"\s+unless\b", after, re.IGNORECASE) or _ZERO_BEFORE.search(before):
+        return False
+    return not _NEGATED.search(before)
 # Also carry any line bearing a 'FIX:' directive (the judge's structured add/avoid correction) so
 # the expander receives it even if the model puts it on its own line rather than the NOT-MET line.
 _FIXLINE = re.compile(r"\bfix\b\s*[:\-]", re.IGNORECASE)
 # A line that IS the overall-verdict / score line (allowing markdown bullets/emphasis), as opposed
 # to a criterion reason that merely mentions 'overall'/'scored' mid-sentence.
 _OVERALL_LINE = re.compile(r"\s*[*#>\-\s]*overall\b", re.IGNORECASE)
-_SCORE_LINE = re.compile(r"\s*[*#>\-\s]*(?:final\s+)?score\b", re.IGNORECASE)
+_SCORE_LINE = re.compile(r"\s*[*#>\-\s]*(?:final\s+)?scores?\b", re.IGNORECASE)
+# a verdict label just before the PASS/FAIL ('NOT-MET: none. Overall: PASS', 'so the verdict is FAIL')
+_VERDICT_AT = re.compile(r"\b(?:overall|verdict|result|final)\b[^:\n]{0,20}[:\-–—=]?\s*[*_]*\s*$", re.IGNORECASE)
+# the rubric's own instructions echoed back (rubric.as_prompt): not a verdict, a criterion or a FIX. Its
+# '<comma-separated visual elements to include>' reached the next prompt as a term to add.
+_ECHO = re.compile(r"comma-separated (?:visual elements|traits)|PASS only if EVERY criterion|append on the SAME "
+                   r"line a concrete fix|for each numbered criterion, state|Be strict: mark a criterion", re.IGNORECASE)
 
 
 def parse_verdict(text: str) -> Verdict:
@@ -49,8 +112,7 @@ def parse_verdict(text: str) -> Verdict:
     try:
         if not text or not str(text).strip():
             return Verdict(passed=False, score=0.0, issues=[])
-        text = str(text)
-        lines = text.splitlines()
+        lines = [l for l in str(text).splitlines() if not _ECHO.search(l)]
 
         # Decide PASS/FAIL from the verdict-bearing line only, so criterion
         # reasons containing the word 'fail' (or 'pass') don't contaminate the
@@ -58,7 +120,14 @@ def parse_verdict(text: str) -> Verdict:
         # reverse and prefer a line STARTING with 'overall' — a criterion reason like
         # 'MET - overall composition passed' earlier in the text must never hijack the verdict.
         def _has_token(l):
-            return _PASS.search(l) or _FAIL.search(l)
+            # a line whose status word comes before its PASS/FAIL is a criterion ('2. NOT-MET: the overall look
+            # would not pass'), never the verdict: numbered, or marking a criterion NOT-MET unless a verdict label
+            # introduces the token ('NOT-MET: none. Overall: PASS'). That criterion, taken as the verdict, was also
+            # left out of the criterion check, so a judge's bare FAIL became a PASS (2026-10 review).
+            t = min((m.start() for m in (_PASS.search(l), _FAIL.search(l)) if m), default=None)
+            s = _STATUS.search(l)
+            return t is not None and (s is None or t < s.start() or not (
+                _NUMBERED.match(l) or (_line_unmet(l) and not _VERDICT_AT.search(l[:t]))))
         verdict_line = next(
             (l for l in reversed(lines) if _OVERALL_LINE.match(l) and _has_token(l)), None)
         if verdict_line is None:
@@ -66,27 +135,41 @@ def parse_verdict(text: str) -> Verdict:
                 (l for l in reversed(lines) if "overall" in l.lower() and _has_token(l)), None)
         if verdict_line is None:
             verdict_line = next((l for l in reversed(lines) if _has_token(l)), "")
-        # FAIL takes precedence; PASS only on an explicit standalone token.
+        # FAIL takes precedence; PASS only on an explicit standalone token. The rubric says PASS only if
+        # every criterion is MET, so a criterion marked NOT-MET also fails it: a small judge wrote "NOT-MET:
+        # the head is completely absent" and then "Overall: PASS" (2026-10 judge benchmark).
         failed = bool(_FAIL.search(verdict_line))
-        passed = bool(_PASS.search(verdict_line)) and not failed
+        criterion_unmet = any(_line_unmet(l) for l in lines if l.strip() != verdict_line.strip())
+        # ... and so does the verdict line's own confession after the PASS ('PASS - criterion 2 is partially met')
+        pm = _PASS.search(verdict_line)
+        verdict_unmet = bool(pm) and _line_unmet(verdict_line[pm.end():])
+        passed = bool(pm) and not failed and not criterion_unmet and not verdict_unmet
 
         # Score: prefer the dedicated trailing 'score: ...' line (rubric instruction); fall back
         # to the LAST match anywhere, so prose like 'scored 7 criteria' can't clamp to 1.0.
         m = None
-        for l in reversed(lines):
-            if _SCORE_LINE.match(l):
-                m = _SCORE.search(l)
+        for i in range(len(lines) - 1, -1, -1):
+            if _SCORE_LINE.match(lines[i]):
+                m = _SCORE.search(lines[i])
+                nxt = next((l for l in lines[i + 1:] if l.strip()), None)
+                if m is None and nxt is not None:   # the value on the line below the label
+                    m = _SCORE_VALUE.match(nxt)
                 if m:
                     break
         if m is None:
-            all_scores = list(_SCORE.finditer(text))
+            all_scores = list(_SCORE.finditer("\n".join(lines)))
             m = all_scores[-1] if all_scores else None
         if m:
-            val = float(m.group(1))
-            if m.group(3):                                  # "value/denom"
+            val = float(m.group(1).replace(",", "."))     # 'score: 0,85'
+            rng = _SCORE_RANGE.search(m.string, m.start(), m.start(1)) if m.re is _SCORE else None
+            if m.group(3):                                  # "value/denom", "value out of denom"
                 d = float(m.group(3)); val = val / d if d else 0.0
-            elif m.group(2) and m.group(2).strip() == "%":  # "value%"
+            elif m.group(4):                                # "value%"
                 val = val / 100.0
+            elif rng:                                       # "Score (0-10): 8"
+                d = float(rng.group(1)); val = val / d if d else 0.0
+            elif val >= 2:                                  # 'score: 7' on a 0-10 scale, 'score: 85' on 0-100
+                val = val / 10 if val <= 10 else val / 100  # (both used to read as a perfect 1.0); 1.7 clamps
             score = max(0.0, min(1.0, val))
         else:
             score = 0.0
@@ -97,8 +180,8 @@ def parse_verdict(text: str) -> Verdict:
             seg = line.strip()
             # Collect genuine NOT-MET lines (and any standalone FIX: directive line); skip only
             # the verdict line ITSELF — a NOT-MET reason may legitimately say 'overall proportions'
-            # and its FIX feedback must still reach the expander.
-            if seg and seg != vseg and (_NOTMET.search(seg) or _FIXLINE.search(seg)):
+            # and its FIX feedback must still reach the expander — unless it confesses an unmet criterion.
+            if seg and (verdict_unmet if seg == vseg else (_line_unmet(seg) or _FIXLINE.search(seg))):
                 issues.append(seg)
 
         return Verdict(passed=passed, score=score, issues=issues)
@@ -255,11 +338,13 @@ class GeometryAwareJudge(Judge):
     judge scores the contact sheet, read the sibling '<stem>.checks.json' (written by the render
     generator from mesh_eval's bmesh probe); on any structural failure force passed=False and union
     the structural NOT-MET lines in. A VLM can't see watertightness/holes/disconnected chunks from a
-    render — this is how those get caught. No checks file (or a corrupt one) → pure passthrough."""
+    render — this is how those get caught. No checks file (or a corrupt one) → pure passthrough.
+    `strict` (the CAD loop) demands one solid by raw island count; see geometry.structural_issues."""
 
-    def __init__(self, inner: Judge, *, checks_suffix=RENDER_CHECKS_SUFFIX):
+    def __init__(self, inner: Judge, *, checks_suffix=RENDER_CHECKS_SUFFIX, strict=False):
         self.inner = inner
         self.checks_suffix = checks_suffix
+        self.strict = strict
 
     def judge(self, image_path, rubric) -> Verdict:
         v = self.inner.judge(image_path, rubric)
@@ -271,7 +356,7 @@ class GeometryAwareJudge(Judge):
             checks = json.loads(cf.read_text(encoding="utf-8"))
         except Exception:
             return v
-        extra = structural_issues(checks)
+        extra = structural_issues(checks, strict=self.strict)
         if not extra:
             return v
         seen, issues = set(), []

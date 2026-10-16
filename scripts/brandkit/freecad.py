@@ -10,7 +10,7 @@ import os
 import subprocess
 import tempfile
 
-from .dcc import MANIFEST_TAG, find_executable, run_and_parse
+from .dcc import MANIFEST_TAG, find_executable, run_and_parse, scrubbed_env
 
 __all__ = ["MANIFEST_TAG", "FreeCADJobError", "find_freecad", "run_template"]
 _DEFAULT_GLOB = r"C:\Program Files\FreeCAD *\bin\FreeCADCmd.exe"
@@ -48,7 +48,7 @@ def run_template(template_path, params: dict, *, freecad_bin=None, timeout=600,
         # polluting stderr + the CAD loop's revise feedback. The template reads
         # $CHIMERA_CAD_PARAMS (sys.argv fallback).
         argv = [exe, str(template_path)]
-        env = {**os.environ, "CHIMERA_CAD_PARAMS": pfile}
+        env = scrubbed_env(CHIMERA_CAD_PARAMS=pfile)   # scripts may be LLM-written: no API keys
         return run_and_parse(argv, timeout=timeout, _runner=_runner, error_cls=FreeCADJobError,
                              exe_label="FreeCADCmd", job_label="FreeCAD", reason="script error?",
                              env=env)

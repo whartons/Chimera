@@ -21,6 +21,6 @@ watermark: { enabled_default: false, position: "bottom-right", scale: 0.16, marg
 # video model null = Wan 2.2 (silent; --camera moves); "ltx23" = LTX-2.3 with synced audio.
 # length/fps/audio apply to LTX (Wan renders its native 81 frames at 16 fps).
 video: { model: null, length: 97, fps: 25, audio: true }
-# audio music_model null = Stable Audio 3 Medium; "acestep" = ACE-Step 1.5 (e.g. vocals)
-audio: { music_model: null, foley: "ltx-native" }
+# audio music_model null = Stable Audio 3 Medium; "acestep" = ACE-Step 1.5 (it sings --lyrics)
+audio: { music_model: null }
 threed: { model: null, format: "glb" }

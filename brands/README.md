@@ -12,13 +12,12 @@ validated against.
 |---|---|
 | `brands/README.md` | ✅ tracked |
 | `brands/_template/` | ✅ tracked (copy this to start a brand) |
-| `brands/example-brand/` | ✅ tracked (public pilot, sans `outputs/`) |
-| `brands/<your-brand>/` | 🔒 **gitignored** — your brand data is private |
-| `brands/**/outputs/` | 🔒 **gitignored** everywhere (generated media) |
+| `brands/example-brand/` | ✅ tracked in full (public pilot, including its `outputs/` showcase) |
+| `brands/<your-brand>/` | 🔒 **gitignored** — your brand data (and its `outputs/`) is private |
 
 The rules live in [`../.gitignore`](../.gitignore): everything under `brands/` is
-ignored *except* the three tracked paths above, and every `outputs/` subfolder is
-always ignored.
+ignored *except* the three tracked paths above. Even in the example brand, model weights
+(`*.safetensors`, `*.ckpt`, …), `.env` files and `*.local.json` stay ignored.
 
 ## Start a brand
 
@@ -41,7 +40,7 @@ palette: ["#1c1f22", "#c8442e"]     # optional; described to the model
 prompt_prefix: ""                    # prepended to every subject
 prompt_suffix: ", studio product render"
 negative: "low quality, blurry, watermark"
-defaults: { model: "flux2_dev_fp8mixed.safetensors", width: 1024, height: 1024, steps: 20, guidance: 3.5 }
+defaults: { model: "qwen_image_2.1_int8_convrot.safetensors", width: 1024, height: 1024, steps: 20, guidance: 3.5 }
 logo:  { default: "logos/primary.png", position: "bottom-right", scale: 0.18, margin: 0.04 }
 lora:  { file: null, strength: 0.8 }          # set file to a .safetensors to auto-load it
 ip_adapter: { enabled: false, weight: 0.5, references: "references/" }   # V2, off by default
@@ -69,7 +68,8 @@ python scripts/generate.py image --brand example-brand \
     --subject "the armored six-wheel recon rover, clean studio product shot, dark seamless background" \
     --mode logo --asset primary.png --comfy-output-dir "<ComfyUI output dir>"
 
-# 3) product mockup (re-renders products/<file> into a new scene, img2img)
+# 3) product mockup (places products/<file> in a new scene: a reference edit on the default
+#    Qwen-Image-2.1, an img2img re-render on Z-Image / FLUX.2)
 python scripts/generate.py image --brand example-brand \
     --subject "on a tactical staging table, soft rim light" \
     --mode product --asset rover.png --comfy-output-dir "<ComfyUI output dir>"
