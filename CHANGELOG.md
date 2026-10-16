@@ -6,6 +6,11 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-16
+
+The upkeep release: a weekly / monthly / quarterly maintenance routine, then its first update window (Blender
+5.2.2 LTS, Ollama 0.40.5, blender_mcp `dbbf836`).
+
 ### Added
 - **A maintenance routine** ([`docs/MAINTENANCE.md`](docs/MAINTENANCE.md)): what runs by itself every week, the
   monthly update window, the quarterly review, and what can't wait. The freecad-mcp advisory went unnoticed for
@@ -35,6 +40,7 @@ All notable changes to Chimera are documented here. The format follows
 - **ruff is pinned to one minor**, 0.17.x, in the `[dev]` extra, `requirements-dev.txt` and the pre-commit hook
   (which was on 0.15.16), so a new ruff can't break CI unannounced.
 - The host apps' reference versions are listed in `docs/STACK.md` §7, and a test keeps the report's table in step.
+- Dev tooling: pre-commit-hooks v6.0.0 (#71); the artifact actions v7.0.2 / v8.0.2 (#67, #68).
 - The upstream bugs v0.6.0 works around are reported:
   [Lightricks/ComfyUI-LTXVideo#579](https://github.com/Lightricks/ComfyUI-LTXVideo/issues/579) (STG on ComfyUI
   0.40+, with the fix as [#580](https://github.com/Lightricks/ComfyUI-LTXVideo/pull/580)),
@@ -1141,7 +1147,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/whartons/Chimera/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/whartons/Chimera/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/whartons/Chimera/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/whartons/Chimera/compare/v0.4.0...v0.5.0
