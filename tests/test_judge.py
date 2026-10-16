@@ -385,3 +385,37 @@ def test_every_way_of_writing_not_met_fails_the_render(line):
 def test_a_score_on_the_next_line_or_with_a_plural_label_is_read():
     assert parse_verdict("1. MET\nOverall: FAIL\n**Score:**\n0.85").score == 0.85
     assert parse_verdict("PASS\nScores: 0.4").score == 0.4
+
+
+# --- final review: a status rule tight enough to need a label layout passed broken renders ---------------------
+@pytest.mark.parametrize("line", [
+    "3. No missing or broken parts - NOT-MET: the left arm is missing",     # the rubric's own negative phrasing
+    "3. No obvious artifacts - NOT MET - heavy banding in the sky",
+    "1. The image clearly depicts: a knight without a helmet - NOT-MET (he is wearing one)",
+    "- ❌ Palette: NOT-MET - the body is yellow",
+    "- Palette (NOT-MET): the body is yellow",
+    "- Palette: the body is yellow — NOT-MET",
+    "| Palette | NOT-MET - yellow body |",
+    "| Palette | NOT-MET. |",
+    "1 - Palette: NOT MET (yellow body)",
+    "* Palette → NOT-MET",
+    "However, the palette criterion is NOT met: the body is yellow.",
+    "2. Palette - Partially MET: only some red",
+    "- Palette: **NOT** MET",
+    "- Palette: not fully met",
+])
+def test_a_criterion_marked_not_met_fails_the_render_whatever_the_layout(line):
+    v = parse_verdict(f"1. Subject - MET\n{line}\nOverall: PASS\nscore: 0.8")
+    assert not v.passed and v.issues
+
+
+@pytest.mark.parametrize("line", ["Criteria met: 3/3 (0/3 NOT-MET)", "Met: 4  Not met: 0", "0/3 NOT-MET",
+                                  "Summary: 3 MET, 0 NOT-MET. No criteria are unmet."])
+def test_a_zero_count_keeps_a_pass(line):
+    v = parse_verdict(f"1. Subject - MET\n2. Palette - MET\n{line}\nOverall: PASS\nscore: 0.9")
+    assert v.passed and v.issues == []
+
+
+def test_a_score_scale_named_before_the_value_is_used():
+    for text, want in (("Score (0-1): 0.82", 0.82), ("Score (out of 5): 4", 0.8), ("score (0-10): 8", 0.8)):
+        assert round(parse_verdict(f"Overall: PASS\n{text}").score, 3) == want, text

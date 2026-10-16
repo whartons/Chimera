@@ -30,49 +30,58 @@ class Judge(ABC):
 # 'passable' / 'compass' / 'failsafe' never trip the overall verdict.
 _PASS = re.compile(r"\bpass(?:ed)?\b", re.IGNORECASE)
 _FAIL = re.compile(r"\bfail(?:ed)?\b", re.IGNORECASE)
-_SCORE = re.compile(r"\bscores?\b[^\d\n]{0,8}?(-?\d+(?:\.\d+)?)\s*(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?",
-                    re.IGNORECASE)
+_SCORE = re.compile(r"\bscores?\b(?:\s*\([^)\n]*\))?[^\d\n]{0,8}?(-?\d+(?:\.\d+)?)\s*"
+                    r"(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?", re.IGNORECASE)
+# the scale a judge names before the value ('Score (0-1): 0.82', 'Score (out of 5): 4'); it read as the value
+_SCORE_RANGE = re.compile(r"\(\s*(?:0\s*[-–]\s*|out\s+of\s+)(\d+(?:\.\d+)?)\s*\)", re.IGNORECASE)
 # a bare value on the line after a 'Score:' label ('**Score:**' with '0.85' below it)
 _SCORE_VALUE = re.compile(r"^[\s*_`]*(-?\d+(?:\.\d+)?)\s*(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?[\s*_`.]*$",
                           re.IGNORECASE)
-_DASH = r"[\s_\-‐-―−]*"   # NOT-MET / NOT MET / NOT_MET, and with typographic dashes
-_STATUS = re.compile(rf"(?<![A-Za-z])(not{_DASH}met|unmet|met)(?![A-Za-z])", re.IGNORECASE)
-_COUNTED = re.compile(rf"(?<![\d.])[1-9]\d*\s*(?:criteria\s+|criterion\s+)?(?:not{_DASH}met|unmet)(?![A-Za-z])",
+_DASH = r"[\s_*\-‐-―−]*"   # NOT-MET / NOT MET / NOT_MET / **NOT** MET, and with typographic dashes
+# 'Partially MET' and 'not fully met' are not MET: the rubric passes only what is clearly and fully satisfied
+_STATUS = re.compile(rf"(?<![A-Za-z])((?:not{_DASH}(?:fully|entirely|completely)\s+|partially\s+|partly\s+)met"
+                     rf"|not{_DASH}met|unmet|met)(?![A-Za-z])", re.IGNORECASE)
+_COUNTED = re.compile(rf"(?<![\d./])[1-9]\d*\s*(?:criteria\s+|criterion\s+)?(?:not{_DASH}met|unmet)(?![A-Za-z])",
                       re.IGNORECASE)
+# a count written label-first ('Met: 4  Not met: 0'): the number decides
+_LABEL_COUNT = re.compile(rf"(?<![A-Za-z])(?:not{_DASH}met|unmet)\s*[:=]\s*(\d+)\s*(?:[,;|)]|$)", re.IGNORECASE)
 _NOTHING_AFTER = re.compile(r"^[\W_]*(?:criteria|criterion|items?)?[\W_]*(?:none|nothing|n/?a|0|zero)\b"
                             r"[^A-Za-z0-9(]*(?:\(.*\))?[\W_]*$", re.IGNORECASE)
+_ZERO_BEFORE = re.compile(r"(?<![\d.])0\s*(?:/\s*\d+\s*)?(?:criteria\s+|criterion\s+)?$", re.IGNORECASE)
 # 'no NOT-MET criteria', 'none of them are unmet', 'nothing is unmet', 'for any NOT-MET criterion': a negation or
-# a condition just before the word, with no punctuation between, makes the line a summary or an instruction
-_NEGATED = re.compile(r"\b(?:no|none|nothing|zero|without|any|if)\b[\w\s'-]{0,30}$", re.IGNORECASE)
+# a condition just before the word, with only words between (a ' - ' or ':' separator ends it), makes an
+# unnumbered line a summary or an instruction. Not a numbered line: that is a criterion, whose label may read
+# 'No missing or broken parts' or 'a knight without a helmet' (both were read as summaries, passing broken
+# renders, 2026-10 review).
+_NEGATED = re.compile(r"\b(?:no|none|nothing|zero|without|any|if)\b[\w\s']{0,30}$", re.IGNORECASE)
 _NUMBERED = re.compile(r"^[\s*#>|_\-]*(?:criterion\s*)?\d+\s*[.):|]", re.IGNORECASE)
 _MARKS = "❌✅✔✖✗✘"   # the check and cross marks judges put before a status
-# On an unnumbered line a status counts where judges write one: leading the line ('NOT-MET: the head is
-# missing') or right after a short label and a separator ('- Palette: NOT-MET', 'Status — NOT-MET').
-_LEADING = re.compile(rf"^[\s*#>\-+•{_MARKS}_`]*$")
-_LABELLED = re.compile(rf"^[\s*#>\-+•]*[^\W\d_][^:|–—]{{0,60}}?(?:[:|–—]|\s-\s)"
-                       rf"[\s*_`{_MARKS}]*$")
 _CELL_TRIM = " \t*_`" + _MARKS
 
 
 def _line_unmet(line):
     """True when a line of a judge's reply marks a criterion NOT-MET: a table cell holding only the status, a
-    count ('1 NOT-MET'), or the line's first status word when the line is a numbered criterion or the word sits
-    where judges put a status (_LEADING / _LABELLED). A MET reason that says 'nothing is unmet', a summary ('No
-    NOT-MET criteria', 'NOT MET: none') and an echoed instruction ('For any NOT-MET criterion ...') are not:
-    each failed correct renders (2026-10 review)."""
+    non-zero count ('1 NOT-MET'), or the line's first status word, NOT-MET (any spelling, 'partially met'
+    included). Fail-safe: only a summary or an instruction is let off, a negation just before the word on an
+    unnumbered line ('No NOT-MET criteria', 'nothing is unmet', 'For any NOT-MET criterion ...'), nothing after
+    it ('NOT MET: none'), a zero count ('0/3 NOT-MET', 'Not met: 0') or 'unless'. Each of those failed correct
+    renders, and a rule tight enough to require a label layout passed broken ones (2026-10 reviews)."""
     if "|" in line:
         cells = [c for c in (c.strip(_CELL_TRIM) for c in line.split("|")) if _STATUS.fullmatch(c)]
         if cells:
             return cells[0].lower() != "met"
+    lc = _LABEL_COUNT.search(line)
+    if lc:
+        return int(lc.group(1)) > 0
     if _COUNTED.search(line):
         return True
     m = _STATUS.search(line)
     if not m or m.group(1).lower() == "met":
         return False
     before, after = line[:m.start()], line[m.end():]
-    if _NOTHING_AFTER.match(after) or re.match(r"\s+unless\b", after, re.IGNORECASE) or _NEGATED.search(before):
+    if _NOTHING_AFTER.match(after) or re.match(r"\s+unless\b", after, re.IGNORECASE) or _ZERO_BEFORE.search(before):
         return False
-    return bool(_NUMBERED.match(line) or _LEADING.match(before) or _LABELLED.match(before))
+    return bool(_NUMBERED.match(line)) or not _NEGATED.search(before)
 # Also carry any line bearing a 'FIX:' directive (the judge's structured add/avoid correction) so
 # the expander receives it even if the model puts it on its own line rather than the NOT-MET line.
 _FIXLINE = re.compile(r"\bfix\b\s*[:\-]", re.IGNORECASE)
@@ -127,10 +136,13 @@ def parse_verdict(text: str) -> Verdict:
             m = all_scores[-1] if all_scores else None
         if m:
             val = float(m.group(1))
+            rng = _SCORE_RANGE.search(m.string, m.start(), m.start(1)) if m.re is _SCORE else None
             if m.group(3):                                  # "value/denom", "value out of denom"
                 d = float(m.group(3)); val = val / d if d else 0.0
             elif m.group(4):                                # "value%"
                 val = val / 100.0
+            elif rng:                                       # "Score (0-10): 8"
+                d = float(rng.group(1)); val = val / d if d else 0.0
             elif val >= 2:                                  # 'score: 7' on a 0-10 scale, 'score: 85' on 0-100
                 val = val / 10 if val <= 10 else val / 100  # (both used to read as a perfect 1.0); 1.7 clamps
             score = max(0.0, min(1.0, val))

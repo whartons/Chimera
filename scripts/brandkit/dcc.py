@@ -35,7 +35,13 @@ def job_outputs(manifest, out_dir, error_cls):
     disk, which the caller would then move into outputs/ (2026-10 security review)."""
     root = os.path.realpath(out_dir)
     outs = [str(o) for o in (manifest.get("outputs") or [])]
-    stray = [o for o in outs if os.path.commonpath([root, os.path.realpath(o)]) != root]
+
+    def inside(path):
+        try:
+            return os.path.commonpath([root, os.path.realpath(path)]) == root
+        except ValueError:   # another drive on Windows ('D:\\secret.txt'), or a relative path
+            return False
+    stray = [o for o in outs if not inside(o)]
     if stray:
         raise error_cls(f"the job reported outputs outside its folder: {stray[:3]}")
     return outs

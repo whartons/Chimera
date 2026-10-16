@@ -722,3 +722,21 @@ def test_image_size_of_a_truncated_jpeg_or_a_folder_is_unknown_without_pillow(tm
     p = tmp_path / "cut.jpg"; p.write_bytes(b"\xff\xd8\xff\xe0\x00")    # ends inside a segment length
     assert _image_size(p) is None
     assert _image_size(tmp_path) is None                                  # unreadable: a folder
+
+
+def test_image_size_skips_a_huffman_table_before_the_frame_header(tmp_path, monkeypatch):
+    # 0xC4 (DHT) sits in the start-of-frame range but isn't one; read as a frame it gave a nonsense size
+    _no_pillow(monkeypatch)
+    dht = b"\xff\xc4" + struct.pack(">H", 2 + 17) + b"\x00" + bytes([0] * 16)
+    jpg = _jpeg(320, 200)
+    p = tmp_path / "a.jpg"; p.write_bytes(jpg[:2] + dht + jpg[2:])
+    assert _image_size(p) == (320, 200)
+
+
+def test_clip_timing_reads_a_clip_sidecar_saved_with_a_bom(tmp_path, monkeypatch):
+    # a sidecar edited in Windows PowerShell 5.1 gains a BOM; foley fell back to the probe (or 25 fps without PyAV)
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (None, None, None, None))
+    clip = tmp_path / "i2v_7.mp4"; clip.write_bytes(b"x")
+    clip.with_suffix(".json").write_text(json.dumps({"inputs": {"fps": 16, "length": 81, "width": 768,
+                                                                "height": 512}}), encoding="utf-8-sig")
+    assert generate._clip_timing(clip) == (16.0, 81 / 16, 768, 512)

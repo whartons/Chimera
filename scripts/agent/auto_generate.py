@@ -422,12 +422,10 @@ def main():
     fatal = [msg for role, msg in problems if role != "rewriter"]
     if fatal:
         ap.error("; ".join(fatal))
-    # the hand-back protects a GPU this machine shares: an image run on a remote ComfyUI renders elsewhere, so
-    # unloading local models before each render (or refusing to render beside a stuck one) gains nothing
-    shares_gpu = gpu.is_local(args.comfy_url) or args.pipeline != "image"
     _share_gpu(client, [codegen_llm, judge_llm, rewriter_llm])
-    if shares_gpu:
-        _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm])
+    # whatever the ComfyUI URL: one given by LAN address, host name or WSL IP may be this machine, and an
+    # unneeded hand-back only costs a judge reload, where a missing one can overcommit the card
+    _clear_other_ollama_models([codegen_llm, judge_llm, rewriter_llm])
 
     if rewriter_llm is not None:
         from scripts.agent.llm import LLMExpander
@@ -458,8 +456,7 @@ def main():
         judge = GeometryAwareJudge(build_judge())
     else:
         rubric = None  # run_loop builds the image rubric
-        generate = _hand_gpu_back(_make_generate(args, repo_root, m, client),
-                                  [judge_llm, rewriter_llm] if shares_gpu else [])
+        generate = _hand_gpu_back(_make_generate(args, repo_root, m, client), [judge_llm, rewriter_llm])
         judge = build_judge()
 
     try:

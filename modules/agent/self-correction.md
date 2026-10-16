@@ -660,8 +660,8 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
   run it later) when the judge won't unload before its repaint.
 - **Before the first render**, they unload Ollama models the run didn't load (another tool's, or an earlier
   run's), printing which.
-- **An image loop on a remote ComfyUI** (`--comfy-url` another machine) skips both: nothing renders on this
-  machine's GPU. The mesh3d and CAD loops keep them, since Blender renders locally.
+- **Whatever the ComfyUI URL:** one given by LAN address, host name or WSL IP may be this machine, so both
+  stay on (an unneeded unload only costs a judge reload).
 
 The checks apply to a "local" endpoint: `localhost`, `127.x`, `::1`, or the bind-all `0.0.0.0` / `::` (so
 `OLLAMA_HOST=0.0.0.0` works, read the way Ollama reads it: port 11434 when none is given). This machine's LAN

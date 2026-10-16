@@ -161,10 +161,17 @@ loop's FreeCAD process and the MCP approval gates.
   on a criterion's line (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `- Nothing floats free of the hub:
   NOT-MET`, `Status: NOT-MET`), written with hyphens or typographic dashes (`NOT‑MET`, as hosted models write
   it). A line that only says nothing is unmet keeps a PASS: `NOT MET: none`, `No NOT-MET criteria.`,
-  `Criteria: 4 MET, 0 NOT-MET`, a MET reason on its own line, or the instructions echoed back (each had failed
-  correct renders and gone into the next prompt as a "Fix"). Scores on other scales read right too: `4 out of
+  `Criteria: 4 MET, 0 NOT-MET`, `0/3 NOT-MET`, a MET reason on its own line, or the instructions echoed back
+  (each had failed correct renders and gone into the next prompt as a "Fix"). A final review caught that rule
+  passing broken renders: a criterion label in the rubric's own negative phrasing (`3. No missing or broken
+  parts - NOT-MET`, `a knight without a helmet`) read as a summary, and unnumbered lines counted only in a few
+  layouts (`- ❌ Palette: NOT-MET`, `| Palette | NOT-MET - yellow |`, `1 - Palette: NOT MET` passed). Now a
+  numbered criterion's status always counts, any other line's counts unless it reads as a summary, and
+  `Partially MET`, `not fully met` and `**NOT** MET` fail too: on a 32,190-reply grid of layouts, labels and
+  spellings there are no false PASSes or false FAILs left, where the v0.6 parser before this review had 4,544
+  false PASSes. Scores on other scales read right too: `4 out of
   5` is 0.8, `7` is 0.7, `85` is 0.85 (each read as 1.0 before), and `Scores: 0.4` or a value on the line
-  after `**Score:**` are read (they scored 0.0).
+  after `**Score:**` are read (they scored 0.0), as is a scale named first (`Score (0-1): 0.82` read 0.0).
 - **The self-correction loop inverted its own fixes when a subject's styling fought the brand.** Found with
   the local Qwen3-VL-8B judge while regenerating the README demo. Under a gunmetal brand, a subject such as
   "a glossy candy-red toy rover" made the subject criterion demand the candy colors while the style, palette
@@ -382,9 +389,8 @@ loop's FreeCAD process and the MCP approval gates.
 - **A brand name that isn't a folder name is refused before anything renders** (`generate.py` and
   `auto_generate.py`). It was refused only when routing the output, after the GPU work, leaving the file in
   ComfyUI's folder.
-- **The GPU hand-off fits more setups:** an image loop on a remote ComfyUI no longer unloads local models before
-  each render or stops beside one (nothing renders on this machine); `--finalize` is skipped with the command
-  to run it later, rather than repainting beside a judge that won't unload; and the models Ollama already holds
+- **The GPU hand-off fits more setups:** `--finalize` is skipped with the command to run it later, rather than
+  repainting beside a judge that won't unload; and the models Ollama already holds
   count toward the room asked of ComfyUI on Windows only (Linux and macOS drivers already include them, so a
   second local model waited 30 s and fell back).
 

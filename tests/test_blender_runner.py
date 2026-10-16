@@ -153,3 +153,16 @@ def test_the_env_scrub_drops_passwords_proxies_and_connection_urls(monkeypatch):
     env = D.scrubbed_env()
     assert not set(names) & set(env)
     assert any(k.upper() == "PATH" for k in env)
+
+
+def test_a_job_output_on_another_drive_is_stray_not_a_traceback(tmp_path, monkeypatch):
+    # on Windows commonpath raises for 'D:\secret.txt' against a job folder on C:, which `cad` didn't catch
+    real = D.os.path.commonpath
+
+    def commonpath(paths):
+        if any("other-drive" in p for p in paths):
+            raise ValueError("Paths don't have the same drive")
+        return real(paths)
+    monkeypatch.setattr(D.os.path, "commonpath", commonpath)
+    with pytest.raises(RuntimeError, match="outside its folder"):
+        D.job_outputs({"outputs": [str(tmp_path / "other-drive" / "secret.stl")]}, tmp_path / "job", RuntimeError)

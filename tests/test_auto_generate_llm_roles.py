@@ -386,16 +386,16 @@ def test_a_hosted_judge_still_clears_the_local_default_ollama(monkeypatch):
     assert unloaded == [("http://127.0.0.1:11434", set())]
 
 
-def test_an_image_run_on_a_remote_comfyui_leaves_local_models_alone(monkeypatch):
-    # the render happens on another machine's GPU: unloading local models before each render gains nothing,
-    # and refusing to render beside a stuck one would stop a run that can't overcommit anything here
+def test_a_comfyui_given_by_lan_address_still_gets_the_gpu_hand_back(monkeypatch):
+    # a LAN address, host name or WSL IP may be this very machine: skipping the hand-back there reopened the
+    # PC-freeze path, while an unneeded one only costs a judge reload (2026-10 review)
     cleared, handed = [], []
     real_hand = AG._hand_gpu_back
     _main_capture(monkeypatch, ["--subject", "x", "--comfy-output-dir", "/tmp/o", "--llm-tier", "small",
                                 "--comfy-url", "http://10.0.0.5:8188"],
                   _clear_other_ollama_models=lambda llms: cleared.append(llms),
-                  _hand_gpu_back=lambda gen, clients: handed.append(list(clients)) or real_hand(gen, clients))
-    assert cleared == [] and handed == [[]]
+                  _hand_gpu_back=lambda gen, clients: handed.append([c.role for c in clients if c]) or real_hand(gen, clients))
+    assert len(cleared) == 1 and handed == [["judge"]]
 
 
 def test_simple_mistakes_are_one_line_errors(monkeypatch, capsys):
@@ -459,3 +459,13 @@ def test_a_missing_rewriter_model_only_warns(monkeypatch, capsys):
     with pytest.raises(_Stop):
         AG.main()
     assert "ollama pull other" in capsys.readouterr().err
+
+
+@pytest.mark.preflight
+def test_the_endpoint_check_knows_ollama_by_its_port_and_skips_remote_hosts(monkeypatch):
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: False)
+    by_port = LLM.LLMClient(base_url="http://localhost:11434/v1", model="m")      # not the default root's spelling
+    [(_, msg)] = AG._endpoint_problems([("judge", by_port)])
+    assert "http://localhost:11434" in msg and "isn't answering" in msg
+    remote = LLM.LLMClient(base_url="http://10.0.0.9:11434/v1", model="m")        # another machine's Ollama
+    assert AG._endpoint_problems([("judge", remote)]) == []
