@@ -126,7 +126,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 |--------|---------|------|
 | `actions/checkout` | `v7.0.1` | checkout, with `persist-credentials: false` (the token isn't kept) |
 | `actions/setup-python` | `v7.0.0` | Python 3.12 (the required checks), 3.13 and 3.14 (Linux) + pip cache |
-| `actions/upload-artifact` / `download-artifact` | `v7.0.1` / `v8.0.1` | hand `coverage.xml` from the Ubuntu test job to the upload job |
+| `actions/upload-artifact` / `download-artifact` | `v7.0.2` / `v8.0.2` | hand `coverage.xml` from the Ubuntu test job to the upload job |
 | `codecov/codecov-action` | `v7.1.1` | coverage upload in its own `coverage` job, the only job with `id-token: write` (OIDC; **non-blocking**, `continue-on-error`) |
 | **CodeQL** | default setup | security scanning |
 
