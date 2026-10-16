@@ -60,6 +60,12 @@ System → Network → Allow Online Access`).
    `get_objects_summary` — it should return the active Blender scene's objects, proving
    the bridge reached the addon.
 
+**Upgrading Blender:** the add-on and the online-access setting live in Blender's per-version settings, so a
+new Blender version starts without them. On its first-run screen choose *Load <previous version> Settings*,
+or redo step 1 (and turn online access back on). Headless `generate.py render` needs neither: it finds the
+newest `Blender *` install by itself (or `$BLENDER_BIN`). A screenshot tool returns a black image while the
+Blender window is minimized; restore it first.
+
 ## Two execution paths
 
 ### Interactive MCP bridge (GUI)

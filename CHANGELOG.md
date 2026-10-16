@@ -24,7 +24,8 @@ All notable changes to Chimera are documented here. The format follows
 ### Changed
 - **blender_mcp → `dbbf836`** (v1.0.2 +3, re-audited): large responses such as screenshots and renders were cut off
   when the socket's send buffer filled; the bundled manual and API docs now cover Blender 5.2; the MCP SDK is
-  locked below 2. Install the add-on from the same commit.
+  locked below 2. Install the add-on from the same commit. Checked live on Blender 5.2.2 LTS: the add-on from
+  this commit answers the bridge, and a full-window screenshot arrives in one piece.
 - **Reference host apps:** Blender 5.2.2 LTS (the 5.1 line reached end of life on 2026-07-14) and Ollama 0.40.5.
   Re-checked live: the CAD loop (code-gen, FreeCAD, the Blender 5.2.2 render and the judge; PASS on the first
   try) and the image loop on Ollama 0.40.5.
