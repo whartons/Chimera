@@ -389,3 +389,23 @@ def test_the_script_prints_a_whole_report_even_offline(monkeypatch, capsys):
     n_advisories = len(ur.GIT_PACKS) + len(ur.NPM_PACKS) + 1 + sum(1 for a in ur.HOST_APPS if a[2])
     n_apps = 1 + len(ur.HOST_APPS)
     assert out.count("could not check") == n_pins + n_advisories + n_apps   # every row ran; none raised
+
+
+def _held_gh(since_audit):
+    def fake(path):
+        if path.endswith("/compare/15d09ab...master"):
+            return {"ahead_by": 18, "commits": [{"sha": "44c8a36aaa"}]}
+        if path.endswith("/compare/44c8a36...master"):
+            return {"ahead_by": since_audit}
+        return {"default_branch": "master"}
+    return fake
+
+
+def test_a_held_pack_is_quiet_until_upstream_moves_past_its_re_audit(monkeypatch):
+    # LTXVideo is held at 15d09ab until our STG fix lands upstream; 44c8a36 was re-audited (2026-10-16)
+    monkeypatch.setattr(ur, "_gh", _held_gh(0))
+    lvl, msg = ur.check_git_pack("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "15d09ab")
+    assert lvl == "info" and "held at `15d09ab`" in msg and "#580" in msg and "re-audited up to `44c8a36`" in msg
+    monkeypatch.setattr(ur, "_gh", _held_gh(3))
+    lvl, msg = ur.check_git_pack("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "15d09ab")
+    assert lvl == "warn" and "3 new commit(s)** since the re-audit at `44c8a36`" in msg and "RE-AUDIT" in msg
