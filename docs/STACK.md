@@ -137,7 +137,7 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (1043 tests, all run locally and on the Linux leg, which installs the `[images]` extra; 1035 on Windows,
+py3.12 (1044 tests, all run locally and on the Linux leg, which installs the `[images]` extra; 1036 on Windows,
 which stays on `[dev]` so the 8 Pillow-gated tests skip there and the no-Pillow paths are proven;
 `--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
 makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
