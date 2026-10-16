@@ -28,7 +28,8 @@ def test_lora_injected_when_set():
     assert wf["8"]["inputs"]["model"] == ["99", 0]
 
 def test_no_lora_node_when_unset(tmp_path):
-    p = tmp_path / "b.yaml"; p.write_text("name: B\nstyle: x\n")
+    # pinned to FLUX.2: the node ids below are the FLUX.2 template's (an unpinned brand is Qwen-Image)
+    p = tmp_path / "b.yaml"; p.write_text("name: B\nstyle: x\ndefaults: { model: flux2_dev_fp8mixed.safetensors }\n")
     m = load_manifest(p)
     wf = build_workflow(ROOT, m, mode="txt2img", positive="x", negative="", seed=1)
     assert not any(n["class_type"] == "LoraLoaderModelOnly" for n in wf.values())

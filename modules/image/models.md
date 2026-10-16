@@ -1,7 +1,8 @@
 # Image module — models
 
-Two backends are supported. **Z-Image is the default**; FLUX.2 is secondary and
-can be activated by passing a `flux2*` model name.
+Three backends are supported. **Qwen-Image-2.1 is the default**; Z-Image (fast) and FLUX.2
+(cinematic, relight) are selected by passing a `z_image*` / `flux2*` model name or pinning one in a
+brand.
 
 Download the files for your chosen backend from Hugging Face and drop each into
 the matching `ComfyUI/models/...` folder. Filenames must match the ones in the
@@ -9,7 +10,27 @@ relevant template (or edit the template to match what you downloaded).
 
 ---
 
-## Z-Image (default)
+## Qwen-Image-2.1 (default)
+
+Core-native in **ComfyUI 0.40** (no custom node pack): `UNETLoader` + `QwenImage21Cache`, a
+**Qwen3-VL-8B** text encoder via `CLIPLoader(type="qwen_image")` (it also reads the product reference
+image), and its own VAE. All three files come from the `Comfy-Org/Qwen-Image-2.1` repo
+(https://huggingface.co/Comfy-Org/Qwen-Image-2.1), int8 "convrot" builds.
+
+| File | Destination (`ComfyUI/models/…`) | Size | License |
+|------|----------------------------------|------|---------|
+| `qwen_image_2.1_int8_convrot.safetensors` | `diffusion_models/` | ~6.8 GB | ⚠️ Qwen research license |
+| `qwen3vl_8b_int8_convrot.safetensors` | `text_encoders/` | ~8.7 GB | ⚠️ Qwen research license |
+| `qwen_image_2.1_vae_bf16.safetensors` | `vae/` | ~0.6 GB | ⚠️ Qwen research license |
+
+License: [Qwen research license](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) (not
+Apache-2.0 like Z-Image). Chimera picks the best model regardless of license; a fork that needs other
+terms can pin `z_image_turbo_nvfp4.safetensors` instead. The template's optional prompt-enhancer
+encoders (`qwen3.5_9b_qwen_image_2.1_pe_*`, ~8.8 GB each) are **not** needed.
+
+---
+
+## Z-Image (fast alternative)
 
 Tongyi Z-Image — core-native in ComfyUI 0.22.3, no custom node pack required.
 Uses a **Qwen-3-4B text encoder** and the AuraFlow sampler schedule.

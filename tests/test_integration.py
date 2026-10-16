@@ -107,8 +107,8 @@ def test_run_without_output_dir_prints_filename_only(monkeypatch, tmp_path, caps
 def test_run_brandless_routes_to_global_outputs(monkeypatch, tmp_path):
     # no --brand: neutral manifest, output -> repo_root/outputs/<media>/<mode>_<seed>, sidecar brand=None
     (tmp_path / "workflows" / "templates").mkdir(parents=True)
-    shutil.copy(ROOT / "workflows" / "templates" / "brand-zimage-txt2img.json",
-                tmp_path / "workflows" / "templates" / "brand-zimage-txt2img.json")
+    shutil.copy(ROOT / "workflows" / "templates" / "brand-qwen-image-txt2img.json",
+                tmp_path / "workflows" / "templates" / "brand-qwen-image-txt2img.json")
     monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
     comfyout = tmp_path / "comfyout"; comfyout.mkdir()
     (comfyout / "out.png").write_bytes(b"PNGDATA")
@@ -117,7 +117,7 @@ def test_run_brandless_routes_to_global_outputs(monkeypatch, tmp_path):
     assert dest.exists() and dest.read_bytes() == b"PNGDATA"   # global outputs/, not a brand folder
     meta = json.loads(dest.with_suffix(".json").read_text(encoding="utf-8"))
     assert meta["brand"] is None
-    assert meta["model"] == "z_image_turbo_nvfp4.safetensors"  # brandless default model
+    assert meta["model"] == "qwen_image_2.1_int8_convrot.safetensors"  # brandless default model
 
 
 def test_run_brandless_watermark_errors(tmp_path):

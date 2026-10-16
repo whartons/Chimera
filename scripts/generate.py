@@ -332,8 +332,8 @@ def main():
                      help="Z-Image fidelity: turbo (8-step, default for txt2img/logo) or base "
                           "(25-step, default for product img2img)")
     img.add_argument("--model", default=None,
-                     help="override the image model/family (e.g. flux2_dev_fp8mixed.safetensors "
-                          "to use the FLUX.2 backend instead of Z-Image)")
+                     help="override the image model/family by file name (default Qwen-Image-2.1; e.g. "
+                          "z_image_turbo_nvfp4.safetensors for Z-Image, flux2_dev_fp8mixed.safetensors for FLUX.2)")
     img.add_argument("--upscale", action="store_true",
                      help="4x ESRGAN upscale of the output (decode -> [watermark] -> upscale -> save)")
     img.add_argument("--upscale-model", dest="upscale_model", default=None,

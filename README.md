@@ -55,7 +55,7 @@ chimera free                # clear GPU memory: unload Ollama's models, then Com
 **Generate — no brand, no setup** (output → `outputs/<media>/`):
 
 ```bash
-chimera image --subject "an armored rover"               # Z-Image txt2img (--variant base|turbo; --model flux2… for FLUX.2)
+chimera image --subject "an armored rover"               # Qwen-Image-2.1 txt2img (--model z_image…/flux2… to switch)
 chimera image --subject "a chrome emblem" --upscale      # + 4× ESRGAN
 chimera video --from-image start.png --subject "rolls forward, dust"   # image→video + synced audio
 chimera audio --mode music --subject "logo sting"        # text→stinger
@@ -107,14 +107,14 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **612 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **624 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
 |--------|--------------|--------|
 | [`agent`](modules/agent/self-correction.md) | Self-correction loop (generate → VLM judge → refine) — 2D image and 3D mesh (`--pipeline mesh3d`; `--finalize` textures the winner) | ✅ |
 | [`agent`](modules/agent/) | MCP bridge + security model — drive ComfyUI from an assistant | ✅ |
-| [`image`](modules/image/) | Z-Image (default) · FLUX.2 (secondary) — txt2img / logo / product · `--upscale` | ✅ |
+| [`image`](modules/image/) | Qwen-Image-2.1 (default) · Z-Image · FLUX.2 — txt2img / logo / product edit / relight · `--upscale` | ✅ |
 | [`video`](modules/video/) | LTX-2.3 image-to-video + native synced audio · `--upscale` | ✅ |
 | [`audio`](modules/audio/) | ACE-Step (music) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | Hunyuan3D 2.1 image → mesh (GLB / STL / OBJ) | ✅ |
@@ -130,7 +130,7 @@ the judge either accepts the candidate or folds its `FIX` directives back into t
 flowchart LR
     M["brand.yaml<br/>(optional)"] --> P["build_prompt<br/>style · palette · negative"]
     P --> G["validated ComfyUI graph<br/>(title-addressed nodes)"]
-    G -->|"POST /prompt"| C["ComfyUI<br/>Z-Image · LTX-2.3 · ACE-Step · Hunyuan3D"]
+    G -->|"POST /prompt"| C["ComfyUI<br/>Qwen-Image · LTX-2.3 · ACE-Step · Hunyuan3D"]
     C --> R["route_output<br/>outputs/ or brands/[brand]/"]
     R --> S["sidecar<br/>seed · model · prompts · provenance"]
     C -. "candidate" .-> J["VLM judge<br/>rubric → MET / NOT-MET · score"]

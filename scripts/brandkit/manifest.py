@@ -12,7 +12,7 @@ class ManifestError(ValueError):
 
 @dataclass
 class Defaults:
-    model: str = "flux2_dev_fp8mixed.safetensors"
+    model: str = "qwen_image_2.1_int8_convrot.safetensors"   # the default image backend (Qwen-Image-2.1)
     width: int = 1024
     height: int = 1024
     steps: int = 20
@@ -137,12 +137,12 @@ def _sub(cls, data, key):
     return cls(**picked)
 
 
-DEFAULT_BRANDLESS_MODEL = "z_image_turbo_nvfp4.safetensors"  # Z-Image is the documented default backend
+DEFAULT_BRANDLESS_MODEL = Defaults.model   # Qwen-Image-2.1, the documented default image backend
 
 
 def default_manifest() -> BrandManifest:
     """A neutral manifest for brandless generation: no style/palette/logo/negative, just the
-    documented Z-Image default model. Lets `chimera image --subject "..."` run with no --brand
+    documented default image model. Lets `chimera image --subject "..."` run with no --brand
     (the output routes to the global outputs/ folder). `--model` still overrides it."""
     return BrandManifest(name="default", defaults=Defaults(model=DEFAULT_BRANDLESS_MODEL))
 

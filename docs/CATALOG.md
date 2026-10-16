@@ -20,7 +20,23 @@ column stays as neutral reference for anyone who forks; flags (✅ commercial-OK
 
 ## 🖼️ Image (text-to-image)
 
-**Recommended default (mid-2026): Z-Image — Brand Kits pipeline default**
+**Recommended default (late 2026): Qwen-Image-2.1 — Brand Kits pipeline default**
+
+Picked in the 2026-10 model review over Z-Image Turbo, FLUX.2 and Qwen-Image-2.1 Turbo:
+- **Best adherence:** product hero shots, logo text layout, and three distinct subjects in one scene.
+- **Speed:** about 6 s per 1024² image (25 steps, CFG 1) on an RTX 5090.
+- **Product mode is a reference edit**, so the product keeps its exact look in a new scene.
+
+It's core-native in ComfyUI 0.40 (no custom node pack). The `image` module dispatches names starting with
+`qwen_image` to the Qwen-Image templates; brandless runs and brands that don't pin a model use it.
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|-----------------|----------------------------------|------|---------|
+| `qwen_image_2.1_int8_convrot.safetensors` | `Comfy-Org/Qwen-Image-2.1` | `diffusion_models/` | ~6.8 GB | ⚠️ Qwen research license |
+| `qwen3vl_8b_int8_convrot.safetensors` | `Comfy-Org/Qwen-Image-2.1` | `text_encoders/` | ~8.7 GB | ⚠️ Qwen research license |
+| `qwen_image_2.1_vae_bf16.safetensors` | `Comfy-Org/Qwen-Image-2.1` | `vae/` | ~0.6 GB | ⚠️ Qwen research license |
+
+**Fast alternative: Z-Image** (the public example-brand pins it; Apache-2.0)
 
 Z-Image is ComfyUI core-native (support added in 0.22.3 — **no custom node
 pack**), uses a **Qwen-3-4B text encoder loaded via `CLIPLoader(type="lumina2")`

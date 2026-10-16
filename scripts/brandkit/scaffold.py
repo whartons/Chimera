@@ -54,11 +54,11 @@ def lint_brand(repo_root, brand, manifest=None) -> list[tuple[str, str]]:
         out.append(("warn", "name is still the template placeholder 'Your Brand'"))
 
     model = (m.defaults.model or "").lower()
-    if model.startswith("z_image") or model.startswith("flux2"):
+    if model.startswith(("qwen_image", "z_image", "flux2")):
         out.append(("ok", f"defaults.model family recognized ({m.defaults.model})"))
     else:
         out.append(("warn", f"defaults.model {m.defaults.model!r} doesn't match a known image "
-                            "family (z_image*/flux2*); it will be treated as FLUX.2 - typo?"))
+                            "family (qwen_image*/z_image*/flux2*); it will be treated as FLUX.2 - typo?"))
 
     if m.logo.default:
         logo = brand_dir / "logos" / m.logo.default.split("/")[-1]
