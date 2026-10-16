@@ -21,7 +21,8 @@ The dependency inventory those updates touch lives in [`docs/STACK.md`](STACK.md
 ---
 
 ## 1 · Python deps & GitHub Actions — *automated (Dependabot)*
-Dependabot opens weekly PRs (`pip` + `github-actions`). Nothing to remember:
+Dependabot opens weekly PRs (`pip`, plus one grouped PR each for `github-actions` and the `pre-commit` hooks).
+Nothing to remember ([`MAINTENANCE.md`](MAINTENANCE.md) has the full weekly / monthly / quarterly routine):
 1. Review the PR diff + linked changelog.
 2. Wait for CI green (the two pytest matrix jobs are the required checks).
 3. Merge (squash). Done.

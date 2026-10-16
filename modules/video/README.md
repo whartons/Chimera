@@ -215,8 +215,9 @@ git apply <path-to-chimera>/modules/video/patches/ltxvideo-stg-comfyui-0.40.patc
 
 The patch unwraps the container in the two skip shortcuts and changes nothing on older ComfyUI; it applies
 cleanly at both the pinned `15d09ab` and `44c8a36`. Undo it with `git checkout stg.py`. If you can't patch the
-pack, setting `"stg": 0.0` in both `GuiderParameters` nodes also renders, but without STG guidance. Remove
-this section once the fix ships upstream.
+pack, setting `"stg": 0.0` in both `GuiderParameters` nodes also renders, but without STG guidance. Reported
+upstream as [Lightricks/ComfyUI-LTXVideo#579](https://github.com/Lightricks/ComfyUI-LTXVideo/issues/579), with
+this fix as [#580](https://github.com/Lightricks/ComfyUI-LTXVideo/pull/580); remove this section once it ships.
 
 ## Why LTX-2.3 needs this exact graph (the gotchas)
 

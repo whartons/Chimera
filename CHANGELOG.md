@@ -6,6 +6,32 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **A maintenance routine** ([`docs/MAINTENANCE.md`](docs/MAINTENANCE.md)): what runs by itself every week, the
+  monthly update window, the quarterly review, and what can't wait. The freecad-mcp advisory went unnoticed for
+  three weeks because the weekly report checked only commits; now:
+  - the weekly update report lists the published GitHub security advisories that affect a pin, comfyui-mcp's
+    pinned version, ComfyUI or a host app's reference version (read from each advisory's version range, or by
+    date when it has none), and compares the host apps (Ollama, FreeCAD, Blender, Node.js, Python) with their
+    latest releases and end-of-life dates. Its first run found a FreeCAD advisory that covers 1.1.4 on Windows
+    and the Blender 5.1 line past its end of life. comfyui-mcp shows as held by policy instead of a weekly
+    warning;
+  - [`maintenance.yml`](.github/workflows/maintenance.yml) opens a checklist issue for the monthly update window
+    on the 1st, and one for the quarterly review in January, April, July and October;
+  - CI also runs weekly (Mondays), and on Python 3.13 and 3.14 on Linux (not required checks);
+  - Dependabot also updates the pre-commit hooks, with Actions and hooks grouped into one PR each.
+
+### Changed
+- **ruff is pinned to one minor**, 0.17.x, in the `[dev]` extra, `requirements-dev.txt` and the pre-commit hook
+  (which was on 0.15.16), so a new ruff can't break CI unannounced.
+- The host apps' reference versions are listed in `docs/STACK.md` §7, and a test keeps the report's table in step.
+- The upstream bugs v0.6.0 works around are reported:
+  [Lightricks/ComfyUI-LTXVideo#579](https://github.com/Lightricks/ComfyUI-LTXVideo/issues/579) (STG on ComfyUI
+  0.40+, with the fix as [#580](https://github.com/Lightricks/ComfyUI-LTXVideo/pull/580)),
+  [Comfy-Org/ComfyUI#16312](https://github.com/Comfy-Org/ComfyUI/issues/16312) (a `/free` with the card full stops
+  the prompt worker) and [Comfy-Org/comfy-aimdo#61](https://github.com/Comfy-Org/comfy-aimdo/issues/61) (error 1450
+  loading FLUX.2's text encoder).
+
 ## [0.6.0] - 2026-10-16
 
 The model-refresh release. The 2026-10 quarterly review's winners are the new defaults: Qwen-Image-2.1

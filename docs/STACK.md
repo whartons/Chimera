@@ -41,8 +41,8 @@ The `chimera` package (**v0.6.0**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (1172 tests) |
-| **ruff** | `>=0.10` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (1196 tests) |
+| **ruff** | `>=0.17.1,<0.18` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`); one minor, the same as the pre-commit hook, so a new ruff can't break CI unannounced |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
 | **av** (PyAV) | `>=12` | optional `[video]` | foley fps/duration auto-probe (`generate._probe_video`) for clips without a Chimera sidecar (Chimera renders carry exact timing in theirs) — degrades to explicit `--fps/--duration` if absent |
@@ -125,7 +125,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | Action | Version | Role |
 |--------|---------|------|
 | `actions/checkout` | `v7.0.1` | checkout, with `persist-credentials: false` (the token isn't kept) |
-| `actions/setup-python` | `v7.0.0` | Python 3.12 + pip cache |
+| `actions/setup-python` | `v7.0.0` | Python 3.12 (the required checks), 3.13 and 3.14 (Linux) + pip cache |
 | `actions/upload-artifact` / `download-artifact` | `v7.0.1` / `v8.0.1` | hand `coverage.xml` from the Ubuntu test job to the upload job |
 | `codecov/codecov-action` | `v7.1.1` | coverage upload in its own `coverage` job, the only job with `id-token: write` (OIDC; **non-blocking**, `continue-on-error`) |
 | **CodeQL** | default setup | security scanning |
@@ -137,10 +137,13 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (1172 tests, all run locally and on the Linux leg, which installs the `[images]` extra; 1164 on Windows,
+py3.12 (1196 tests, all run locally and on the Linux leg, which installs the `[images]` extra; 1188 on Windows,
 which stays on `[dev]` so the 8 Pillow-gated tests skip there and the no-Pillow paths are proven;
-`--cov-fail-under=85`). Codecov is **not** required; [`codecov.yml`](../codecov.yml)
-makes the patch status informational. **Dependabot** watches `pip` and `github-actions`.
+`--cov-fail-under=85`). Python 3.13 and 3.14 also run on Linux but aren't required. CI runs weekly too (Mondays
+06:00 UTC), so an upstream release that breaks the suite shows up in a week with no commits. Codecov is **not**
+required; [`codecov.yml`](../codecov.yml) makes the patch status informational. **Dependabot** watches `pip`,
+`github-actions` and `pre-commit` (Actions and hooks as one grouped PR each). The weekly, monthly and quarterly
+routine around all of this is in [`MAINTENANCE.md`](MAINTENANCE.md).
 
 ## 7 · Host / runtime stack (reference build)
 | Component | Value |
@@ -150,6 +153,14 @@ makes the patch status informational. **Dependabot** watches `pip` and `github-a
 | PyTorch | 2.10 |
 | Attention | SageAttention |
 | Quantization | comfy-kitchen FP4 (NVFP4) path — the headline ~2.7× win |
+| Ollama | 0.40.4 (the agent loops' local models) |
+| FreeCAD | 1.1.4 (headless `cad`; on Windows, releases before 26.3.0 carry the DLL search-path advisory [GHSA-2mfq-2h69-c873](https://github.com/FreeCAD/FreeCAD/security/advisories/GHSA-2mfq-2h69-c873), high, and 26.3.0 wasn't released as of 2026-10-16) |
+| Blender | 5.1.2 (headless `render`, ≥ 5.1; the 5.1 line reached end of life on 2026-07-14, so the next update window moves to the 5.2 LTS) |
+| Node.js | 24 LTS (`npx` runs the comfyui-mcp bridge) |
+| Python | 3.12 (CI's required checks; 3.13 and 3.14 run too) |
+
+The weekly update report checks these reference versions against the latest releases and end-of-life dates
+(`HOST_APPS` in [`scripts/update_report.py`](../scripts/update_report.py); keep the two in sync).
 
 Minimum to drive Blackwell at all: **CUDA 12.8+**. Per-module VRAM needs and quantized (GGUF /
 NVFP4 / fp8) options are noted in each [`modules/<name>/`](../modules/) README and summarized in the
@@ -160,8 +171,10 @@ assume a 5090.
 
 ### Update policy
 A weekly scheduled job ([`.github/workflows/update-check.yml`](../.github/workflows/update-check.yml))
-opens a **"🔄 Weekly update report"** issue flagging anything behind upstream; act on it via the
-runbook [`UPDATING.md`](UPDATING.md). **Report-only — pins never auto-bump.**
+opens a **"🔄 Weekly update report"** issue flagging pins behind upstream, published security advisories that
+affect a pin or a host app, and host apps with a newer release or a release line past its end of life; act on
+it via the runbook [`UPDATING.md`](UPDATING.md), on the schedule in [`MAINTENANCE.md`](MAINTENANCE.md).
+**Report-only — pins never auto-bump.**
 - **Node packs / MCP**: pinned by commit/version, **re-audited before any bump** (same standard as the MCP bridge).
 - **Python packages / GitHub Actions**: Dependabot proposes weekly bumps; CI must stay green.
 - **ComfyUI**: `chimera update-check` / `doctor` against the running instance; smoke-render after a bump.

@@ -1,11 +1,15 @@
 name: lint · test · audit
 
-# Run on pushes to main and on every pull request. The GPU-free suite mocks ComfyUI, so it runs
-# on a clean runner with no models, no GPU, no server.
+# Run on pushes to main, on every pull request, and weekly (Mondays, before the update report), so a new
+# release of a dependency or runner image that breaks the suite shows up even in a week with no commits.
+# The GPU-free suite mocks ComfyUI, so it runs on a clean runner with no models, no GPU, no server.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
 
 # Read-only by default. Actions are pinned by commit SHA (Dependabot keeps the pins current), and only
 # the upload job below can mint an OIDC token: the jobs that pip-install third-party packages can't.
@@ -22,6 +26,13 @@ jobs:
         # Developed on Windows; Linux proves the "anyone can fork this" promise.
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.12"]
+        # Newer Pythons on Linux too. They aren't required checks (the two 3.12 jobs are); a red one says the
+        # next Python upgrade has work to do (docs/MAINTENANCE.md).
+        include:
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: ubuntu-latest
+            python-version: "3.14"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
@@ -40,7 +51,7 @@ jobs:
       - name: Run tests (with coverage)
         run: python -m pytest --cov=scripts --cov-report=term-missing --cov-report=xml --cov-fail-under=85
       - name: Keep the coverage report for the upload job
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: coverage

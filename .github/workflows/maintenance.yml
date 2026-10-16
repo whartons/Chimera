@@ -1,0 +1,59 @@
+name: maintenance-checklists
+
+# Opens the checklists of docs/MAINTENANCE.md as issues, so the routine doesn't depend on remembering it: the
+# monthly update window on the 1st of every month, plus the quarterly review on the 1st of January, April,
+# July and October. A kind that still has an open issue is skipped. Run it by hand from the Actions tab to
+# open one now.
+on:
+  schedule:
+    - cron: "0 14 1 * *"   # the 1st of each month, 14:00 UTC
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: "Which checklist to open"
+        type: choice
+        options: [monthly, quarterly]
+        default: monthly
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: maintenance-checklists
+  cancel-in-progress: false
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Open the checklist issue(s)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KIND: ${{ github.event.inputs.kind }}   # a choice input, read from the environment, never spliced in
+        run: |
+          kinds="$KIND"
+          if [ -z "$kinds" ]; then
+            kinds="monthly"
+            case "$(date -u +%m)" in 01|04|07|10) kinds="monthly quarterly";; esac
+          fi
+          stamp=$(date -u +"%B %Y")
+          for k in $kinds; do
+            case "$k" in
+              monthly) title="🗓️ Monthly update window — $stamp";;
+              quarterly) title="🔬 Quarterly review — $stamp";;
+              *) echo "unknown checklist: $k"; exit 1;;
+            esac
+            label="maintenance-$k"
+            gh label create "$label" --color 0E8A16 --description "Maintenance checklist ($k)" --force
+            open=$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')
+            if [ -n "$open" ]; then
+              echo "#$open is still open: not opening another $k checklist"
+              continue
+            fi
+            sed "s#{{repo}}#${GITHUB_REPOSITORY}#g" ".github/maintenance/$k.md" > body.md
+            gh issue create --title "$title" --label "$label" --body-file body.md
+          done

@@ -53,6 +53,7 @@ chimera/
 │   ├── STACK.md         # dependency/stack inventory (Python · ComfyUI · node-pack pins · MCP · CI · host)
 │   ├── SETUP.md         # install notes
 │   ├── UPDATING.md      # the gated update runbook (re-audit a pin before it moves)
+│   ├── MAINTENANCE.md   # the weekly (automated) / monthly / quarterly / event-driven upkeep routine
 │   └── BLACKWELL-TUNING.md  # RTX 50-series / cu130 tuning guide (measured numbers)
 ├── modules/             # one folder per modality (tracked, generic): image, video, audio, threed, agent, blender, cad
 ├── scripts/
@@ -151,6 +152,8 @@ stale doc is a bug.
   `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`GITEA_PACKS`/`NPM_PACKS` tables
   in `scripts/update_report.py`, plus `.mcp.json` for an MCP server). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
+- **Host-app reference version** (ComfyUI, Ollama, FreeCAD, Blender, Node.js, Python) → `docs/STACK.md` §7 **and**
+  `HOST_APPS` / `COMFY_REF` in `scripts/update_report.py` (a test checks they match).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (CI's Linux leg installs
   `[images]` and matches the local count; the Windows leg uses `[dev]` only, so its 8 Pillow-gated tests
   skip there: Windows CI = local − 8).

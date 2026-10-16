@@ -1,6 +1,9 @@
 # Dependabot keeps dependencies current and flags vulnerable versions.
 # - pip: watches the project's Python requirements (currently requirements-dev.txt).
 # - github-actions: keeps the CI workflows' actions (.github/workflows/) on current, patched versions.
+# - pre-commit: bumps the hook revs in .pre-commit-config.yaml (ruff's rev moves with the [dev] pin).
+# Actions and hooks each come as one grouped PR a week; pip bumps stay separate (a security fix shouldn't
+# wait on an unrelated one). What to do with them: docs/MAINTENANCE.md.
 version: 2
 updates:
   - package-ecosystem: "pip"
@@ -21,3 +24,17 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      hooks:
+        patterns: ["*"]

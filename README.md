@@ -114,9 +114,9 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Standalone CLI** | `chimera` over image / video / audio / 3D / render / cad — no assistant, no brand | [Quickstart](#-quickstart) |
 | **Brand Kits** *(opt-in)* | `--brand` → style/palette injection, alpha-exact logo overlay, product re-render, optional LoRA | [brand-kits.md](modules/image/brand-kits.md) |
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
-| **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream | [UPDATING.md](docs/UPDATING.md) |
+| **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream, security advisories and outdated host apps; monthly and quarterly checklists | [MAINTENANCE.md](docs/MAINTENANCE.md) · [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **1172 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **1196 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
