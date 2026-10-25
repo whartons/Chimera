@@ -12,10 +12,13 @@ from scripts.agent.geometry import structural_issues, RENDER_CHECKS_SUFFIX
 
 @dataclass
 class Verdict:
-    """A judge's decision: overall pass/fail, a 0-1 score, unmet-criterion issues."""
+    """A judge's decision: overall pass/fail, a 0-1 score, unmet-criterion issues. `geometry_failed`: a deterministic
+    geometry check failed it (GeometryAwareJudge), whatever the score says; such a candidate ranks below any clean
+    one (loop.run_loop)."""
     passed: bool
     score: float
     issues: list = field(default_factory=list)
+    geometry_failed: bool = False
 
 
 class Judge(ABC):
@@ -29,7 +32,31 @@ class Judge(ABC):
 # standalone PASS / FAIL verdict tokens (word-boundaried, case-insensitive) so
 # 'passable' / 'compass' / 'failsafe' never trip the overall verdict; a negated pass ('Does not pass') is a FAIL.
 _PASS = re.compile(r"\bpass(?:ed)?\b", re.IGNORECASE)
-_FAIL = re.compile(r"\bfail(?:ed)?\b|(?:\bnot|\bnever|\bcannot|n't)\s+(?:a\s+)?pass(?:ed)?\b", re.IGNORECASE)
+# ... and so is a pass field set to no ('PASS: false', 'Passed: No', JSON's "passed": false), which read as a PASS;
+# 'PASS: no issues found' isn't one (2026-10-25 review)
+_FAIL = re.compile(r"\bfail(?:ed)?\b|(?:\bnot|\bnever|\bcannot|n't)\s+(?:a\s+)?pass(?:ed)?\b"
+                   r"|\bpass(?:ed)?\b[\"'*_\s]*[:=][\"'*_\s]*(?:no|false|0(?!\.\d))\b(?=[\"'*_\s]*(?:[,;.}\])]|$))",
+                   re.IGNORECASE)
+# the reply format echoed as a label ('Overall (PASS/FAIL): PASS'): its FAIL isn't the verdict
+_FORMAT_LABEL = re.compile(r"[(\[]?\s*\bpass\s*(?:/|\bor\b)\s*fail\b\s*[)\]]?", re.IGNORECASE)
+# reasoning a thinking model inlines in its reply (servers that don't split it into its own field); an unclosed
+# block is a reply cut off mid-thought
+_THINK = re.compile(r"<think(?:ing)?>.*?(?:</think(?:ing)?>|\Z)", re.IGNORECASE | re.DOTALL)
+_THINK_END = re.compile(r"</think(?:ing)?>", re.IGNORECASE)
+
+
+def strip_thinking(text):
+    """`text` without a thinking model's inline reasoning: each <think>...</think> block, an unclosed <think> to the
+    end, and everything before a closing </think> whose opening tag was in the prompt (Qwen3's chat template). Its
+    "So overall this should PASS" read as the verdict (2026-10-25 review)."""
+    text = _THINK.sub("", text)
+    ends = list(_THINK_END.finditer(text))
+    return text[ends[-1].end():] if ends else text
+
+
+def _unlabelled(line):
+    """`line` with an echoed PASS/FAIL format label blanked out (same length, so positions in it hold)."""
+    return _FORMAT_LABEL.sub(lambda m: " " * len(m.group()), line)
 _SCORE = re.compile(r"\bscores?\b(?:\s*[(\[][^)\]\n]*[)\]])?[^\d\n]{0,8}?(-?\d+(?:[.,]\d+)?)\s*"
                     r"(?:(/|out\s+of)\s*(\d+(?:\.\d+)?)|(%))?", re.IGNORECASE)
 # the scale a judge names before the value ('Score (0-1): 0.82', 'Score [1-10]: 8', 'Score (out of 5): 4'); it
@@ -112,7 +139,7 @@ def parse_verdict(text: str) -> Verdict:
     try:
         if not text or not str(text).strip():
             return Verdict(passed=False, score=0.0, issues=[])
-        lines = [l for l in str(text).splitlines() if not _ECHO.search(l)]
+        lines = [l for l in strip_thinking(str(text)).splitlines() if not _ECHO.search(l)]
 
         # Decide PASS/FAIL from the verdict-bearing line only, so criterion
         # reasons containing the word 'fail' (or 'pass') don't contaminate the
@@ -124,7 +151,8 @@ def parse_verdict(text: str) -> Verdict:
             # would not pass'), never the verdict: numbered, or marking a criterion NOT-MET unless a verdict label
             # introduces the token ('NOT-MET: none. Overall: PASS'). That criterion, taken as the verdict, was also
             # left out of the criterion check, so a judge's bare FAIL became a PASS (2026-10 review).
-            t = min((m.start() for m in (_PASS.search(l), _FAIL.search(l)) if m), default=None)
+            v = _unlabelled(l)
+            t = min((m.start() for m in (_PASS.search(v), _FAIL.search(v)) if m), default=None)
             s = _STATUS.search(l)
             return t is not None and (s is None or t < s.start() or not (
                 _NUMBERED.match(l) or (_line_unmet(l) and not _VERDICT_AT.search(l[:t]))))
@@ -138,11 +166,16 @@ def parse_verdict(text: str) -> Verdict:
         # FAIL takes precedence; PASS only on an explicit standalone token. The rubric says PASS only if
         # every criterion is MET, so a criterion marked NOT-MET also fails it: a small judge wrote "NOT-MET:
         # the head is completely absent" and then "Overall: PASS" (2026-10 judge benchmark).
-        failed = bool(_FAIL.search(verdict_line))
+        failed = bool(_FAIL.search(_unlabelled(verdict_line)))
         criterion_unmet = any(_line_unmet(l) for l in lines if l.strip() != verdict_line.strip())
-        # ... and so does the verdict line's own confession after the PASS ('PASS - criterion 2 is partially met')
-        pm = _PASS.search(verdict_line)
-        verdict_unmet = bool(pm) and _line_unmet(verdict_line[pm.end():])
+        # ... and so does the verdict line's own confession after the PASS ('PASS - criterion 2 is partially met'),
+        # or before its label: left out of the criterion check above, 'Summary: criterion 2 is NOT-MET (orange body).
+        # Overall: PASS' passed (2026-10-25 review). 'NOT-MET: none. Overall: PASS' still does.
+        pm = _PASS.search(_unlabelled(verdict_line))
+        before = verdict_line[:pm.start()] if pm else ""
+        label = _VERDICT_AT.search(before)
+        verdict_unmet = bool(pm) and (_line_unmet(verdict_line[pm.end():])
+                                      or _line_unmet(before[:label.start()] if label else before))
         passed = bool(pm) and not failed and not criterion_unmet and not verdict_unmet
 
         # Score: prefer the dedicated trailing 'score: ...' line (rubric instruction); fall back
@@ -364,4 +397,5 @@ class GeometryAwareJudge(Judge):
             if it not in seen:
                 seen.add(it)
                 issues.append(it)
-        return Verdict(passed=False, score=v.score, issues=issues)
+        # the VLM's score stays as it judged the look; geometry_failed ranks it below every clean candidate
+        return Verdict(passed=False, score=v.score, issues=issues, geometry_failed=True)

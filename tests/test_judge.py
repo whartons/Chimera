@@ -561,3 +561,49 @@ def test_pinned_score_and_fix_rules():
     assert parse_verdict("Overall: PASS\nScore: 5%").score == 0.05
     assert parse_verdict("Overall: PASS\nScore: 10%").score == 0.1
     assert parse_verdict("Overall: PASS\nScores: 0.4\nNote: a score of 0.9 would need studio light.").score == 0.4
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("verdict, passed", [
+    ("Summary: criterion 2 is NOT-MET (orange body). Overall: PASS", False),
+    ("1 MET, 2 NOT-MET, 3 MET. Overall: PASS", False),
+    ("NOT-MET: none. Overall: PASS", True)])
+def test_a_not_met_before_the_verdict_label_on_its_line_counts(verdict, passed):
+    # the verdict line was left out of the criterion check, so a confession before its label still passed
+    v = parse_verdict(f"{verdict}\nscore: 0.8")
+    assert v.passed is passed and (v.issues == [] if passed else v.issues == [verdict])
+
+
+@pytest.mark.parametrize("text", ["PASS: false", "Passed: No", "Overall: PASS: no.", '{"passed": false, "score": 0.3}',
+                                  '{\n  "criteria": [],\n  "pass": false,\n  "score": 0.3\n}', "**PASS:** NO",
+                                  "pass = 0"])
+def test_a_pass_field_set_to_no_is_a_fail(text):
+    # '\bpass(?:ed)?\b' read "PASS: false" and JSON's "passed": false as a PASS
+    assert parse_verdict(text).passed is False
+
+
+@pytest.mark.parametrize("text", ["Overall (PASS/FAIL): PASS\nscore: 0.9", "Overall: PASS: no issues found\nscore: 0.9",
+                                  '{"passed": true, "score": 0.9}', "Verdict [PASS or FAIL]: PASS\nscore: 0.9",
+                                  "Passed: yes\nscore: 0.9"])
+def test_an_echoed_format_label_or_a_yes_keeps_a_pass(text):
+    assert parse_verdict(text).passed is True
+
+
+@pytest.mark.parametrize("text", ["Overall (PASS/FAIL): FAIL\nscore: 0.3", "Overall: PASS/FAIL\nscore: 0.9"])
+def test_an_echoed_format_label_is_not_a_verdict(text):
+    assert parse_verdict(text).passed is False
+
+
+@pytest.mark.parametrize("text", [
+    "<think>\nOverall, this should PASS.\n</think>\nscore: 0.4",                          # no verdict after the thought
+    "<think>The hook looks fine... So overall this should PASS. Let me double check",   # cut off mid-thought
+    "The hook looks fine. Overall: PASS, I think.\n</think>\nscore: 0.4"])            # the opening tag in the prompt
+def test_a_models_inline_thinking_is_not_its_verdict(text):
+    # servers that inline <think> put the model's musing in the reply, where 'should PASS' read as the verdict
+    assert parse_verdict(text).passed is False
+
+
+def test_the_verdict_after_a_thought_still_counts():
+    v = parse_verdict("<think>is the arm too thin? Overall it might FAIL</think>\n1. MET - sturdy arm\nOverall: PASS\n"
+                      "score: 0.9")
+    assert v.passed and v.score == 0.9 and v.issues == []

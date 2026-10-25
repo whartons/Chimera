@@ -250,6 +250,29 @@ def test_a_failed_iteration_keeps_the_last_judge_issues():
 
 
 
+def test_a_candidate_the_geometry_checks_failed_never_beats_a_clean_one(tmp_path):
+    # GeometryAwareJudge forces FAIL but keeps the VLM's score, and best-of went by score alone: a part in 16 pieces
+    # scored 0.95 beat a clean one at 0.85 when nothing passed (2026-10-25 review)
+    import json
+    from pathlib import Path
+    from scripts.agent.judge import GeometryAwareJudge
+
+    def gen(pos, neg, seed):
+        sheet = tmp_path / f"cad_{seed}.png"
+        sheet.write_text("x")
+        (tmp_path / f"cad_{seed}.checks.json").write_text(json.dumps({"loose_parts": 1 if seed == 1 else 16}))
+        return str(sheet)
+
+    class _VLM:
+        def judge(self, image_path, rubric):
+            return Verdict(passed=False, score={"cad_1.png": 0.85, "cad_2.png": 0.95}[Path(image_path).name],
+                           issues=["2. NOT-MET - the blades are too thick"])
+    res = run_loop(expander=RecordingExpander(), judge=GeometryAwareJudge(_VLM(), strict=True), generate=gen,
+                   manifest=_m(), subject="a fan rotor", max_iters=2, seeds=[1, 2])
+    assert not res.passed and Path(res.best_image).name == "cad_1.png" and res.best_verdict.score == 0.85
+    assert res.history[1].verdict.score == 0.95            # the VLM's score is still reported as it was
+
+
 def test_seed_names_give_a_repeated_seed_its_own_file():
     # --seeds 7,7,7 re-renders one seed: under one name a later pass replaced the reported winner's file
     from scripts.agent.loop import SeedNames

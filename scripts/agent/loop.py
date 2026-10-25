@@ -49,6 +49,13 @@ def _brand_corrected(subject, rubric, manifest, issues):
     return fixed, rubric
 
 
+def _rank(v):
+    """The best-of order when nothing passes: a candidate a geometry check failed ranks below every clean one,
+    whatever the VLM scored it (a part in 16 pieces at 0.95 beat a clean one at 0.85, 2026-10-25 review); then the
+    score."""
+    return (not getattr(v, "geometry_failed", False), v.score)
+
+
 class SeedNames:
     """Output names for one run's renders: the seed, then <seed>_2, <seed>_3, ... when the run repeats a seed
     (`--seeds 7,7,7` re-renders one seed with corrected prompts). Each pass needs its own file: under one
@@ -97,7 +104,7 @@ def run_loop(*, expander, judge, generate, manifest, subject,
               f"{'PASS' if v.passed else 'FAIL'}", file=sys.stderr)
 
         # Only a real render can win; a None image must never become best.
-        if img is not None and (best is None or v.score > best[0].score):
+        if img is not None and (best is None or _rank(v) > _rank(best[0])):
             best = (v, img)
 
         if v.passed:
