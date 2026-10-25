@@ -181,3 +181,47 @@ def test_a_multi_part_glb_is_refused_not_cut_to_its_first_part(tmp_path):
     _assemble_glb(gltf, bin_data, p)
     with pytest.raises(ValueError, match="2 mesh parts"):
         convert(p, "stl")
+
+
+
+# --- glTF is +Y up, STL is +Z up in every slicer (2026-10-25 review) ------------------------------------
+def _upright_glb(path):
+    """A one-triangle GLB standing 2 units tall along glTF's up axis (+Y), facing glTF's front (+Z)."""
+    verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 2.0, 0.0)]
+    bin_data = b"".join(struct.pack("<3f", *v) for v in verts) + struct.pack("<3I", 0, 1, 2)
+    gltf = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(bin_data)}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 36},
+                            {"buffer": 0, "byteOffset": 36, "byteLength": 12}],
+            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+                          {"bufferView": 1, "componentType": 5125, "count": 3, "type": "SCALAR"}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}]}
+    _assemble_glb(gltf, bin_data, path)
+
+
+def _stl_facets(path):
+    data = Path(path).read_bytes()
+    n = struct.unpack_from("<I", data, 80)[0]
+    return [(struct.unpack_from("<3f", data, 84 + i * 50), [struct.unpack_from("<3f", data, 84 + i * 50 + 12 + j * 12)
+                                                           for j in range(3)]) for i in range(n)]
+
+
+def test_an_stl_from_a_glb_stands_up_in_a_slicer(tmp_path):
+    # convert copied glTF's Y-up coordinates straight into STL, so `3d --format stl` lay on its back while
+    # `render --mode finish --formats stl` (Blender converts) stood up
+    p = tmp_path / "m.glb"
+    _upright_glb(p)
+    [(normal, tri)] = _stl_facets(convert(p, "stl"))
+    assert [v[2] for v in tri] == [0.0, 0.0, 2.0]            # the 2-unit height is now Z
+    assert all(v[1] == 0.0 for v in tri)
+    assert normal == pytest.approx((0.0, -1.0, 0.0))         # glTF's front (+Z) is -Y in Z-up: still outward
+    a, b, c = tri                                            # and the winding agrees with the stored normal
+    u, w = [b[i] - a[i] for i in range(3)], [c[i] - a[i] for i in range(3)]
+    cross = (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+    assert sum(cross[i] * normal[i] for i in range(3)) > 0
+
+
+def test_an_obj_from_a_glb_stays_y_up(tmp_path):
+    p = tmp_path / "m.glb"
+    _upright_glb(p)
+    v = [line.split()[1:] for line in convert(p, "obj").read_text().splitlines() if line.startswith("v ")]
+    assert [float(x[1]) for x in v] == [0.0, 0.0, 2.0]       # OBJ is Y-up by convention: unchanged
