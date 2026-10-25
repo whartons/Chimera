@@ -109,7 +109,9 @@ def _open_share(grid, p):
 
 def check(tris) -> dict:
     """Printability report for (N, 3, 3) triangles (see module docstring). JSON-serializable."""
-    tris = np.asarray(tris, dtype=np.float64)
+    tris = np.asarray(tris, dtype=np.float64).reshape(-1, 3, 3)
+    if not len(tris):        # numpy's "zero-size array to reduction operation" reached the user (2026-10-25)
+        raise ValueError("the STL has no triangles")
     pts = tris.reshape(-1, 3)
     lo, hi = pts.min(0), pts.max(0)
     size = hi - lo

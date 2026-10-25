@@ -21,6 +21,11 @@ def test_read_stl_rejects_a_file_that_is_not_binary_stl(tmp_path):
         PC.read_stl(p)
 
 
+def test_an_stl_with_no_triangles_is_a_clear_error(tmp_path):
+    with pytest.raises(ValueError, match="no triangles"):
+        PC.check_file(PC.write_stl(tmp_path / "empty.stl", np.zeros((0, 3, 3))))
+
+
 def test_a_solid_box_is_solid_closed_one_piece_with_its_volume():
     r = PC.check(box((0, 0, 0), (40, 40, 60)))
     assert r["verdict"] == "SOLID"

@@ -1,4 +1,5 @@
 """Solidify: a thin double-sided AI mesh (TRELLIS.2-style sheet) becomes one solid, leaks included."""
+import json
 import math
 
 import pytest
@@ -8,7 +9,7 @@ pytest.importorskip("scipy")
 pytest.importorskip("skimage")
 from scripts.brandkit import printcheck as PC  # noqa: E402
 from scripts.brandkit import solidify as S  # noqa: E402
-from tests.meshes import sheet  # noqa: E402
+from tests.meshes import box, sheet, slot_is_open, slotted_block  # noqa: E402
 
 
 def test_a_sheet_is_hollow_before_solidify():
@@ -40,8 +41,20 @@ def test_auto_close_picks_the_smallest_radius_that_seals_the_leak():
 
 def test_voxel_size_follows_the_print_size():
     assert S.auto_voxel_mm(228.6) == pytest.approx(0.3)
-    assert S.auto_voxel_mm(60) == pytest.approx(0.3)            # floor: finer than a 0.4 mm nozzle is wasted
+    # below 228.6 mm it keeps shrinking, so the closing radii (in voxels) shrink with the print like the sheet and
+    # its leaks do; a 0.3 mm floor kept them at 1.2-4 mm and webbed a miniature's slots shut (2026-10-25)
+    assert S.auto_voxel_mm(60) == pytest.approx(60 / 762)
+    assert S.auto_voxel_mm(10) == pytest.approx(S.MIN_VOXEL_MM)    # the floor: a tiny part stays cheap
     assert S.auto_voxel_mm(500) == pytest.approx(500 / 762, rel=1e-6)
+
+
+def test_a_slot_in_a_small_print_stays_open(tmp_path, monkeypatch):
+    # a 40 mm part with a 2 mm slot: a 0.3 mm voxel's smallest closing radius (1.2 mm) webbed the slot shut
+    monkeypatch.setattr(S, "MAX_VOXELS", 4_000_000)        # keeps the test quick; the voxel still comes out ~0.19 mm
+    src = PC.write_stl(tmp_path / "u.stl", slotted_block())
+    info = S.solidify_file(src, tmp_path / "solid.stl")
+    assert info["voxel_mm"] < 0.25
+    assert slot_is_open(PC.read_stl(tmp_path / "solid.stl"))
 
 
 def test_solidify_file_round_trips_through_stl(tmp_path):
@@ -49,6 +62,8 @@ def test_solidify_file_round_trips_through_stl(tmp_path):
     info = S.solidify_file(src, tmp_path / "solid.stl", vox=0.5)
     assert PC.check_file(tmp_path / "solid.stl")["verdict"] == "SOLID"
     assert info["close_mm"] > 0
+    # the info goes into the sidecar, which holds no absolute paths: "output" was the temp file's full path
+    assert str(tmp_path) not in json.dumps(info) and "output" not in info
 
 
 # solid volume (cm3) by closing radius (mm), measured on real TRELLIS.2 models at 0.3 mm voxels
@@ -68,3 +83,89 @@ def test_the_closing_radius_is_the_one_right_after_the_last_big_jump(name):
     curve, want = _CURVES[name]
     radii = sorted(curve)
     assert S.pick_close_radius(radii, [curve[r] for r in radii]) == want
+
+
+@pytest.mark.parametrize("tris", [np.zeros((0, 3, 3)), np.array([[[0, 0, 0], [1, 1, 1], [2, 2, 2]]], float)],
+                         ids=["empty", "all degenerate"])
+def test_no_triangles_is_a_clear_error(tris, tmp_path):
+    # numpy's "zero-size array to reduction operation minimum" reached the user
+    with pytest.raises(ValueError, match="no triangles"):
+        S.solidify(tris, vox=0.5)
+    with pytest.raises(ValueError, match="no triangles"):
+        S.solidify_file(PC.write_stl(tmp_path / "raw.stl", tris), tmp_path / "solid.stl")
+
+
+def test_an_open_flat_face_has_no_volume_to_fill():
+    # a flat square "succeeded" as a 67 mm sheet with 1332 open edges
+    square = np.array([[[0, 0, 0], [50, 0, 0], [50, 50, 0]], [[0, 0, 0], [50, 50, 0], [0, 50, 0]]], float)
+    with pytest.raises(ValueError, match="no closed volume"):
+        S.solidify(square, vox=0.5)
+
+
+def test_big_triangles_are_sampled_all_over():
+    # a CAD-like 100 x 100 x 10 mm slab in 12 triangles: a 64-step cap on the subdivision dotted each face every
+    # ~2 mm, so the flat top came out dimpled (0.28 mm) and the closed volume swung 96-106 cm3 by radius
+    out, info = S.solidify(box((0, 0, 0), (100, 100, 10)), vox=0.5)
+    v = out.reshape(-1, 3)
+    top = v[(v[:, 0] > 20) & (v[:, 0] < 80) & (v[:, 1] > 20) & (v[:, 1] < 80) & (v[:, 2] > 5), 2]
+    assert np.abs(top - top.mean()).max() < 0.05
+    vols = list(info["solid_cm3_by_radius"].values())
+    assert max(vols) / min(vols) < 1.02
+    assert info["close_mm"] == min(info["solid_cm3_by_radius"])
+
+
+def test_sampling_a_huge_face_comes_in_batches():
+    tris = box((0, 0, 0), (100, 100, 10))
+    batches = list(S._sample(tris, 0.25, chunk=50_000))
+    assert len(batches) > 1 and all(len(b[0]) <= 50_000 + 200_000 for b in batches)
+    pts, ids, w, bary = (np.concatenate(x) for x in zip(*batches, strict=True))
+    assert np.allclose(np.bincount(ids, weights=w), 1.0)                  # each face's weights sum to 1
+    assert np.allclose((tris[ids] * bary[:, :, None]).sum(1), pts)        # bary is in the face's own corner order
+    for f in range(len(tris)):                                            # every face sampled to the step
+        assert (ids == f).sum() >= 0.5 * (np.linalg.norm(np.cross(tris[f, 1] - tris[f, 0], tris[f, 2] - tris[f, 0]))
+                                          / 0.25 ** 2)
+
+
+# --- memory: a compact 228.6 mm print (a bust, a vase) got an 800^3 grid, ~27 GB at ~53 B a voxel (2026-10-25) ---
+
+def test_a_compact_print_gets_a_grid_under_the_cap():
+    for size in ((228.6, 228.6, 228.6), (400.0, 380.0, 300.0)):
+        vox = S.voxel_for_size(size)
+        assert math.prod(S.grid_shape(size, vox)) <= S.MAX_VOXELS
+    assert S.voxel_for_size((100.0, 80.0, 228.6)) == pytest.approx(0.3)      # the proven trophy setting stays
+
+
+def test_solidify_file_coarsens_the_voxel_to_fit_the_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "MAX_VOXELS", 2_000_000)
+    src = PC.write_stl(tmp_path / "raw.stl", box((0, 0, 0), (228.6, 228.6, 228.6)))
+    info = S.solidify_file(src, tmp_path / "solid.stl")
+    assert info["voxel_mm"] > 0.3
+    assert math.prod(S.grid_shape((228.6,) * 3, info["voxel_mm"])) <= 2_000_000
+    assert info["volume_cm3"] == pytest.approx(228.6 ** 3 / 1000, rel=0.03)
+
+
+@pytest.mark.parametrize("r", [1.0, 1.2 / 0.3, 16 / 3, 20 / 3, 8.0, 40 / 3, 2.5])
+def test_the_capped_distance_transform_matches_scipy_at_the_threshold(r):
+    from scipy import ndimage
+    free = np.random.default_rng(int(r * 100)).random((41, 37, 33)) > 0.997
+    d = S._sq_dist(free, r)
+    assert np.array_equal(d <= S._within_sq(r), ndimage.distance_transform_edt(~free) <= r)
+
+
+def test_the_normal_splat_accumulates_in_float32_with_the_trilinear_weights():
+    rng = np.random.default_rng(3)
+    shape = (9, 8, 7)
+    g = rng.random((500, 3)) * (np.array(shape) - 2)
+    wn = rng.normal(size=(500, 3))
+    strides = np.array([shape[1] * shape[2], shape[2], 1])
+    field = [np.zeros(math.prod(shape), np.float32) for _ in range(3)]
+    S._splat(field, g, wn, strides)
+    ref = np.zeros((3, math.prod(shape)))
+    g0 = np.floor(g).astype(int)
+    fr = g - g0
+    for corner in np.ndindex(2, 2, 2):
+        wt = np.prod([fr[:, k] if corner[k] else 1 - fr[:, k] for k in range(3)], axis=0)
+        for c in range(3):
+            np.add.at(ref[c], (g0 + corner) @ strides, wn[:, c] * wt)
+    assert all(f.dtype == np.float32 for f in field)
+    assert np.allclose(np.stack(field), ref, atol=1e-5)

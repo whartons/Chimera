@@ -26,6 +26,8 @@ RENDER_TIMEOUT = 1800
 _TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
                       "finish": "mesh_finish.py"}
 _RAW_MM_TEMPLATE = "mesh_raw_mm.py"     # --solid step 1: the mesh as a raw STL in millimetres
+SPECK_FRAC = 0.01                       # --solid drops pieces under 1 % of the largest one's faces as specks
+_PIECE_KEYS = ("pieces_kept", "pieces_dropped", "faces_dropped")
 
 FINALIZE_TIMEOUT = finalize_core.FINALIZE_TIMEOUT
 _FINALIZE_TEMPLATE = finalize_core.FINALIZE_TEMPLATE
@@ -73,7 +75,7 @@ def _render_params(args, asset, tmp, seed):
         p.update(mesh=str(asset), target_tris=args.target_tris, watertight=bool(args.watertight),
                  solid=bool(getattr(args, "solid", False)), scale_mm=args.scale_mm, color=args.color,
                  formats=_finish_formats(args), stl_scale=_stl_scale(asset, args.scale_mm),
-                 render_still=bool(args.render_still))
+                 render_still=bool(args.render_still), speck_frac=SPECK_FRAC)
         if args.color == "project":
             p["asset"] = str(args.project_image)
     return p
@@ -118,7 +120,8 @@ def _print_tools():
 
 def _check_stls(paths, tools):
     """Print-check every STL output (size in mm, closed, pieces, SOLID vs HOLLOW). Returns {name: report};
-    skips with a note when the [print] extra isn't installed."""
+    skips with a note when the [print] extra isn't installed. A check that fails is reported, never raised: it runs
+    after routing, so an exception left the outputs without a sidecar (2026-10-25)."""
     stls = [p for p in paths if p.suffix.lower() == ".stl"]
     if not stls:
         return {}
@@ -130,8 +133,13 @@ def _check_stls(paths, tools):
         return {}
     reports = {}
     for p in stls:
-        reports[p.name] = pc.check_file(p)
-        print(pc.format_report(reports[p.name], p.name))
+        try:
+            report = pc.check_file(p)
+            print(pc.format_report(report, p.name))
+        except Exception as e:   # noqa: BLE001 - a report about the file, not a reason to lose it
+            print(f"warning: print check of {p.name} failed ({e})", file=sys.stderr)
+            report = {"error": str(e)}
+        reports[p.name] = report
     return reports
 
 
@@ -188,7 +196,14 @@ def run_render(args, repo_root, ap):
                                         blender_bin=args.blender_bin, timeout=args.timeout or RENDER_TIMEOUT)
             print("solidify: rebuilding the mesh as one solid (CPU, a few minutes for a large print)...")
             mesh_in = tmp / "solid_mm.stl"
-            solid_info = tools[0].solidify_file(raw, mesh_in)
+            # its ValueError (an open or empty mesh) and MemoryError reached the user as tracebacks (2026-10-25)
+            try:
+                solid_info = tools[0].solidify_file(raw, mesh_in)
+            except MemoryError:
+                print("render failed: solidify ran out of memory (it needs about 2.5 GB free); close other "
+                      "programs and retry", file=sys.stderr); sys.exit(1)
+            except ValueError as e:
+                print(f"render failed: solidify: {e}", file=sys.stderr); sys.exit(1)
             print(f"solidify: closing radius {solid_info['close_mm']} mm, {solid_info['volume_cm3']} cm3 solid")
         manifest = blender_runner.run_template(
             template, _render_params(args, mesh_in, tmp, seed),
@@ -211,7 +226,12 @@ def run_render(args, repo_root, ap):
                              timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
                              pipeline_git_sha=git_provenance(repo_root))
     if solid_info:
-        meta["solidify"] = solid_info
+        # what the finish kept: dropping every piece but the largest without a word lost a separate plaque
+        pieces = {k: manifest[k] for k in _PIECE_KEYS if k in manifest}
+        if pieces:
+            print(f"finish: kept {pieces.get('pieces_kept', '?')} piece(s), dropped "
+                  f"{pieces.get('pieces_dropped', 0)} speck(s) of {pieces.get('faces_dropped', 0)} faces")
+        meta["solidify"] = {**solid_info, **pieces}
     checks = _check_stls(routed, tools)
     if checks:
         meta["print_check"] = checks
@@ -413,7 +433,7 @@ def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
         return finalize_core.repaint_views(
             client, mesh=mesh, concept=concept, subject=args.subject, azimuths=azimuths,
             comfy_output_dir=args.comfy_output_dir, repo_root=repo_root,
-            blender_runner=blender_runner.run_template, seed=seed, res=args.texture_res,
+            blender_runner=blender_runner.run_template, seed=seed, res=finalize_core.REPAINT_RES,
             elevation=args.elevation, cn_strength=args.cn_strength, ip_weight=args.ip_weight,
             blender_bin=args.blender_bin)
     except finalize_core.FinalizeError as e:
