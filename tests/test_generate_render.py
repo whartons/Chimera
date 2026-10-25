@@ -48,6 +48,34 @@ def test_finish_project_requires_image(monkeypatch):
         G.run_render(a, Path("/tmp"), argparse.ArgumentParser())
 
 
+def test_finish_project_image_reaches_blender_as_an_absolute_path(monkeypatch, tmp_path):
+    # Blender runs in its own working directory, so a relative --project-image couldn't be read (found live,
+    # 2026-10-25): the host resolves it before the job
+    (tmp_path / "art.png").write_bytes(b"png")
+    monkeypatch.chdir(tmp_path)
+    a = _args(mode="finish", color="project", project_image="art.png", formats="glb")
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: Path("/x/m.glb"))
+    seen = {}
+
+    def run(tmpl, params, **k):
+        seen.update(params)
+        raise G.blender_runner.BlenderJobError("stop after the params")
+    monkeypatch.setattr(G.blender_runner, "run_template", run)
+    with pytest.raises(SystemExit):
+        G.run_render(a, tmp_path, argparse.ArgumentParser())
+    assert seen["asset"] == str((tmp_path / "art.png").resolve())
+
+
+def test_finish_project_image_that_is_not_there_is_a_clean_error(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    a = _args(mode="finish", color="project", project_image="missing.png")
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: Path("/x/m.glb"))
+    monkeypatch.setattr(G.blender_runner, "run_template",
+                        lambda *x, **k: pytest.fail("blender must not run without the image"))
+    with pytest.raises(SystemExit):
+        G.run_render(a, tmp_path, argparse.ArgumentParser())
+
+
 def test_render_params_mesh():
     p = G._render_params(_args(turntable=True), "/x/rover.glb", Path("/tmp/w"), 7)
     assert p["mesh"] == "/x/rover.glb" and p["turntable"] is True and p["frames"] == 72
@@ -269,6 +297,7 @@ def test_a_solid_render_sidecar_holds_no_local_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(G, "_print_tools", tools)
     monkeypatch.setattr(G, "route_output", _fake_route(tmp_path))
     monkeypatch.setattr(G, "git_provenance", lambda r: "deadbee")
+    (tmp_path / "concept.png").write_bytes(b"png")   # --project-image is resolved to an absolute path: keep it out
     G.run_render(_args(mode="finish", solid=True, scale_mm=228.6, formats="stl,glb", seed=4,
                        color="project", project_image=str(tmp_path / "concept.png")), tmp_path,
                  argparse.ArgumentParser())

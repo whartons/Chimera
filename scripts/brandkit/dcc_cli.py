@@ -147,6 +147,12 @@ def run_render(args, repo_root, ap):
     brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
     if args.mode == "finish" and args.color == "project" and not args.project_image:
         ap.error("--color project needs --project-image <file>")
+    if args.mode == "finish" and args.color == "project":
+        # Blender runs in its own working directory, so a relative path couldn't be read there (2026-10-25)
+        image = Path(args.project_image).expanduser()
+        if not image.is_file():
+            ap.error(f"--project-image not found: {args.project_image}")
+        args.project_image = str(image.resolve())
     if args.mode == "finish" and args.color == "keep" and args.watertight:
         ap.error("--color keep can't be combined with --watertight: the voxel remesh drops the UVs the textures need")
     solid = args.mode == "finish" and bool(getattr(args, "solid", False))
