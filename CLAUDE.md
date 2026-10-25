@@ -162,8 +162,8 @@ stale doc is a bug.
 - **Host-app reference version** (ComfyUI, Ollama, FreeCAD, Blender, Node.js, Python) → `docs/STACK.md` §7 **and**
   `HOST_APPS` / `COMFY_REF` in `scripts/update_report.py` (a test checks they match).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (CI's Linux leg installs
-  `[images]` + `[print]` and matches the local count; the Windows leg uses `[dev]` only, so its 8 Pillow-gated
-  and 18 print-gated tests skip there: Windows CI = local − 26; `[print]` can't go on Windows, since
+  `[images]` + `[print]` and matches the local count; the Windows leg uses `[dev]` only, so its 9 Pillow-gated
+  and 39 print-gated tests skip there: Windows CI = local − 48; `[print]` can't go on Windows, since
   scikit-image pulls in Pillow).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump
   `pyproject.toml` `version`, then tag + create the GitHub release.

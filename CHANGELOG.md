@@ -130,6 +130,42 @@ All notable changes to Chimera are documented here. The format follows
 - **Untracked files don't make the recorded commit `-dirty`.** `git status` counted them, so the example
   brand's new renders marked every later render's `pipeline_git_sha` dirty. A git status slower than its
   timeout also threw away the commit already read; the sidecar now keeps it.
+- **`--solid` no longer needs ~27 GB for a chunky print.** The voxel followed only the longest side, so a
+  compact 230 mm print (a bust, a vase) got an 800³ grid and needed about 27 GB of RAM, failing with a raw
+  MemoryError. The grid is now capped at 120 M voxels, the closing uses a cheaper exact distance transform, and
+  the splat and the Poisson solve run in float32: a 230 mm cube measures 1.9 GB, a dense 230 mm sheet 2.1 GB.
+- **`--solid` scales its gaps with the print.** The voxel stopped at 0.3 mm, so below 228.6 mm the closing
+  radii stayed 1.2–4 mm and a 40 mm miniature's 2 mm slot was webbed shut. The voxel is now 1/762 of the
+  longest side, down to 0.05 mm, so the radii shrink with the print; a small print now takes about as long as a
+  large one (1–3 minutes). Big flat faces also stay flat: sampling stopped at 64 subdivisions per triangle, so
+  a decimated or CAD mesh got a 0.26 mm dome on a 100 mm face; there's no cap now, in memory-safe batches.
+- **`--solid` drops specks, not second bodies.** It kept only the largest piece, so a separate plaque or a
+  figure that doesn't touch its base vanished silently. Pieces under 1% of the largest one's faces go, the rest
+  stay, and the console and the sidecar say what was kept and dropped. The sidecar no longer records the
+  rebuilt mesh's temp path (with the user name in it).
+- **Empty and open meshes are clear errors.** An empty or all-degenerate mesh crashed inside numpy, and a flat
+  open sheet "succeeded" as a clipped lump with 1,332 open edges. `--solid` now stops with "no triangles" or
+  "no closed volume to fill", `render` reports those and a MemoryError in one line, and a print check that
+  fails is a warning that still leaves the sidecar.
+- **A FreeCAD script without `RESULT` exports its finished objects.** The fallback exported every object with a
+  shape, a Cut's base and tool and any sketches included, merged into one file: a box minus a cylinder came out
+  as the uncut box plus the cylinder (16 cm³ with 520 open edges for a 6.43 cm³ part). Only leaf objects are
+  exported now, sketches skipped.
+- **`--color project` projects.** The image texture had no projection, so on a mesh without UVs (an STL, an
+  OBJ, a `--watertight` or `--solid` mesh) every point read one pixel: one flat colour. The finish now fits a
+  front-projection UV map to the image, and the GLB carries it. A relative `--project-image` failed inside
+  Blender, which runs in its own folder; the host resolves it first, and a missing image is a CLI error.
+- **A FreeCAD OBJ imports upright.** FreeCAD writes OBJ Z-up but Blender read every OBJ as Y-up, so a
+  `cad --formats obj` part lay on its side in `render` (24×30×24 mm for a 24×24×30 tube). An OBJ whose header
+  names FreeCAD now imports Z-up; other OBJs stay Y-up.
+- **Turntables keep a long model in frame.** The camera distance was fitted at 0° only, so a model long along Y
+  (a car, an animal) left the frame around 105° and 285°. Turntables and the loops' orbit stills now frame the
+  model's bounding cylinder.
+- **Texturing fixes.** Phase 4a squashed a non-square concept into the square stills (a 1216×832 concept by
+  0.68×); it now projects at the concept's own aspect. The auto-repaint's depth cameras kept a fixed clip
+  range, so a small metre-scaled GLB lost its near side; they clip to the model's size. And the auto-repaint
+  drew at the atlas size, so `--texture-res 2048` or `4096` had SDXL generate at that size (duplicated subjects,
+  or out of memory); it draws at SDXL's native 1024 px and `--texture-res` sizes only the atlas.
 
 ### Docs
 - Download sources corrected: Z-Image base is `split_files/diffusion_models/z_image_bf16.safetensors` from

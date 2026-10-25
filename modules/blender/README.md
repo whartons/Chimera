@@ -91,7 +91,8 @@ generate.py render [--brand <brand>] --from <file> [--mode <mode>] [options]
 Three modes, all live-validated on Blender 5.1 / RTX 5090:
 
 - **`--mode mesh`** *(default)* — import a mesh (GLB / STL / OBJ) → studio look → Cycles
-  → hero PNG. Add `--turntable` to also produce an MP4 orbit animation.
+  → hero PNG. Add `--turntable` to also produce an MP4 orbit animation, framed so a long model stays in
+  shot at every angle. A FreeCAD OBJ (it writes Z-up) imports upright; other OBJs are read as Y-up.
 - **`--mode comfy-scene`** — take a ComfyUI image → emissive backdrop + reflective floor
   + focal object → Cycles render. This is the **ComfyUI → Blender handoff**: a
   ComfyUI-generated image becomes a scene element in a lit Blender set.
@@ -105,14 +106,15 @@ Three modes, all live-validated on Blender 5.1 / RTX 5090:
   double-sided sheets that `--watertight` turns into hollow shells: Blender writes the mesh as a raw
   STL in mm at the print size (`mesh_raw_mm.py`, seams welded, small holes capped), the host rebuilds
   it as one solid (`scripts/brandkit/solidify.py`: closes leaks, keeps only the outer skin, Poisson
-  reconstruction; about 3 minutes on the CPU for a 230 mm figure), and this template finishes it
-  (largest piece kept, decimation pinches repaired). Every STL it writes is **print-checked** (size in
+  reconstruction; 1–3 minutes and up to about 2 GB of RAM on the CPU), and this template finishes it
+  (specks under 1% of the largest piece dropped and reported, decimation pinches repaired). Every STL it writes is **print-checked** (size in
   mm, closed, pieces, volume, SOLID vs HOLLOW; `scripts/brandkit/printcheck.py`), and the report lands
   in the console and the sidecar. A HOLLOW verdict points to `--solid`. Only a cavity sealed off from the
   outside counts as hollow, so an open cup, a vase or a tube's bore reads SOLID, while a leaky TRELLIS.2
   sheet stays HOLLOW. `--color` picks the material:
   `auto` (default) keeps a textured mesh's own materials, otherwise (or with `--watertight`) clay;
-  `material` is always clay; `project` projects `--project-image`; `keep` always keeps. Kept textures
+  `material` is always clay; `project` front-projects `--project-image` through its own UV map, which the
+  GLB carries (a relative path works); `keep` always keeps. Kept textures
   skip the clean step (it would break a baked normal map), are capped at 2048 px and written as JPEG, so
   `--target-tris 70000 --formats glb` slims a ~75 MB TRELLIS.2 GLB to about 10 MB. `keep` can't be
   combined with `--watertight` or `--solid`, since both rebuild the surface and drop the UVs.
@@ -133,7 +135,8 @@ into the verdict (see [`../agent/self-correction.md`](../agent/self-correction.m
 `_common.bake_albedo()`, which `smart_project`-unwraps the mesh, projects the concept from a dead-front
 camera (via `world_to_camera_view` — `bpy.ops.uv.project_from_view` is unusable under `--background`),
 shader-masks front faces vs a flat `back_fill` (`palette` color, or a `mirror` back-projection), and
-EMIT-bakes a `texture_res` albedo atlas; `mesh_eval` then exports a self-contained **textured GLB** and
+EMIT-bakes a `texture_res` albedo atlas (the concept is projected at its own aspect, so a 1216×832 image
+isn't squashed into the square stills); `mesh_eval` then exports a self-contained **textured GLB** and
 emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipeline mesh3d --mesh-model
 hunyuan21 --texture` (TRELLIS.2 / Pixal3D meshes come out textured, so the loop refuses `--texture` for them).
 
@@ -147,7 +150,7 @@ weighted blend `Σ(w·c)/max(Σw,ε)`, and a flat `--back-fill` (`palette`/`grey
 then EMIT-bakes the atlas, exports a textured GLB, and renders orbit verification stills. The corrected
 views can be **supplied** (`--views`, an artist's paints) **or auto-generated** (`--auto-repaint --concept
 <img> --subject "..."`): `render_views.py` renders a per-view depth map, then an SDXL
-**depth-ControlNet + IPAdapter** repaint (`scripts/brandkit/repaint.py`) generates each view from the
+**depth-ControlNet + IPAdapter** repaint (both at SDXL's native 1024 px whatever `--texture-res` says; that sizes only the atlas) (`scripts/brandkit/repaint.py`) generates each view from the
 concept. Runs through the same headless job runner; routes the GLB + a contact sheet to `outputs/` with a
 `kind:"render" mode:"finalize-texture"` sidecar.
 

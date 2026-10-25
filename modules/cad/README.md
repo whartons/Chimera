@@ -121,7 +121,8 @@ python scripts/generate.py cad --mode script --script mug.py --formats step,stl
 `--mode script --script <file.py>` runs an **agent/user-authored FreeCAD Python script** headless and
 exports what it builds. The script runs with `App`/`FreeCAD`, `Part`, `Mesh`, and an active `doc` in
 scope; it builds geometry as objects in `doc` (or sets `RESULT = [objs]`), and the runner owns
-export/emit. STEP export needs **Part (BREP)** objects — a `Mesh::Feature` exports to `stl`/`obj` only
+export/emit. Without `RESULT` the runner exports only the finished objects, not the inputs of a boolean (a Cut's base
+and tool) or sketches; set `RESULT` to export anything else (a part and its mirrored copy, say). STEP export needs **Part (BREP)** objects — a `Mesh::Feature` exports to `stl`/`obj` only
 (the runner rejects mesh→STEP with a clear message). The sidecar records the script name + a content
 hash, so the `params_signature` varies across in-place revisions.
 

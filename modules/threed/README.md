@@ -200,7 +200,9 @@ chimera render --mode finish --from trophy.glb --solid --scale-mm 228.6 --format
 ```
 
 `--solid` (`scripts/brandkit/solidify.py`):
-1. **Find the outside.** Voxelize every triangle (0.3 mm at 230 mm; coarser for bigger prints), close
+1. **Find the outside.** Voxelize every triangle at 1/762 of the longest side (0.3 mm at 230 mm, 0.05 mm at
+   the finest), coarser only when the grid would pass 120 M voxels (a chunky 230 mm print gets about 0.5 mm),
+   so a small print's gaps and radii shrink with it instead of webbing shut. Close
    gaps by a radius *r*, flood-fill everything the outside can't reach. A leak into the body cavity has
    no open edges (TRELLIS closes thin parts), but it leaves the solid hollow, so sealing it shows up as a
    jump in volume. *r* is the radius right after the last big jump (1.6 mm on one trophy, 2.0 mm on two
@@ -212,13 +214,17 @@ chimera render --mode finish --from trophy.glb --solid --scale-mm 228.6 --format
    Every per-voxel inside/outside rule tried instead left visible artefacts (contour rings, specks,
    serrated seams).
 
-Then the finish keeps the largest piece, repairs decimation pinches and writes STL in mm. Every STL
+Then the finish drops specks (pieces under 1% of the largest one's faces; a real second body, such as a
+separate plaque, stays, and the console says what it kept and dropped), repairs decimation pinches and
+writes STL in mm. A mesh with no inside (an open, single-sided surface like a flat sheet) stops with "no
+closed volume to fill". Every STL
 `--mode finish` writes is print-checked (size in mm, closed, pieces, volume, SOLID vs HOLLOW). The HOLLOW
 test (`scripts/brandkit/printcheck.py`) counts only cavities sealed off from the outside: an empty gap
 inside the model counts when under 5% of directions from its middle reach the outside. So an open cup, a
 vase or a tube's bore reads SOLID, while a leaky TRELLIS.2 sheet stays HOLLOW (a small leak doesn't open its
 cavity). Measured
-on the 5090 box (CPU only): about 3 minutes and a few GB of RAM for a 230 mm figure; a fresh TRELLIS.2
+on the 5090 box (CPU only): 1–3 minutes and up to about 2 GB of RAM whatever the print's size (a
+120 mm figure about 2 minutes; a dense 230 mm sheet at the voxel cap 2.1 GB); a fresh TRELLIS.2
 model of a 200 mm trophy went from HOLLOW (44 cm³ in 30 pieces) to one 481 cm³ SOLID. **Judge the
 result** with a low, raking light at full size: a shrunken overview hides surface defects. The source
 image matters too: a plain background, as in a product shot. A busy scene (a castle behind the

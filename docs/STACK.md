@@ -41,7 +41,7 @@ The `chimera` package (**v0.6.2**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (1230 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (1475 tests) |
 | **ruff** | `>=0.17.1,<0.18` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`); one minor, the same as the pre-commit hook, so a new ruff can't break CI unannounced |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent; **required by the mesh3d and cad agent loops**, whose judged contact sheet it builds (`auto_generate.py` refuses `--pipeline mesh3d\|cad` without it) |
@@ -139,8 +139,8 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (1230 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
-1204 on Windows, which stays on `[dev]`, so the 8 Pillow-gated and 18 print-gated tests skip there and the no-Pillow
+py3.12 (1475 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
+1427 on Windows, which stays on `[dev]`, so the 9 Pillow-gated and 39 print-gated tests skip there and the no-Pillow
 paths are proven; `[print]` would bring Pillow along through scikit-image;
 `--cov-fail-under=85`). Python 3.13 and 3.14 also run on Linux but aren't required. CI runs weekly too (Mondays
 06:00 UTC), so an upstream release that breaks the suite shows up in a week with no commits. Codecov is **not**

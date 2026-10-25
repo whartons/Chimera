@@ -43,8 +43,8 @@ jobs:
           cache: pip
       # Linux adds the [print] and [images] extras, so the --solid rebuild, the STL print check, the contact sheet
       # the judge scores (montage.py) and the Pillow cross-checks run and count toward coverage. Windows stays on
-      # [dev] and proves the no-Pillow fallbacks: scikit-image in [print] pulls in Pillow, so the 8 Pillow-gated
-      # and 18 print-gated tests skip there.
+      # [dev] and proves the no-Pillow fallbacks: scikit-image in [print] pulls in Pillow, so the 9 Pillow-gated
+      # and 39 print-gated tests skip there.
       - name: Install (editable + dev tooling)
         run: python -m pip install -e ".[dev${{ matrix.os == 'ubuntu-latest' && ',print,images' || '' }}]"
       - name: Lint (ruff — correctness rules)
