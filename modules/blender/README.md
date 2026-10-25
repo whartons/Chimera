@@ -95,12 +95,22 @@ Three modes, all live-validated on Blender 5.1 / RTX 5090:
   ComfyUI-generated image becomes a scene element in a lit Blender set.
 - **`--mode finish`** — AI mesh → clean → optional `--watertight` voxel remesh →
   decimate (`--target-tris`) → optional `--scale-mm` → material → export STL / GLB (+ hero render).
-  The **figurine / character-finish** pipeline for print-ready output. `--color` picks the material:
+  The **figurine / character-finish** pipeline for print-ready output. **STL is written in
+  millimetres** (Blender metres × 1000, what every slicer assumes; GLB stays in metres per glTF), and
+  after scaling the model is set back on the floor, centred. **`--solid`** (needs `--scale-mm` and
+  `pip install -e ".[print]"`) is the print path for TRELLIS.2 and Pixal3D meshes, which are thin
+  double-sided sheets that `--watertight` turns into hollow shells: Blender writes the mesh as a raw
+  STL in mm at the print size (`mesh_raw_mm.py`, seams welded, small holes capped), the host rebuilds
+  it as one solid (`scripts/brandkit/solidify.py`: closes leaks, keeps only the outer skin, Poisson
+  reconstruction; about 3 minutes on the CPU for a 230 mm figure), and this template finishes it
+  (largest piece kept, decimation pinches repaired). Every STL it writes is **print-checked** (size in
+  mm, closed, pieces, volume, SOLID vs HOLLOW; `scripts/brandkit/printcheck.py`), and the report lands
+  in the console and the sidecar. A HOLLOW verdict points to `--solid`. `--color` picks the material:
   `auto` (default) keeps a textured mesh's own materials, otherwise (or with `--watertight`) clay;
   `material` is always clay; `project` projects `--project-image`; `keep` always keeps. Kept textures
   skip the clean step (it would break a baked normal map), are capped at 2048 px and written as JPEG, so
   `--target-tris 70000 --formats glb` slims a ~75 MB TRELLIS.2 GLB to about 10 MB. `keep` can't be
-  combined with `--watertight`, since the voxel remesh drops the UVs.
+  combined with `--watertight` or `--solid`, since both rebuild the surface and drop the UVs.
 
 All modes are **brand-aware**: outputs route to `brands/<brand>/outputs/` (or `outputs/`
 when brandless) with a `kind:"render"` sidecar. The test suite mocks the subprocess,

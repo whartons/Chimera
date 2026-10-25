@@ -25,6 +25,7 @@ from .sidecar import build_cad_meta, build_render_meta
 RENDER_TIMEOUT = 1800
 _TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
                       "finish": "mesh_finish.py"}
+_RAW_MM_TEMPLATE = "mesh_raw_mm.py"     # --solid step 1: the mesh as a raw STL in millimetres
 
 FINALIZE_TIMEOUT = finalize_core.FINALIZE_TIMEOUT
 _FINALIZE_TEMPLATE = finalize_core.FINALIZE_TEMPLATE
@@ -70,7 +71,7 @@ def _render_params(args, asset, tmp, seed):
         p.update(asset=str(asset), placement=args.as_, frames=args.frames)
     else:  # finish
         p.update(mesh=str(asset), target_tris=args.target_tris, watertight=bool(args.watertight),
-                 scale_mm=args.scale_mm, color=args.color,
+                 solid=bool(getattr(args, "solid", False)), scale_mm=args.scale_mm, color=args.color,
                  formats=_finish_formats(args),
                  render_still=bool(args.render_still))
         if args.color == "project":
@@ -87,7 +88,7 @@ def _finish_formats(args):
 def _sidecar_params(args):
     keys = {"mesh": ("samples", "res", "turntable", "frames"),
             "comfy-scene": ("samples", "res", "as_", "frames"),
-            "finish": ("samples", "res", "target_tris", "watertight", "scale_mm", "color",
+            "finish": ("samples", "res", "target_tris", "watertight", "solid", "scale_mm", "color",
                        "formats", "render_still")}[args.mode]
     return {k: getattr(args, k) for k in keys}
 
@@ -101,12 +102,52 @@ def _primary_output(paths):
     return paths[0]
 
 
+def _print_tools():
+    """The [print] extra's modules (numpy, scipy, scikit-image), imported only when a finish needs them."""
+    from . import printcheck, solidify
+    return solidify, printcheck
+
+
+def _check_stls(paths, tools):
+    """Print-check every STL output (size in mm, closed, pieces, SOLID vs HOLLOW). Returns {name: report};
+    skips with a note when the [print] extra isn't installed."""
+    stls = [p for p in paths if p.suffix.lower() == ".stl"]
+    if not stls:
+        return {}
+    try:
+        _, pc = tools or _print_tools()
+    except ImportError:
+        print("note: print check skipped (pip install -e .[print] adds the size, closed and solid-vs-hollow "
+              "check)", file=sys.stderr)
+        return {}
+    reports = {}
+    for p in stls:
+        reports[p.name] = pc.check_file(p)
+        print(pc.format_report(reports[p.name], p.name))
+    return reports
+
+
 def run_render(args, repo_root, ap):
     brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
     if args.mode == "finish" and args.color == "project" and not args.project_image:
         ap.error("--color project needs --project-image <file>")
     if args.mode == "finish" and args.color == "keep" and args.watertight:
         ap.error("--color keep can't be combined with --watertight: the voxel remesh drops the UVs the textures need")
+    solid = args.mode == "finish" and bool(getattr(args, "solid", False))
+    tools = None
+    if solid:
+        if not args.scale_mm:
+            ap.error("--solid needs --scale-mm <longest side in mm>: the print's real size sets the voxel and gap "
+                     "sizes")
+        if args.watertight:
+            ap.error("--solid replaces --watertight (it already makes one closed solid); drop --watertight")
+        if args.color == "keep":
+            ap.error("--color keep can't be combined with --solid: rebuilding the surface drops the UVs the "
+                     "textures need")
+        try:
+            tools = _print_tools()
+        except ImportError as e:
+            ap.error(f"--solid needs the print extra: pip install -e .[print] ({e})")
     if args.mode == "finish":
         # host-side validation like the cad path: mesh_finish.py only exports these — anything
         # else would silently exit 0 with no export
@@ -125,10 +166,24 @@ def run_render(args, repo_root, ap):
     # --from would not resolve inside the template.
     asset = _resolve_asset(brand_dir, args.from_, subdirs, ap, f"render --from ({args.mode})").resolve()
     tmp = Path(tempfile.mkdtemp(prefix="chimera_render_"))
-    template = repo_root / "workflows" / "templates" / "blender" / _TEMPLATE_FOR_MODE[args.mode]
+    tdir = repo_root / "workflows" / "templates" / "blender"
+    template = tdir / _TEMPLATE_FOR_MODE[args.mode]
+    solid_info = None
     try:
+        mesh_in = asset
+        if solid:
+            # 1. Blender: the mesh as a raw STL in mm at the print size; 2. host: one solid from the sheet;
+            # 3. Blender: the usual finish on that solid (no voxel remesh)
+            raw = tmp / "raw_mm.stl"
+            blender_runner.run_template(tdir / _RAW_MM_TEMPLATE,
+                                        {"mesh": str(asset), "out": str(raw), "size_mm": args.scale_mm},
+                                        blender_bin=args.blender_bin, timeout=args.timeout or RENDER_TIMEOUT)
+            print("solidify: rebuilding the mesh as one solid (CPU, a few minutes for a large print)...")
+            mesh_in = tmp / "solid_mm.stl"
+            solid_info = tools[0].solidify_file(raw, mesh_in)
+            print(f"solidify: closing radius {solid_info['close_mm']} mm, {solid_info['volume_cm3']} cm3 solid")
         manifest = blender_runner.run_template(
-            template, _render_params(args, asset, tmp, seed),
+            template, _render_params(args, mesh_in, tmp, seed),
             blender_bin=args.blender_bin, timeout=args.timeout or RENDER_TIMEOUT)
         outs = manifest.get("outputs", [])
         if not outs:
@@ -144,6 +199,11 @@ def run_render(args, repo_root, ap):
                              source=Path(asset).name, blender_version=manifest.get("blender_version"),
                              timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
                              pipeline_git_sha=git_provenance(repo_root))
+    if solid_info:
+        meta["solidify"] = solid_info
+    checks = _check_stls(routed, tools)
+    if checks:
+        meta["print_check"] = checks
     write_sidecar(primary, meta)
     for p in routed:
         print(f"output -> {p}")

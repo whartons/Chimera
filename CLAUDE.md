@@ -62,7 +62,8 @@ chimera/
 │   ├── brandkit/        # shared core: manifest, prompt, fillers, watermark, outputs, sidecar, mesh,
 │   │                    #   comfy, nodes, provenance, replay (sidecar-inputs/replay contract),
 │   │                    #   dcc (runner core) + dcc_cli (render/cad/finalize orchestration),
-│   │                    #   gpu (ComfyUI/Ollama GPU-memory hand-off)
+│   │                    #   gpu (ComfyUI/Ollama GPU-memory hand-off), solidify + printcheck
+│   │                    #   (3D printing: AI sheet -> one solid; STL size/closed/solid check)
 │   └── agent/           # self-correction loop: rubric, expander, judge, loop, llm, geometry,
 │                        #   auto_generate, cad_generate, render_generate, finalize
 ├── brands/              # Brand Kits — pattern public, brand DATA gitignored
@@ -155,8 +156,8 @@ stale doc is a bug.
 - **Host-app reference version** (ComfyUI, Ollama, FreeCAD, Blender, Node.js, Python) → `docs/STACK.md` §7 **and**
   `HOST_APPS` / `COMFY_REF` in `scripts/update_report.py` (a test checks they match).
 - **Test-count change** → the count claims in `README.md` and `docs/STACK.md` (CI's Linux leg installs
-  `[images]` and matches the local count; the Windows leg uses `[dev]` only, so its 8 Pillow-gated tests
-  skip there: Windows CI = local − 8).
+  `[images]` and matches the local count; the Windows leg uses `[dev,print]` without Pillow, so its 8
+  Pillow-gated tests skip there: Windows CI = local − 8).
 - **Cutting a release** → move `CHANGELOG.md` `[Unreleased]` into the new version, bump
   `pyproject.toml` `version`, then tag + create the GitHub release.
 
