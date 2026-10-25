@@ -4,17 +4,7 @@ import pytest
 np = pytest.importorskip("numpy")      # the [print] extra (numpy + scipy)
 pytest.importorskip("scipy")
 from scripts.brandkit import printcheck as PC  # noqa: E402
-
-
-def box(lo, hi, inward=False):
-    """12 triangles of an axis-aligned box, wound outward (or inward, for a cavity wall)."""
-    (x0, y0, z0), (x1, y1, z1) = lo, hi
-    v = np.array([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
-                  [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], float)
-    f = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
-         (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
-    t = v[np.array(f)]
-    return t[:, ::-1] if inward else t
+from tests.meshes import box, cup, sheet, tube  # noqa: E402
 
 
 def test_stl_roundtrip(tmp_path):
@@ -64,3 +54,24 @@ def test_report_names_the_verdict_and_the_fix_for_hollow():
     shell = np.concatenate([box((0, 0, 0), (40, 40, 60)), box((2, 2, 2), (38, 38, 58), inward=True)])
     text = PC.format_report(PC.check(shell))
     assert "HOLLOW" in text and "--solid" in text
+
+
+# hollow means an empty space the outside can't reach. Rays that are mostly air called every open container HOLLOW
+# (a clean cup, 8 % inside) and told the user to run --solid; a tube's bore made it UNCLEAR (2026-10-25)
+def test_an_open_cup_is_solid_not_hollow():
+    r = PC.check(cup())
+    assert r["bad_edges"] == 0 and r["pieces"] == 1
+    assert r["verdict"] == "SOLID"
+
+
+def test_a_tube_with_a_through_bore_is_solid():
+    assert PC.check(tube())["verdict"] == "SOLID"
+
+
+def test_a_sheet_that_leaks_into_its_cavity_is_still_hollow():
+    # TRELLIS.2 sheets often leak into the body: a small opening doesn't make the cavity part of the outside
+    assert PC.check(sheet(hole_deg=12.0))["verdict"] == "HOLLOW"
+
+
+def test_a_closed_sheet_is_hollow():
+    assert PC.check(sheet())["verdict"] == "HOLLOW"

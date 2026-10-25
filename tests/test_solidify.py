@@ -8,31 +8,7 @@ pytest.importorskip("scipy")
 pytest.importorskip("skimage")
 from scripts.brandkit import printcheck as PC  # noqa: E402
 from scripts.brandkit import solidify as S  # noqa: E402
-
-
-def sphere(r, n_lat=48, n_lon=96, inward=False, hole_deg=0.0):
-    """UV-sphere triangles (outward), optionally inward-facing, optionally with a round hole of
-    `hole_deg` half-angle at the north pole."""
-    th = np.linspace(0, np.pi, n_lat + 1)
-    ph = np.linspace(0, 2 * np.pi, n_lon + 1)
-    P = np.stack([np.sin(th)[:, None] * np.cos(ph)[None], np.sin(th)[:, None] * np.sin(ph)[None],
-                  np.cos(th)[:, None] * np.ones_like(ph)[None]], -1) * r
-    tris = []
-    for i in range(n_lat):
-        if math.degrees(th[i + 1]) <= hole_deg:
-            continue
-        for j in range(n_lon):
-            a, b, c, d = P[i, j], P[i + 1, j], P[i + 1, j + 1], P[i, j + 1]
-            tris += [(a, b, c), (a, c, d)]
-    t = np.array(tris)
-    t = t[np.linalg.norm(np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]), axis=1) > 1e-9]   # pole slivers
-    return t[:, ::-1] if inward else t
-
-
-def sheet(r=20.0, thickness=0.6, hole_deg=0.0):
-    """A TRELLIS.2-like sheet: an outer surface and an inner one `thickness` below it, both closed around the
-    body's empty cavity (optionally leaking through a hole at the top)."""
-    return np.concatenate([sphere(r, hole_deg=hole_deg), sphere(r - thickness, inward=True, hole_deg=hole_deg)])
+from tests.meshes import sheet  # noqa: E402
 
 
 def test_a_sheet_is_hollow_before_solidify():
