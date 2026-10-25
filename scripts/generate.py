@@ -275,6 +275,11 @@ def _probe_video(path):
         frames = vs.frames or 0
         w, h = vs.codec_context.width, vs.codec_context.height
         dur = (frames / fr) if (frames and fr) else None
+        if dur is None:   # WebM and MKV store no frame count (frames == 0): foley used 5 s for any length
+            if vs.duration and vs.time_base:
+                dur = float(vs.duration * vs.time_base)
+            elif c.duration:
+                dur = c.duration / av.time_base   # the container's, in microseconds
         return fr, dur, w, h
     except Exception:                                 # unreadable stream metadata
         return None, None, None, None

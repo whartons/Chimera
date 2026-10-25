@@ -776,3 +776,32 @@ def test_image_size_of_a_rotated_jpeg_with_pillow_is_what_loadimage_sees(tmp_pat
     assert upright == (48, 64)
     assert _image_size(p) == upright
     assert generate._header_size(p) == upright           # and the no-Pillow read agrees
+
+
+def _fake_av(monkeypatch, *, frames, stream_duration, container_duration):
+    from fractions import Fraction
+    import sys as _sys
+    vs = types.SimpleNamespace(average_rate=Fraction(30), frames=frames, duration=stream_duration,
+                               time_base=Fraction(1, 1000), codec_context=types.SimpleNamespace(width=640, height=360))
+    c = types.SimpleNamespace(streams=types.SimpleNamespace(video=[vs]), duration=container_duration,
+                              close=lambda: None)
+    monkeypatch.setitem(_sys.modules, "av", types.SimpleNamespace(open=lambda p: c, time_base=1_000_000))
+
+
+@pytest.mark.parametrize("stream_duration, container_duration", [(7200, None), (None, 7_200_000), (7200, 9_000_000)])
+def test_probe_video_reads_the_duration_of_a_clip_without_a_frame_count(monkeypatch, stream_duration,
+                                                                         container_duration):
+    # PyAV reports frames == 0 for WebM and MKV, so foley fell back to 5 s whatever the clip's real length
+    _fake_av(monkeypatch, frames=0, stream_duration=stream_duration, container_duration=container_duration)
+    fr, dur, w, h = _probe_video("clip.webm")
+    assert (fr, w, h) == (30.0, 640, 360) and dur == pytest.approx(7.2)
+
+
+def test_probe_video_still_prefers_the_frame_count(monkeypatch):
+    _fake_av(monkeypatch, frames=216, stream_duration=None, container_duration=9_000_000)
+    assert _probe_video("clip.mp4")[1] == pytest.approx(7.2)
+
+
+def test_probe_video_of_a_clip_with_no_length_at_all_is_unknown(monkeypatch):
+    _fake_av(monkeypatch, frames=0, stream_duration=None, container_duration=None)
+    assert _probe_video("clip.webm")[1] is None
