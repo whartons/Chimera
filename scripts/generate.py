@@ -176,7 +176,11 @@ def _add_common(sp):
     sp.add_argument("--seed", type=int, default=None)
     sp.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     sp.add_argument("--comfy-output-dir", default=None)
-    sp.add_argument("--watermark", action="store_true", help="stamp the brand logo (opt-in)")
+    # None = the brand's watermark.enabled_default; --no-watermark turns a brand's default off for one render
+    sp.add_argument("--watermark", dest="watermark", action="store_true", default=None,
+                    help="stamp the brand logo (default: the brand's watermark.enabled_default, else off)")
+    sp.add_argument("--no-watermark", dest="watermark", action="store_false",
+                    help="don't stamp it, even for a brand whose watermark.enabled_default is true")
     sp.add_argument("--out-name", default=None, help="(reserved; output is named <brand>_<mode>_<seed>)")
     sp.add_argument("--timeout", type=int, default=None)
     sp.add_argument("--free-before", dest="free_before", action="store_true", default=None)
@@ -402,9 +406,17 @@ def run(args, repo_root, ap):
         pos, neg = build_prompt(m, args.subject)
     expect = getattr(args, "expect", None)   # replay: the sidecar being reproduced
     # a replay keeps the recorded watermark decision: a brand that later turned enabled_default on used to
-    # stamp old renders without a word
-    want = bool(expect.get("watermark")) if expect is not None else (args.watermark or m.watermark.enabled_default)
-    do_watermark = want and _supports_watermark(args.modality, args.mode)
+    # stamp old renders without a word. Otherwise --watermark / --no-watermark, else the brand's default.
+    if expect is not None:
+        want = bool(expect.get("watermark"))
+    else:
+        want = args.watermark if args.watermark is not None else m.watermark.enabled_default
+    supported = _supports_watermark(args.modality, args.mode)
+    if args.watermark and expect is None and not supported:   # it used to be dropped without a word
+        why = {"image": "logo mode already places the logo", "3d": "a mesh has no frame to stamp"}.get(
+            args.modality, "only foley has video frames to stamp")
+        print(f"note: --watermark is ignored for {args.modality} --mode {args.mode}: {why}", file=sys.stderr)
+    do_watermark = want and supported
     if do_watermark and not args.brand:
         ap.error("--watermark needs a --brand (the logo comes from brands/<brand>/logos/)")
     client = ComfyClient(args.comfy_url)
@@ -819,6 +831,10 @@ def main():
         ap.error("--upscale-model picks the upscaler for --upscale; add --upscale")
     if args.modality == "audio" and args.mode != "music" and (args.bpm is not None or args.keyscale):
         ap.error(f"--bpm/--keyscale are music settings; audio --mode {args.mode} doesn't use them")
+    if args.modality == "audio" and args.mode != "foley" and (args.from_video or args.fps is not None):
+        # without --mode foley a clip was ignored and music rendered from the foley text (2026-10-25 review)
+        ap.error(f"--from-video/--fps are foley settings; add --mode foley (audio --mode {args.mode} doesn't "
+                 "use them)")
     _run_comfy(args, repo_root, ap)
 
 
