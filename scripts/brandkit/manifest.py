@@ -140,6 +140,48 @@ def _sub(cls, data, key):
     return cls(**picked)
 
 
+# Where logo mode and the watermark may put the logo (watermark.logo_geometry reads these spellings)
+POSITIONS = ("top-left", "top-right", "bottom-left", "bottom-right", "center")
+
+
+def _position(block, key):
+    """The block's position in its canonical spelling. "Top-Left" has no "left" in it, so the logo went to the
+    bottom-right corner, and "top-center" went to the top-right one (2026-10-25 review)."""
+    pos = "-".join(block.position.lower().replace("_", " ").replace("-", " ").split())
+    if pos not in POSITIONS:
+        raise ManifestError(f"'{key}.position' must be one of {', '.join(POSITIONS)} (got {block.position!r})")
+    block.position = pos
+    return block
+
+
+def _text(data, key):
+    """A top-level text field; null or absent is "". A mapping or a list became its Python repr in the prompt."""
+    v = data.get(key)
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        raise ManifestError(f"'{key}' must be a string (got {v!r})")
+    return v
+
+
+def _palette(data):
+    """The palette as a list of colour strings. A single string is one colour: `palette: "#1c1f22"` used to be
+    split into its characters."""
+    v = data.get("palette")
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [v] if v.strip() else []
+    if not isinstance(v, list) or not all(isinstance(c, str) for c in v):
+        # an unquoted hex colour in a block list is a YAML comment, so it arrives as null
+        raise ManifestError(f"'palette' must be a list of colour strings such as [\"#1c1f22\"] (got {v!r}; "
+                            "quote hex colours in brand.yaml)")
+    return list(v)
+
+
+_TOP_LEVEL = sorted(f for f in BrandManifest.__dataclass_fields__ if f != "root")
+
+
 DEFAULT_BRANDLESS_MODEL = Defaults.model   # Qwen-Image-2.1, the documented default image backend
 
 
@@ -165,21 +207,25 @@ def load_manifest(path) -> BrandManifest:
     name = data.get("name")
     if not name or not str(name).strip():
         raise ManifestError("brand.yaml requires a non-empty 'name'")
+    unknown = [k for k in data if k not in _TOP_LEVEL]
+    if unknown:   # like a block's typo: `prompt_sufix:` or `negatives:` used to vanish without a word
+        print(f"warning: brand.yaml has unknown top-level key(s) {unknown} — ignored "
+              f"(valid: {_TOP_LEVEL})", file=sys.stderr)
     threed = _sub(Threed, data, "threed")   # `format: null` is the default glb, like every other null
     if str(threed.format).lower() not in ("glb", "stl", "obj"):
         raise ManifestError(f"'threed.format' must be glb, stl or obj (got {threed.format!r})")
     return BrandManifest(
         name=str(name),
-        style=str(data.get("style", "") or ""),
-        palette=list(data.get("palette", []) or []),
-        prompt_prefix=str(data.get("prompt_prefix", "") or ""),
-        prompt_suffix=str(data.get("prompt_suffix", "") or ""),
-        negative=str(data.get("negative", "") or ""),
+        style=_text(data, "style"),
+        palette=_palette(data),
+        prompt_prefix=_text(data, "prompt_prefix"),
+        prompt_suffix=_text(data, "prompt_suffix"),
+        negative=_text(data, "negative"),
         defaults=_sub(Defaults, data, "defaults"),
-        logo=_sub(Logo, data, "logo"),
+        logo=_position(_sub(Logo, data, "logo"), "logo"),
         lora=_sub(Lora, data, "lora"),
         ip_adapter=_sub(IpAdapter, data, "ip_adapter"),
-        watermark=_sub(Watermark, data, "watermark"),
+        watermark=_position(_sub(Watermark, data, "watermark"), "watermark"),
         video=_sub(Video, data, "video"),
         audio=_sub(Audio, data, "audio"),
         threed=threed,
