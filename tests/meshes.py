@@ -74,3 +74,25 @@ def tube(r_out=12.0, r_in=8.0, height=30.0):
 def cup(r=40.0, height=90.0, wall=3.0, base=4.0):
     """A solid, open-topped cup: 3 mm walls on a 4 mm base."""
     return _ring(r, r - wall, 0.0, height, floor=base)
+
+
+def slotted_block(scale=1.0):
+    """A U-block: two 19 mm prongs on a 40 x 10 x 4 mm base with a 2 mm slot between them (all x `scale`)."""
+    parts = [box((0, 0, 0), (40, 10, 4)), box((0, 0, 4), (19, 10, 30)), box((21, 0, 4), (40, 10, 30))]
+    return np.concatenate(parts) * scale
+
+
+def slot_is_open(tris, scale=1.0):
+    """True when a ray through the middle of slotted_block's slot meets no surface."""
+    o = np.array([20.0 * scale, -5.0, 17.0 * scale]) + 1e-3
+    v0, e1, e2 = tris[:, 0], tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]
+    p = np.cross([0.0, 1.0, 0.0], e2)
+    det = (e1 * p).sum(1)
+    ok = np.abs(det) > 1e-12
+    inv = 1.0 / np.where(ok, det, 1.0)
+    s = o - v0
+    u = (s * p).sum(1) * inv
+    q = np.cross(s, e1)
+    v = (q * [0.0, 1.0, 0.0]).sum(1) * inv
+    t = (e2 * q).sum(1) * inv
+    return not np.any(ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 0))

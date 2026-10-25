@@ -8,7 +8,7 @@ pytest.importorskip("scipy")
 pytest.importorskip("skimage")
 from scripts.brandkit import printcheck as PC  # noqa: E402
 from scripts.brandkit import solidify as S  # noqa: E402
-from tests.meshes import box, sheet  # noqa: E402
+from tests.meshes import box, sheet, slot_is_open, slotted_block  # noqa: E402
 
 
 def test_a_sheet_is_hollow_before_solidify():
@@ -40,8 +40,20 @@ def test_auto_close_picks_the_smallest_radius_that_seals_the_leak():
 
 def test_voxel_size_follows_the_print_size():
     assert S.auto_voxel_mm(228.6) == pytest.approx(0.3)
-    assert S.auto_voxel_mm(60) == pytest.approx(0.3)            # floor: finer than a 0.4 mm nozzle is wasted
+    # below 228.6 mm it keeps shrinking, so the closing radii (in voxels) shrink with the print like the sheet and
+    # its leaks do; a 0.3 mm floor kept them at 1.2-4 mm and webbed a miniature's slots shut (2026-10-25)
+    assert S.auto_voxel_mm(60) == pytest.approx(60 / 762)
+    assert S.auto_voxel_mm(10) == pytest.approx(S.MIN_VOXEL_MM)    # the floor: a tiny part stays cheap
     assert S.auto_voxel_mm(500) == pytest.approx(500 / 762, rel=1e-6)
+
+
+def test_a_slot_in_a_small_print_stays_open(tmp_path, monkeypatch):
+    # a 40 mm part with a 2 mm slot: a 0.3 mm voxel's smallest closing radius (1.2 mm) webbed the slot shut
+    monkeypatch.setattr(S, "MAX_VOXELS", 4_000_000)        # keeps the test quick; the voxel still comes out ~0.19 mm
+    src = PC.write_stl(tmp_path / "u.stl", slotted_block())
+    info = S.solidify_file(src, tmp_path / "solid.stl")
+    assert info["voxel_mm"] < 0.25
+    assert slot_is_open(PC.read_stl(tmp_path / "solid.stl"))
 
 
 def test_solidify_file_round_trips_through_stl(tmp_path):
