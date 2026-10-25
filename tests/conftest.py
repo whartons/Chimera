@@ -95,8 +95,8 @@ def _no_live_llm(monkeypatch):
     from scripts.agent import llm
     real = llm.LLMClient._chat_once
 
-    def guarded(self, messages, max_tokens, temperature, reasoning_effort, _opener):
+    def guarded(self, messages, max_tokens, temperature, reasoning_effort, _opener, **kw):
         if _opener is urllib.request.urlopen:
             raise llm.LLMError("tests don't reach a live LLM")
-        return real(self, messages, max_tokens, temperature, reasoning_effort, _opener)
+        return real(self, messages, max_tokens, temperature, reasoning_effort, _opener, **kw)
     monkeypatch.setattr(llm.LLMClient, "_chat_once", guarded)

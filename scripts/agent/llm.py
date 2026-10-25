@@ -21,10 +21,10 @@ Config (env, with CLI overrides; no hardcoded vendor default):
                         fix for hybrid-thinking models served thinking-ON (e.g. Qwen3.x on Ollama >= 0.40).
 """
 from __future__ import annotations
-import os, sys, json, base64, urllib.parse, urllib.request, urllib.error
+import os, re, sys, json, base64, urllib.parse, urllib.request, urllib.error
 from pathlib import Path
 
-from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict
+from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict, strip_thinking
 from scripts.agent.expander import PromptExpander, TemplatedExpander
 from scripts.brandkit import gpu
 
@@ -42,11 +42,12 @@ class LLMConfigError(RuntimeError):
 # modules/agent/self-correction.md.
 # The large tier starts at 32 GB cards (they report about 31.8 GiB): beside ComfyUI's image model a 24 GB card has
 # no room for the 27B judge (about 22 GB with its context cache), so ComfyUI would have to empty itself before every
-# judgment, and with the desktop's own few GB in use the room never came (2026-10 review).
+# judgment, and with the desktop's own few GB in use the room never came (2026-10 review). The medium tier starts at
+# 12 GB cards (about 11.99 GiB): at 11 an 11 GB card (11.00 GiB) got it, under 12 GB is the small tier (2026-10-25).
 LOCAL_TIERS = {
     "large": {"min_gb": 28, "judge": ("qwen3.8:27b", "none"), "codegen": ("qwen3.8:27b", "none"),
               "rewriter": ("qwen3.8:27b", "none")},
-    "medium": {"min_gb": 11, "judge": ("qwen3-vl:8b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
+    "medium": {"min_gb": 11.5, "judge": ("qwen3-vl:8b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
                "rewriter": ("qwen3-vl:8b-instruct", None)},
     "small": {"min_gb": 0, "judge": ("qwen3-vl:4b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
               "rewriter": ("qwen3-vl:4b-instruct", None)},
@@ -142,6 +143,18 @@ class _ThinkingExhausted(LLMError):
 _UNLOAD_WAIT = 10.0   # seconds release() waits for Ollama to let go of a model before a ComfyUI render
 
 
+def _text(content):
+    """A reply's `content` as text: a string, or a list of parts (some OpenAI-compatible servers send those), whose
+    text parts are joined and whose others (a 'thinking' part, an image) dropped. .strip() on a list raised
+    AttributeError past the LLMError handling (2026-10-25 review); any other type is a shape error (TypeError)."""
+    if content is None or isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(p if isinstance(p, str) else p.get("text") or "" for p in content
+                       if isinstance(p, str) or (isinstance(p, dict) and p.get("type", "text") in ("text", "output_text")))
+    raise TypeError(f"content is a {type(content).__name__}")
+
+
 class LLMClient:
     """OpenAI-compatible chat client over stdlib HTTP. `_opener` is the test seam (urlopen)."""
 
@@ -168,26 +181,31 @@ class LLMClient:
         self.make_room = None
         self._planned = None   # the full-context bytes the room check planned for, checked after the load
 
-    def chat(self, messages, *, max_tokens=2048, temperature=0.4, _opener=urllib.request.urlopen) -> str:
+    def chat(self, messages, *, max_tokens=2048, temperature=0.4, reject_truncated=False,
+             _opener=urllib.request.urlopen) -> str:
+        """The reply's text. `reject_truncated` (the judge): a reply cut off at max_tokens raises LLMError instead of
+        coming back as a fragment, and one cut off while thinking gets the thinking-off retry."""
         self._ensure_room(_opener)
-        content = self._chat(messages, max_tokens, temperature, _opener)
+        content = self._chat(messages, max_tokens, temperature, reject_truncated, _opener)
         self._check_planned(_opener)
         return content
 
-    def _chat(self, messages, max_tokens, temperature, _opener) -> str:
+    def _chat(self, messages, max_tokens, temperature, reject_truncated, _opener) -> str:
         try:
-            return self._chat_once(messages, max_tokens, temperature, self.reasoning_effort, _opener)
+            return self._chat_once(messages, max_tokens, temperature, self.reasoning_effort, _opener,
+                                   reject_truncated=reject_truncated)
         except _ThinkingExhausted as first:
             if self.reasoning_effort is not None:   # an explicit setting is respected, never overridden
                 raise
             try:   # hybrid-thinking model served thinking-ON: one retry with thinking switched off
-                content = self._chat_once(messages, max_tokens, temperature, "none", _opener)
+                content = self._chat_once(messages, max_tokens, temperature, "none", _opener,
+                                          reject_truncated=reject_truncated)
             except LLMError:   # the provider rejects the knob, or it didn't help: report the real cause
                 raise LLMError(f"{first} (a retry with reasoning_effort='none' also failed)") from None
             self.reasoning_effort = "none"   # sticky: later calls skip the wasted thinking pass
             return content
 
-    def _chat_once(self, messages, max_tokens, temperature, reasoning_effort, _opener) -> str:
+    def _chat_once(self, messages, max_tokens, temperature, reasoning_effort, _opener, *, reject_truncated=False) -> str:
         body = {"model": self.model, "messages": messages,
                 "max_tokens": max_tokens, "temperature": temperature}
         if reasoning_effort:
@@ -211,16 +229,26 @@ class LLMClient:
         try:
             ch = resp["choices"][0]
             msg = ch["message"]
-            content = msg.get("content")
-        except (KeyError, IndexError, TypeError) as e:
+            content = _text(msg.get("content"))
+        except (KeyError, IndexError, TypeError, AttributeError) as e:   # message: null used to escape as AttributeError
             raise LLMError(f"unexpected LLM response shape: {str(resp)[:300]}") from e
+        fr = ch.get("finish_reason")
+        if reject_truncated and content and fr == "length":
+            # a judge reply cut off at max_tokens is a fragment: "...So overall this should PASS. Let me double check"
+            # parsed as a PASS on servers that inline <think> (2026-10-25 review)
+            if msg.get("reasoning") or msg.get("reasoning_content") or not strip_thinking(content).strip():
+                raise _ThinkingExhausted(
+                    f"LLM at {self.base_url} was cut off at max_tokens while thinking (finish_reason=length): use a "
+                    "non-thinking '-instruct' model, turn thinking off with CHIMERA_<ROLE>_REASONING_EFFORT=none, or "
+                    "raise max_tokens.")
+            raise LLMError(f"LLM at {self.base_url} was cut off at max_tokens (finish_reason=length), so its reply is "
+                           "a fragment and isn't judged; raise max_tokens or use a model that answers shorter.")
         if not (content and content.strip()):
             # A "thinking" model (e.g. the Ollama qwen3-vl:8b tag, vs qwen3-vl:8b-instruct) can spend
             # the WHOLE max_tokens budget on its separate `reasoning` field and return empty `content`
             # (finish_reason='length'). Surface that loudly: an empty string flowing downstream is a
             # silent failure — the judge would score a perfect render 0.0 with no clue why.
             rlen = len(msg.get("reasoning") or msg.get("reasoning_content") or "")
-            fr = ch.get("finish_reason")
             if rlen or fr == "length":
                 sent = f", reasoning_effort={reasoning_effort}" if reasoning_effort else ""
                 raise _ThinkingExhausted(
@@ -384,7 +412,8 @@ class LLMJudge(Judge):
 
     def judge(self, image_path, rubric) -> Verdict:
         prompt = rubric.as_prompt()
-        texts = [self.client.vision(prompt, image_path, temperature=self.temperature)
+        # a reply cut off at max_tokens fails the iteration rather than pass on a fragment
+        texts = [self.client.vision(prompt, image_path, temperature=self.temperature, reject_truncated=True)
                  for _ in range(self.passes)]
         return parse_verdict(texts[0]) if self.passes == 1 else consensus_verdict(texts)
 
@@ -408,14 +437,16 @@ _CAD_SYSTEM = (
 )
 
 
+_FENCE_TAG = re.compile(r"[\w+.#-]*[ \t]*\n")   # a fence's language tag ('python', 'py', 'Python3') to its newline
+
+
 def _extract_code(text: str) -> str:
     """Pull the python from a ```python ...``` block; fall back to the raw text if unfenced."""
     if "```" in text:
         block = text.split("```", 2)
         if len(block) >= 2:
-            body = block[1]
-            if body.lower().startswith("python"):
-                body = body[len("python"):]
+            # any tag, not just 'python': a ```py fence left "py" as the script's first line (2026-10-25 review)
+            body = _FENCE_TAG.sub("", block[1], count=1) if _FENCE_TAG.match(block[1]) else block[1]
             return body.strip("\n")
     return text.strip()
 

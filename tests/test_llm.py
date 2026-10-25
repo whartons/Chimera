@@ -384,8 +384,9 @@ def test_client_for_role_falls_back_to_the_callers_default_endpoint(monkeypatch)
 from scripts.agent.llm import LOCAL_TIERS, local_tier, local_model_checks  # noqa: E402
 
 
-@pytest.mark.parametrize("gb, tier", [(31.8, "large"), (28.0, "large"), (27.9, "medium"), (23.99, "medium"), (11.0, "medium"),
-                                      (10.9, "small"), (4.0, "small"), (None, "medium")])
+@pytest.mark.parametrize("gb, tier", [(31.8, "large"), (28.0, "large"), (27.9, "medium"), (23.99, "medium"),
+                                      (11.99, "medium"), (11.5, "medium"), (11.0, "small"), (10.9, "small"),
+                                      (4.0, "small"), (None, "medium")])
 def test_local_tier_follows_the_gpu_size(monkeypatch, gb, tier):
     monkeypatch.delenv("CHIMERA_LLM_TIER", raising=False)
     assert local_tier(gb) == tier
@@ -505,6 +506,66 @@ def test_a_withheld_key_is_mentioned(monkeypatch, capsys):
     client_for_role("judge", cli_base="https://api.openai.com/v1", cli_model="m")      # the key goes: no note
     client_for_role("judge", cli_base="http://127.0.0.1:11434/v1", cli_model="m")     # local Ollama: no note
     assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("payload", [{"choices": [{"message": None}]}, {"choices": [{"message": "Overall: PASS"}]},
+                                     {"choices": [{"message": {"content": 42}}]}])
+def test_an_odd_response_shape_is_an_llm_error_not_a_crash(payload):
+    # message: null and the like raised AttributeError, which got past the loops' LLMError handling (2026-10-25)
+    with pytest.raises(LLMError, match="unexpected"):
+        LLMClient(base_url="http://x/v1", model="m").chat([{"role": "user", "content": "x"}], _opener=_opener(payload))
+
+
+def test_content_given_as_parts_is_joined():
+    # some OpenAI-compatible servers return content as a list of parts; .strip() on it raised AttributeError
+    parts = {"choices": [{"message": {"content": [{"type": "thinking", "thinking": "hmm"}, {"type": "text", "text": "Overall: "},
+                                                  {"type": "text", "text": "PASS"}, "\nscore: 0.9"]}}]}
+    assert LLMClient(base_url="http://x/v1", model="m").chat([{"role": "user", "content": "x"}],
+                                                             _opener=_opener(parts)) == "Overall: PASS\nscore: 0.9"
+
+
+@pytest.mark.parametrize("fence", ["```py", "```Python3", "```", "```python "])
+def test_extract_code_drops_any_language_tag(fence):
+    # a ```py fence left "py" as the script's first line
+    assert _extract_code(f"Here:\n{fence}\nimport Part\nx = 1\n```") == "import Part\nx = 1"
+
+
+def _judge_client(payloads, bodies):
+    """An LLMClient whose requests go to a fake server answering `payloads` in turn (LLMJudge takes no opener)."""
+    opener = _seq_opener(payloads, bodies)
+
+    class _C(LLMClient):
+        def chat(self, messages, **kw):
+            return super().chat(messages, _opener=opener, **kw)
+    return _C(base_url="http://x/v1", model="m")
+
+
+def test_a_judge_reply_cut_off_at_max_tokens_is_an_error(tmp_path):
+    # finish_reason 'length' with content was accepted, and the fragment's "should PASS" read as the verdict
+    img = tmp_path / "i.png"; img.write_bytes(b"\x89PNG")
+    cut = {"choices": [{"finish_reason": "length", "message": {
+        "content": "1. MET - the hook is sturdy\nSo overall this should PASS. Let me double check"}}]}
+    with pytest.raises(LLMError, match="cut off"):
+        LLMJudge(_judge_client([cut], [])).judge(str(img), _Rub())
+
+
+@pytest.mark.parametrize("cut", [
+    {"content": "<think>The hook looks fine... So overall this should PASS. Let me"},       # inline, mid-thought
+    {"content": "1. MET - sturdy", "reasoning": "let me think... " * 50}])                 # thinking took the budget
+def test_a_judge_cut_off_while_thinking_retries_with_thinking_off(tmp_path, cut):
+    img = tmp_path / "i.png"; img.write_bytes(b"\x89PNG")
+    bodies = []
+    c = _judge_client([{"choices": [{"finish_reason": "length", "message": cut}]},
+                       _msg("1. NOT-MET - the arm is 2 mm thick\nOverall: FAIL\nscore: 0.3")], bodies)
+    v = LLMJudge(c).judge(str(img), _Rub())
+    assert not v.passed and v.score == 0.3 and bodies[1]["reasoning_effort"] == "none"
+
+
+def test_code_gen_still_takes_a_reply_that_hit_max_tokens():
+    # only the judge refuses a fragment; a cut-off script fails in FreeCAD and code-gen is told why
+    cut = {"choices": [{"finish_reason": "length", "message": {"content": "```python\nbox = Part.makeBox(1, 1"}}]}
+    assert LLMClient(base_url="http://x/v1", model="m").chat([{"role": "user", "content": "x"}],
+                                                             _opener=_opener(cut)).startswith("```python")
 
 
 def test_the_code_gen_prompt_states_what_the_cad_loop_checks():
