@@ -210,6 +210,19 @@ def test_build_meta_records_graph_values_for_replay_drift_checks():
     assert meta["provenance"]["graph_values"] == graph_values(_values_wf(), "image", "txt2img")
 
 
+def test_graph_values_reads_a_renamed_upload_as_the_same_file():
+    # uploads don't overwrite: ComfyUI stores different content under "phone (1).jpg", which read as "render
+    # settings changed" on replay. The file's content is checked by input_hashes, so the name counts without it
+    from scripts.brandkit.sidecar import graph_values
+
+    def wf(name):
+        return {**_values_wf(), "6": {"_meta": {"title": "brand:asset"}, "inputs": {"image": name}}}
+    assert graph_values(wf("phone (1).jpg"), "image", "relight") == graph_values(wf("phone.jpg"), "image", "relight")
+    assert graph_values(wf("logos/primary (12).png"), "image", "relight") == graph_values(wf("logos/primary.png"),
+                                                                                        "image", "relight")
+    assert graph_values(wf("other.jpg"), "image", "relight") != graph_values(wf("phone.jpg"), "image", "relight")
+
+
 def test_graph_values_skips_entries_that_are_not_nodes():
     # a graph dict can carry non-node metadata; it must not change the settings fingerprint
     from scripts.brandkit.sidecar import graph_values

@@ -6,7 +6,7 @@ the negative), so we read the final text back off the graph by stable node title
 record the modality-relevant CLI inputs so a future `replay` can reproduce the render.
 SCHEMA_VERSION lets replay detect (and refuse/upgrade) older sidecars."""
 from __future__ import annotations
-import hashlib, json
+import hashlib, json, re
 from .nodes import find_node_by_title, NodeNotFound
 
 SCHEMA_VERSION = 2
@@ -94,6 +94,10 @@ def graph_signature(wf):
 # Scalar inputs that legitimately differ between a render and its replay: the seed (`replay --seed`)
 # and the output filename prefix. Everything else is a render setting.
 _VOLATILE_INPUTS = {"seed", "noise_seed", "sampling_mode.seed", "filename_prefix"}
+# ComfyUI's name for an upload whose name was taken by different content ("phone (1).jpg"). Uploads don't
+# overwrite, so a replay's input could come back under such a name and read as "render settings changed"; the
+# file's content is input_hashes' job, so the name counts without the suffix (2026-10-25)
+_UPLOAD_COPY = re.compile(r" \(\d+\)(\.[A-Za-z0-9]+)$")
 
 
 def graph_values(wf, modality=None, mode=None):
@@ -112,7 +116,8 @@ def graph_values(wf, modality=None, mode=None):
     for nid, node in sorted(wf.items()):
         if not isinstance(node, dict):
             continue
-        vals = sorted([k, v] for k, v in node.get("inputs", {}).items()
+        vals = sorted([k, _UPLOAD_COPY.sub(r"\1", v) if isinstance(v, str) else v]
+                      for k, v in node.get("inputs", {}).items()
                       if not _is_link(v) and k not in _VOLATILE_INPUTS and (nid, k) not in skip)
         parts.append([nid, vals])
     if not parts:
