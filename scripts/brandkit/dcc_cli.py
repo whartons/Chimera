@@ -420,7 +420,7 @@ def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
         return finalize_core.repaint_views(
             client, mesh=mesh, concept=concept, subject=args.subject, azimuths=azimuths,
             comfy_output_dir=args.comfy_output_dir, repo_root=repo_root,
-            blender_runner=blender_runner.run_template, seed=seed, res=args.texture_res,
+            blender_runner=blender_runner.run_template, seed=seed, res=finalize_core.REPAINT_RES,
             elevation=args.elevation, cn_strength=args.cn_strength, ip_weight=args.ip_weight,
             blender_bin=args.blender_bin)
     except finalize_core.FinalizeError as e:

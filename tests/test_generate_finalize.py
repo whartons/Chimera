@@ -223,6 +223,19 @@ def test_auto_repaint_reports_comfyui_trouble_in_one_line(tmp_path, monkeypatch,
     assert e.value.code == 1 and "controlnet missing" in capsys.readouterr().err
 
 
+def test_auto_repaint_paints_at_sdxl_size_whatever_the_atlas(tmp_path, monkeypatch):
+    # --texture-res 4096 also set the repaint size: SDXL (native 1024^2) generated at 4096^2, which duplicates
+    # the subject or runs out of memory (2026-10-25). The atlas is the bake's business only.
+    import types
+    seen = {}
+    monkeypatch.setattr(G, "_resolve_asset", lambda *a, **k: tmp_path / "c.png")
+    monkeypatch.setattr(G, "ComfyClient", lambda url: types.SimpleNamespace(free=lambda: None))
+    monkeypatch.setattr(G.finalize_core, "repaint_views", lambda client, **kw: seen.update(kw) or ([], []))
+    args = _ft(auto_repaint=True, concept="c.png", subject="x", comfy_output_dir=str(tmp_path), texture_res=4096)
+    G._auto_repaint_views(args, tmp_path / "m.glb", 1, None, tmp_path, argparse.ArgumentParser())
+    assert seen["res"] == 1024
+
+
 def test_finalize_texture_names_a_missing_brand_in_one_line(tmp_path):
     with pytest.raises(SystemExit) as e:
         G.run_finalize_texture(_ft(brand="nope"), tmp_path, argparse.ArgumentParser())

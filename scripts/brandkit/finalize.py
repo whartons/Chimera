@@ -10,6 +10,7 @@ from scripts.brandkit import repaint as repaint_filler
 
 FINALIZE_TEMPLATE = "mesh_finalize.py"   # Blender bake template under workflows/templates/blender/
 FINALIZE_TIMEOUT = 1800                  # bake + N-view albedo projection (seconds)
+REPAINT_RES = repaint_filler.REPAINT_RES  # SDXL's size for the depth maps + repaints, never the atlas's
 
 
 class FinalizeError(RuntimeError):
@@ -32,8 +33,8 @@ def finalize_params(*, mesh, view_paths, azimuths, brand, seed, elevation, back_
 
 
 def repaint_views(client, *, mesh, concept, subject, azimuths, comfy_output_dir, repo_root,
-                  blender_runner, seed, res=1024, elevation=15.0, cn_strength=0.7, ip_weight=0.8,
-                  blender_bin=None):
+                  blender_runner, seed, res=REPAINT_RES, elevation=15.0, cn_strength=0.7,
+                  ip_weight=0.8, blender_bin=None):
     """Render per-view depth (Blender) + SDXL depth-ControlNet + IPAdapter repaint (ComfyUI) for each
     azimuth, via repaint.generate_views. Returns (view_paths, azimuths). Depth maps go to a temp dir
     (cleaned); repainted views land in comfy_output_dir. Raises FinalizeError on under-production."""

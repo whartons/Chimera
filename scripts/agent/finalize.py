@@ -77,7 +77,7 @@ def finalize_winner(result, args, *, repo_root, manifest, judge, client,
         view_paths, azimuths = repaint(
             client, mesh=glb, concept=concept, subject=subject, azimuths=azimuths,
             comfy_output_dir=args.comfy_output_dir, repo_root=repo_root,
-            blender_runner=blender_runner, seed=seed, res=texture_res, elevation=_ELEVATION,
+            blender_runner=blender_runner, seed=seed, res=finalize_core.REPAINT_RES, elevation=_ELEVATION,
             cn_strength=_CN_STRENGTH, ip_weight=_IP_WEIGHT, blender_bin=args.blender_bin)
         params = finalize_core.finalize_params(
             mesh=str(glb), view_paths=view_paths, azimuths=azimuths, brand=args.brand, seed=seed,
