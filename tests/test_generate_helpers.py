@@ -346,6 +346,32 @@ def test_git_provenance_git_absent(monkeypatch):
     assert generate.git_provenance("anyroot") is None
 
 
+def test_git_provenance_ignores_untracked_files(monkeypatch):
+    # the example brand's new renders are untracked files in the checkout, so every later render read -dirty
+    import subprocess
+
+    def git(cmd, **k):
+        if "rev-parse" in cmd:
+            out = "abc1234\n"
+        else:   # what git status --porcelain prints for a new render, unless told to leave untracked files out
+            out = "" if "--untracked-files=no" in cmd else "?? brands/example-brand/outputs/images/x.png\n"
+        return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+    monkeypatch.setattr(subprocess, "run", git)
+    assert generate.git_provenance("anyroot") == "abc1234"
+
+
+def test_git_provenance_keeps_the_commit_when_status_is_slow(monkeypatch):
+    # a git status slower than its timeout threw away the commit it had already read
+    import subprocess
+
+    def git(cmd, **k):
+        if "rev-parse" in cmd:
+            return types.SimpleNamespace(returncode=0, stdout="abc1234\n", stderr="")
+        raise subprocess.TimeoutExpired(cmd, k.get("timeout"))
+    monkeypatch.setattr(subprocess, "run", git)
+    assert generate.git_provenance("anyroot") == "abc1234"
+
+
 # ----------------------------------------------------------------- brand-optional (_resolve_asset)
 def test_resolve_asset_brand_folder_lookup(tmp_path):
     bdir = tmp_path / "brands" / "b"; (bdir / "logos").mkdir(parents=True)

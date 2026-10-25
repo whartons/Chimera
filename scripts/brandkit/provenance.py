@@ -5,7 +5,7 @@ import subprocess
 
 def git_provenance(repo_root):
     """Best-effort short provenance of the pipeline repo at render time: the HEAD commit (short),
-    suffixed `-dirty` if the working tree has uncommitted changes. None when it isn't a git repo or
+    suffixed `-dirty` if a tracked file has uncommitted changes. None when it isn't a git repo or
     git is absent — so a tarball/non-git install still renders. Recorded in the sidecar so a render
     traces back to the exact pipeline code that produced it. Best-effort: never raises."""
     try:
@@ -14,8 +14,12 @@ def git_provenance(repo_root):
         if rev.returncode != 0:
             return None
         sha = rev.stdout.strip()
-        st = subprocess.run(["git", "-C", str(repo_root), "status", "--porcelain"],
-                            capture_output=True, text=True, timeout=5)
-        return sha + ("-dirty" if st.stdout.strip() else "")
     except Exception:
         return None
+    try:
+        # untracked files aren't pipeline code: the example brand's new renders made every later one -dirty
+        st = subprocess.run(["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=no"],
+                            capture_output=True, text=True, timeout=5)
+    except Exception:   # a slow status (a big tree, a cold disk) used to discard the commit read above
+        return sha
+    return sha + ("-dirty" if st.stdout.strip() else "")
