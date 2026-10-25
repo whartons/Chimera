@@ -1,4 +1,5 @@
 """Solidify: a thin double-sided AI mesh (TRELLIS.2-style sheet) becomes one solid, leaks included."""
+import json
 import math
 
 import pytest
@@ -61,6 +62,8 @@ def test_solidify_file_round_trips_through_stl(tmp_path):
     info = S.solidify_file(src, tmp_path / "solid.stl", vox=0.5)
     assert PC.check_file(tmp_path / "solid.stl")["verdict"] == "SOLID"
     assert info["close_mm"] > 0
+    # the info goes into the sidecar, which holds no absolute paths: "output" was the temp file's full path
+    assert str(tmp_path) not in json.dumps(info) and "output" not in info
 
 
 # solid volume (cm3) by closing radius (mm), measured on real TRELLIS.2 models at 0.3 mm voxels

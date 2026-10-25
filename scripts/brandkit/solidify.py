@@ -18,7 +18,6 @@ print. A compact print gets a coarser voxel, so the grid stays under MAX_VOXELS 
 scikit-image (the [print] extra); a couple of minutes on the CPU for a 230 mm figure."""
 from __future__ import annotations
 import math
-from pathlib import Path
 
 import numpy as np
 from scipy import fft, ndimage, sparse
@@ -324,5 +323,6 @@ def solidify_file(src, dst, *, vox=None, close_mm=None, **kw) -> dict:
         vox = voxel_for_size(np.ptp(tris.reshape(-1, 3), axis=0))
     out, info = solidify(tris, vox=vox, close_mm=close_mm, **kw)
     write_stl(dst, out, header=b"chimera solidify (mm)")
-    info["output"] = str(Path(dst))
+    # no "output" path: the info lands in the sidecar, and the temp file's full path broke its no-local-paths
+    # rule and named the user's home folder (2026-10-25)
     return info

@@ -237,6 +237,29 @@ def test_solid_exports_raw_mm_then_solidifies_then_finishes(tmp_path, monkeypatc
     assert meta["print_check"]["t_finish_5.stl"]["verdict"] == "SOLID"
 
 
+def test_a_solid_render_sidecar_holds_no_local_paths(tmp_path, monkeypatch):
+    import re
+    calls, tools = [], _FakeTools()
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: tmp_path / "trophy.glb")
+    monkeypatch.setattr(G.blender_runner, "run_template", _fake_run(calls, ["t_finish_4.stl", "t_finish_4.glb"]))
+    monkeypatch.setattr(G, "_print_tools", tools)
+    monkeypatch.setattr(G, "route_output", _fake_route(tmp_path))
+    monkeypatch.setattr(G, "git_provenance", lambda r: "deadbee")
+    G.run_render(_args(mode="finish", solid=True, scale_mm=228.6, formats="stl,glb", seed=4,
+                       color="project", project_image=str(tmp_path / "concept.png")), tmp_path,
+                 argparse.ArgumentParser())
+    bad = re.compile(r"^[A-Za-z]:[\\/]|^/(?!/)|[\\/](Users|home)[\\/]")       # as test_integration's sidecar check
+
+    def strings(v):
+        if isinstance(v, dict):
+            return [s for x in v.values() for s in strings(x)]
+        if isinstance(v, list):
+            return [s for x in v for s in strings(x)]
+        return [v] if isinstance(v, str) else []
+    meta = json.loads((tmp_path / "outputs" / "3d" / "t_finish_4.json").read_text())
+    assert [s for s in strings(meta) if bad.search(s)] == []
+
+
 def test_every_stl_is_print_checked_and_a_hollow_one_is_reported(tmp_path, monkeypatch, capsys):
     calls, tools = [], _FakeTools(verdict="HOLLOW")
     monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: tmp_path / "trophy.glb")
