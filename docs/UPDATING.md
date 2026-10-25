@@ -60,8 +60,11 @@ lockfile is a possible follow-up.
 2. Only if clean: bump the pin in **(a)** that module's `models.md` *(or `requirements.md` for the
    DCC/CAD bridges)* (`git checkout <sha>` / version), **(b)** [`docs/STACK.md`](STACK.md), **(c)** the
    audit-commit note in [`docs/CATALOG.md`](CATALOG.md), **(d)** the `GIT_PACKS` / `GITEA_PACKS` /
-   `NPM_PACKS` table in [`scripts/update_report.py`](../scripts/update_report.py), and **(e)** for the
-   MCP servers the pinned `@<sha>` ref in [`.mcp.json`](../.mcp.json) (`blender_mcp` / `freecad-mcp`).
+   `NPM_PACKS` table in [`scripts/update_report.py`](../scripts/update_report.py), plus its
+   `PACK_VERSIONS` (the release a pack's pin is at, which advisories are matched against) and `GIT_HOLDS`
+   (a pack held behind upstream: drop or move its entry once the hold ends), and **(e)** for the MCP servers
+   the pinned `@<sha>` ref in [`.mcp.json`](../.mcp.json) (`blender_mcp` / `freecad-mcp`) and the pin in the
+   bridge's `requirements.md` (and its README's audit notes).
 3. Run the gates, with a smoke render of that pack's modality.
 4. Commit (`chore(deps): bump <pack> to <sha> after re-audit`) + `CHANGELOG` entry.
 

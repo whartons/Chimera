@@ -46,7 +46,7 @@ prebuilt wheels (no compiler needed at runtime, but you need the **Visual C++
 2015–2022 x64 Redistributable** installed):
 ```bash
 # into the ComfyUI venv:
-<ComfyUI>/.venv/Scripts/python -m pip install -U "triton-windows<3.5"   # match your torch (3.6.x for torch 2.10)
+<ComfyUI>/.venv/Scripts/python -m pip install -U "triton-windows<3.7"   # 3.6.x for torch 2.10 (the reference); 3.4.x for torch 2.8
 # SageAttention wheel matched to your torch/CUDA, from:
 #   https://github.com/woct0rdho/SageAttention/releases
 <ComfyUI>/.venv/Scripts/python -m pip install "<the matching sageattention .whl URL>"

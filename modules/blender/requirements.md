@@ -50,7 +50,7 @@ beyond those above:
 
 | | |
 |---|---|
-| **`blender` on PATH** | or set `$BLENDER_BIN` — the runner picks up `$BLENDER_BIN` first, then falls back to `blender` on `PATH` |
+| **Finding Blender** | the runner tries `--blender-bin`, then `$BLENDER_BIN`, then `blender` on `PATH`, then (on Windows) the newest `C:\Program Files\Blender Foundation\Blender *` install |
 | **Minimum version** | **5.1.0** (same as interactive; templates are validated against 5.1) |
 | **Render engine** | **Cycles** (CUDA or OptiX) — GPU render. **EEVEE is not suitable for headless use** outside Linux (EGL required); on Windows and macOS, Cycles is the only viable headless engine. This does not affect the interactive bridge, which uses whatever engine is active in the running scene |
 | **MP4 turntable** (`--turntable`) | uses Blender's **bundled FFmpeg** — no separate FFmpeg install. Set via `image_settings.media_type='VIDEO'` in the 5.x bpy API |

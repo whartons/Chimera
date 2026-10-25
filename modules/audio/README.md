@@ -38,13 +38,18 @@ python scripts/generate.py audio \
   [--duration 8.0] [--bpm 120] [--keyscale "C minor"]
 ```
 
-(`--watermark` is silently ignored for music and sfx — there is no visual canvas.)
+(`--watermark` is ignored for music and sfx, with a one-line note — there is no visual canvas.
+`--from-video` and `--fps` are foley settings: without `--mode foley` they are an error.)
 
 The brief is the brand's `audio.music_tags` plus `--subject`.
 - **Stable Audio 3** has no tempo or key inputs, so an explicit `--bpm` / `--keyscale` joins the brief
-  (e.g. "…, 128 BPM, in A minor"). The brand's ACE-tuned `music_bpm` / `music_keyscale` defaults don't.
+  (e.g. "…, 128 BPM, in A minor"), as free text. The brand's ACE-tuned `music_bpm` / `music_keyscale`
+  defaults don't.
 - **ACE-Step** (`--model acestep`) takes the brief as `TextEncodeAceStepAudio1.5` tags, and uses BPM / key
-  directly. **`--lyrics`** gives it words to sing, with section tags such as `[Verse 1]` and `[Chorus]` on
+  directly, within what that node accepts: the key must be one of its 34 (`C` to `B` with sharps and flats,
+  `major` or `minor`; case and spacing are normalised, so `F# Minor` and `f#minor` send `F# minor`), the BPM
+  10 to 300 and the length 1 to 1000 s. A value outside them, from the CLI or the brand's `music_*` fields,
+  is an error before the GPU is freed, and a bad key lists the valid ones. **`--lyrics`** gives it words to sing, with section tags such as `[Verse 1]` and `[Chorus]` on
   their own lines; without it ACE-Step makes an instrumental. From a file: `--lyrics "$(cat song.txt)"`
   (PowerShell: `--lyrics (Get-Content song.txt -Raw)`). The sidecar records the lyrics, so a replay sings them
   again. `--lyrics` with Stable Audio 3, sfx or foley is an error.
@@ -55,8 +60,8 @@ The brief is the brand's `audio.music_tags` plus `--subject`.
   that is longer), a shorter `--duration` prints a warning, and the CLI reminds you to **try another `--seed`**
   if a render comes out instrumental. Write lyrics that fill the length (a long clip with a few lines mostly came
   out instrumental) and name the voice in the subject (e.g. "male vocals").
-- **Stable Audio 3 renders at least 1 s** (ComfyUI's minimum); a shorter `--duration` is an error before
-  anything is queued. Render 1 s and trim it.
+- **Stable Audio 3 renders 1 to 1000 s** (ComfyUI's bounds); a shorter or longer `--duration` (or brand
+  `music_duration`) is an error before anything is queued. For a shorter sound, render 1 s and trim it.
 
 Override any key via CLI; CLI always wins over `brand.yaml`.
 
@@ -71,7 +76,7 @@ python scripts/generate.py audio --mode sfx \
 ```
 
 Stable Audio 3 with its prompt enhancer in sound-effects mode. The brief is the subject alone: a sound
-effect doesn't inherit the brand's musical tags. Default length 4 s, minimum 1 s. Output:
+effect doesn't inherit the brand's musical tags. Default length 4 s, 1 to 1000 s. Output:
 `…/outputs/audio/<brand>_sfx_<seed>.mp3`.
 
 ### Foley (video → SFX)
@@ -94,6 +99,9 @@ python scripts/generate.py audio \
   The filler takes fps/duration/size from the clip's own Chimera sidecar, or probes them with **PyAV**;
   use `--fps` and `--duration` to override. The foley sidecar records the values it used, so a replay needs
   neither PyAV nor the clip's sidecar.
+- HunyuanVideo-Foley takes a clip of **1 to 60 s** at **1 to 120 fps**. The CLI checks the clip's timing
+  (probed, from its sidecar, or your `--fps` / `--duration`) before it uploads the clip; past those bounds it
+  is an error: trim the clip or pass `--duration`.
 - Output routes to `brands/<brand>/outputs/video/<brand>_foley_<seed>.mp4` (a foley
   clip is a video, so it lands under `video/`).
 - Foley always runs HunyuanVideo-Foley: `--model sa3` or `--model acestep` (music models) is an error,
@@ -199,8 +207,9 @@ placed **before** the `CreateVideo` mux node. The SFX audio output from the
 sampler is written directly into the mux step and is never touched by the
 watermark composite.
 
-**Music has no visual canvas** — `--watermark` is silently ignored for
-`--mode music`.
+**Music has no visual canvas** — `--watermark` is ignored for `--mode music` and `--mode sfx`, and a
+one-line note says so (a brand's `watermark.enabled_default` stays quiet). `--no-watermark` leaves the logo
+off one foley clip of a brand that stamps by default.
 
 **If the source clip is already watermarked** (e.g. a foley operation on a
 clip produced by the `video` module with `--watermark`), do **not** also pass
@@ -214,7 +223,8 @@ counting needed:
 
 1. from the clip's own **Chimera sidecar** (`<clip>.json`, written by `chimera video`): exact, and needs
    no extra package;
-2. else by probing the file with **PyAV** (the `[video]` extra);
+2. else by probing the file with **PyAV** (the `[video]` extra). WebM and MKV store no frame count, so
+   for them the length comes from the video stream's duration, else the container's;
 3. else it falls back to 25 fps / 5 s and warns.
 
 The sidecar step matters for Wan 2.2 clips (16 fps): before it, a host without PyAV re-timed them at

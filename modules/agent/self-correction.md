@@ -22,15 +22,18 @@ not individually sidecar'd, so the loop is **not** per-iteration replayable.
 |---|---|
 | `rubric.py` | `Rubric` + `build_rubric(manifest, subject)` — composes a scorable checklist from the brand (subject, style, palette, negative). `rubric.as_prompt()` renders the numbered **MET / NOT-MET → PASS/FAIL → `score: 0-1`** instructions a judge follows. With a brand, the subject criterion judges the object itself and the brand wins any styling conflict; a FIX may never contradict another criterion. Palette colors are named for the judge (`color_words`: `#1c1f22` → `near-black (#1c1f22)`), since a VLM can't read hex. |
 | `expander.py` | `PromptExpander` ABC + `TemplatedExpander` — wraps `build_prompt(manifest, subject)` for the on-brand `(positive, negative)`. On a correction pass it applies the judge's `FIX: add …; avoid …` directives (`parse_fixes` reads either order, `remove …`, `none needed`), after `brand_guard` drops contradictions: never add a trait an avoid term or the brand's negative names, never avoid the brand's own style or palette. |
-| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, `4 out of 5` / `7` / `85` rescaled to 0–1, NOT-MET lines → issues; a criterion whose status is NOT-MET fails the verdict even under an "Overall: PASS"; never raises). A status counts as a table cell holding only it, a count (`1 NOT-MET`), or the first status word on a criterion's line (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `Status: NOT-MET`, typographic dashes too); a line that only says nothing is unmet (`NOT MET: none`, `No NOT-MET criteria.`, a MET reason on its own line, an echoed instruction) doesn't count, except on a numbered criterion, whose status always counts. Softer wordings (`Mostly MET`, `Barely met`, `MET (partially)`) are NOT-MET; a numbered criterion, or a line marking one NOT-MET, is never taken for the verdict line; and a PASS that admits an unmet criterion or is negated (`Does not pass`) fails. |
-| `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best-scoring candidate after the cap, with full per-iteration history. In branded runs it also drops the subject styling the judge flagged from the subject **and** the rubric (`correct_subject`; the object phrase is kept), so later passes aren't judged against the off-brand words. |
+| `judge.py` | `Verdict(passed, score, issues)` + `Judge` ABC (`judge(image_path, rubric) -> Verdict`) + `parse_verdict(text)` — a robust free-text → `Verdict` parser (word-boundaried PASS/FAIL, clamped score, `4 out of 5` / `7` / `85` rescaled to 0–1, NOT-MET lines → issues; a criterion whose status is NOT-MET fails the verdict even under an "Overall: PASS"; never raises). A status counts as a table cell holding only it, a count (`1 NOT-MET`), or the first status word on a criterion's line (`1. Subject — NOT-MET`, `**Palette**: NOT_MET`, `Status: NOT-MET`, typographic dashes too); a line that only says nothing is unmet (`NOT MET: none`, `No NOT-MET criteria.`, a MET reason on its own line, an echoed instruction) doesn't count, except on a numbered criterion, whose status always counts. Softer wordings (`Mostly MET`, `Barely met`, `MET (partially)`) are NOT-MET; a numbered criterion, or a line marking one NOT-MET, is never taken for the verdict line; and a PASS that admits an unmet criterion, before its label (`Summary: criterion 2 is NOT-MET. Overall: PASS`) or after it, or is negated (`Does not pass`) fails (`NOT-MET: none. Overall: PASS` still passes). A pass field set to no (`PASS: false`, `Passed: No`, JSON's `"passed": false`) fails; an echoed format label (`Overall (PASS/FAIL): PASS`) is ignored, so its FAIL isn't the verdict. A thinking model's inline reasoning (`<think>…</think>`, an unclosed `<think>`, or reasoning before a stray `</think>`) is dropped before parsing, so its "this should PASS" is never the verdict. |
+| `loop.py` | `run_loop(*, expander, judge, generate, manifest, subject, rubric=None, max_iters=4, seeds=None) -> LoopResult` — the heart. Judge-agnostic: `generate` and `judge` are **injected callables**. Threads prior issues forward; returns early on PASS, else the best candidate after the cap (a geometry-failed one ranks below every clean one, then by score), with full per-iteration history. In branded runs it also drops the subject styling the judge flagged from the subject **and** the rubric (`correct_subject`; the object phrase is kept), so later passes aren't judged against the off-brand words. |
 
 The judge's **PASS/FAIL verdict is authoritative** for stopping the loop — a single
 PASS returns immediately. The `score` is *not* a threshold gate; it is used only to
 **rank candidates** when the iteration cap is reached and the loop returns the
-highest-scoring one. A mid-iteration render/judge failure is caught and recorded as a
+highest-scoring one, except that a candidate a geometry check failed (`Verdict.geometry_failed`, set by
+`GeometryAwareJudge`) ranks below every clean one, whatever the VLM scored it: a part in 16 pieces at 0.95
+used to beat a clean one at 0.85. A mid-iteration render/judge failure is caught and recorded as a
 failed candidate (score `0.0`, no image), so one bad iteration never aborts the run and
-a failed candidate can never win.
+a failed candidate can never win. A judge reply cut off at `max_tokens` is such a failure (see
+[Thinking models](#bring-your-own-llm---backend-api----pipeline-cad)): a fragment is never judged.
 
 The two pluggable seams are the **`Judge`** interface (how a candidate is scored) and
 the **`PromptExpander`** interface (how a subject + prior issues become a prompt).
@@ -101,10 +104,11 @@ python scripts/agent/auto_generate.py [--brand <brand>] --subject "<subject>" \
     --comfy-output-dir <ComfyUI output dir> [--max-iters N] [--seeds a,b,c]
 ```
 
-Without `--seeds`, each run draws fresh seeds and prints them (outputs are named by seed, so a fixed
-default let a second run replace the first run's winner); pass them back with `--seeds` to repeat a run. A
-shorter `--seeds` list is topped up with fresh seeds, and a seed the run repeats (`--seeds 7,7,7`, one seed
-with corrected prompts) gets its own files per pass: `agent_7`, `agent_7_2`, `agent_7_3`.
+Without `--seeds`, each run draws fresh seeds and prints them; pass them back with `--seeds` to repeat a run.
+A shorter `--seeds` list is topped up with fresh seeds, and a seed the run repeats (`--seeds 7,7,7`, one seed
+with corrected prompts) gets its own files per pass: `agent_7`, `agent_7_2`, `agent_7_3`. A later run with
+the same seeds keeps the earlier run's files: its renders take the next free name (`agent_7_2`, …) instead of
+replacing them.
 
 `--brand` is **optional** — the same machinery does branded *and* general self-correction:
 
@@ -217,11 +221,14 @@ The headline **0.38 / 0.92** are the **mean of each frame's three self-assessed 
 ### The same correction, fully local: the Ollama judge (v0.6.0)
 
 The README's headline GIF is the autonomous loop with no assistant in it: Qwen3-VL-8B-Instruct on a local
-Ollama judging with 3-pass consensus, on Qwen-Image-2.1. The command that reproduces it names the judge,
-since the default now depends on your [GPU tier](#local-models-by-gpu-tier): `auto_generate.py --pipeline
-image --brand example-brand --judge-model qwen3-vl:8b-instruct --judge-passes 3 --seeds 7,7,7
---comfy-output-dir <dir>`, with the deliberately off-brand subject *"an exploration rover vehicle, bright glossy candy-red and sunny-yellow
-plastic bodywork, smooth rounded cartoonish toy styling, cheerful kids' toy, pastel colors"*:
+Ollama judging with 3-pass consensus, on Qwen-Image-2.1, given a deliberately off-brand subject. The command
+that reproduces it names the judge, since the default now depends on your [GPU tier](#local-models-by-gpu-tier):
+
+```
+python scripts/agent/auto_generate.py --pipeline image --brand example-brand \
+    --subject "an exploration rover vehicle, bright glossy candy-red and sunny-yellow plastic bodywork, smooth rounded cartoonish toy styling, cheerful kids' toy, pastel colors" \
+    --judge-model qwen3-vl:8b-instruct --judge-passes 3 --seeds 7,7,7 --comfy-output-dir <dir>
+```
 
 | iter | verdict (one of three passes, verbatim) | before the next pass |
 |---|---|---|
@@ -323,8 +330,9 @@ three tiers picked from the GPU's memory, and smaller cards get lighter judges a
 | **small** | under 12 GB | `qwen3-vl:4b-instruct` | `qwen3-vl:4b-instruct` | `qwen3.8:27b`, mostly on the CPU (slow; point `--codegen-*` at a hosted model if you have one) |
 
 - **How the tier is picked.** The GPU's total memory comes from ComfyUI (`/system_stats`) when it answers,
-  else from a time-limited `nvidia-smi`. The cut-offs in code are 28 and 11 GiB, since a card reports a
-  little less than its size (a 32 GB card about 31.8 GiB, a 12 GB card 11.99). A 24 GB card gets the medium
+  else from a time-limited `nvidia-smi`. The cut-offs in code are 28 and 11.5 GiB, since a card reports a
+  little less than its size (a 32 GB card about 31.8 GiB, a 12 GB card about 11.99, so it gets medium; an 11 GB
+  card reports 11.00 and gets small). A 24 GB card gets the medium
   tier: beside ComfyUI's image model it has no room for the 27B judge (about 22 GB with its context), so every
   judgment would wait on ComfyUI emptying itself. If neither answers, the run takes the medium tier and says so.
 - **Choosing one.** `--llm-tier auto|large|medium|small`, or `CHIMERA_LLM_TIER` (the flag wins; `auto` picks
@@ -390,7 +398,9 @@ model.
 
 ## 3D self-correction (Phase 3) — `--pipeline mesh3d`
 
-The same loop now corrects **3D meshes**. `auto_generate.py --pipeline mesh3d` runs:
+The same loop now corrects **3D meshes**. `auto_generate.py --pipeline mesh3d` runs (it needs Pillow, the
+`[images]` extra, to build the contact sheet it judges, as `--pipeline cad` does; without it the run stops
+at once with `pip install -e ".[images]"` instead of failing every iteration):
 
 ```
 subject ─► txt2img concept ─► 3D mesh ─► Blender mesh_eval (4 orbit stills + geometry probe)
@@ -415,7 +425,7 @@ It reuses the **model-free core unchanged** — `run_loop`, `parse_verdict`, `Te
 |---|---|
 | `scripts/agent/render_generate.py` | `make_render_generate(...)` — the `generate(pos, neg, seed)` closure: txt2img concept (or `--from-image`) → upload → 3D mesh from `--mesh-model` (routed to `outputs/3d`) → headless `mesh_eval.py` render+probe → host-side contact-sheet montage → returns the **contact-sheet PNG** the judge consumes. |
 | `workflows/templates/blender/mesh_eval.py` | bpy template: import mesh → 4 orbit Cycles stills → **bmesh geometry checks** (non-manifold / open-edge / loose-part / tri-count / bounds) → emits both in its manifest. |
-| `scripts/agent/judge.py` `GeometryAwareJudge` | wraps any `Judge`; reads the `<stem>.checks.json` the generator writes and **forces FAIL + unions structural NOT-MET issues** on any geometry defect (things a VLM can't see from a render). |
+| `scripts/agent/judge.py` `GeometryAwareJudge` | wraps any `Judge`; reads the `<stem>.checks.json` the generator writes and **forces FAIL + unions structural NOT-MET issues** on any geometry defect (things a VLM can't see from a render). It keeps the VLM's score but marks the verdict `geometry_failed`, so when nothing passes, such a candidate ranks below every clean one. |
 
 **Form, not color (shape-only meshes).** Hunyuan3D output is **untextured grey clay**, so with
 `--mesh-model hunyuan21` `build_rubric(manifest, subject, modality="3d")` scores *form* — recognizability,
@@ -510,7 +520,8 @@ Phase 4a's back is approximate because one front image has no back data. **Phase
 engine and a ComfyUI auto-repaint view-generator — both shipped:
 
 **Shipped — the multi-view bake engine.** `generate.py finalize-texture --from <glb> --views
-front,right,back,left` runs the `mesh_finalize.py` template, which calls **`_common.bake_multiview()`** —
+front.png,right.png,back.png,left.png` (one image file per view, front first) runs the `mesh_finalize.py`
+template, which calls **`_common.bake_multiview()`** —
 a generalization of `bake_albedo` from 1 → N views: a ring camera per view, a per-view
 `world_to_camera_view` projection UV, a per-view front-facing weight `max(0,dot(N,-dir))²`, a normalized
 weighted blend `Σ(w·c)/max(Σw,ε)`, and a flat `--back-fill` for faces no view sees → EMIT-baked atlas →
@@ -569,7 +580,16 @@ loop's FIX feedback — `LLM script → cad --mode script → Blender contact sh
 `run_loop`. With the default `--backend api`, `--pipeline cad` is a pure LLM+FreeCAD+Blender loop (no
 ComfyUI) that needs no configuration: code-gen and judge fall back to the
 [GPU tier](#local-models-by-gpu-tier)'s local Ollama models. With `--backend local` the optional ComfyUI
-Qwen3-VL judge node is used instead (and ComfyUI runs only for judging).
+Qwen3-VL judge node is used instead (and ComfyUI runs only for judging). Like mesh3d, it needs Pillow
+(`[images]`) for the contact sheet.
+
+**What code-gen sees on a revision.** Its prompt is a revision brief rather than an image prompt, so
+`CadFeedbackExpander` wraps the loop's expander and adds what the templated expander would only put in an
+image negative: an `Avoid: …` line with the judge's avoid terms, and a `The judge found: …` list of its
+NOT-MET lines. ("NOT-MET - hook arm 2 mm thick, fragile. FIX: avoid thin hook arm" used to reach code-gen as
+just "Correct the previous attempt. a wall hook".) The last FreeCAD error rides along too (`The previous
+script failed: …`), and it is cleared only once code-gen has returned, so a code-gen failure (an LLM error)
+in between no longer loses it for the next iteration.
 
 > ⚠️ The autonomous loop **`exec`s LLM-authored scripts**. They run with restricted builtins + an import
 > allowlist (`script_exec.py restrict=True`) behind a host-side denylist, which also rejects dunder-attribute
@@ -633,6 +653,13 @@ that retry, or with a tier model that thinks (Qwen 3.8 starts at `none`), becaus
 field. An explicit value is respected and never overridden. A run in which nothing passes now exits with
 status 1.
 
+**A judge reply cut off at `max_tokens`** (`finish_reason: "length"`) is never judged: a fragment such as
+"…So overall this should PASS. Let me double check" used to parse as a PASS. It fails that iteration, or, when
+it was cut off while thinking (an unclosed `<think>`, or a `reasoning` field), it gets the thinking-off retry
+above. Code-gen and the rewriter still take a cut-off reply. A reply whose content comes as a list of parts
+is joined, and an odd response shape (`message: null`) is an LLM error, which the loops handle, rather than a
+crash.
+
 **Sharing one GPU with ComfyUI.** On Windows neither app sees the other's GPU memory: Ollama reported 30 GB
 free while ComfyUI held 15, and ComfyUI's own figure missed a resident Ollama model. Each one loads as if the
 card were its own, so the two together can overcommit it, and the driver then pages GPU memory to system RAM.
@@ -648,7 +675,9 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
   to its full trained context when the card looks free, 256k for the Qwen judges, so the estimate assumes that),
   plus, on Windows, whatever Ollama already holds (ComfyUI can't see that there either; Linux and macOS drivers
   count it), ComfyUI unloads its models (`/free`) and the loop waits up to 30 s for the memory. A model bigger
-  than the card always gets ComfyUI emptied. Once ComfyUI has emptied, a model that fits at a 32k context
+  than the card (more than the card less 3 GB for the desktop) always gets ComfyUI emptied, and the loop waits
+  until ComfyUI holds under 1 GB, not just for free memory: 29.5 of 32 GB free once "fit" a 35 GB model while
+  ComfyUI still held 2 GB Ollama can't see. Once ComfyUI has emptied, a model that fits at a 32k context
   loads, since Ollama sizes its context to the room it sees (with an f16 cache the full-context figure can
   exceed the card). If even that never fits, or ComfyUI stops answering after showing a full card, the model
   is **not** loaded: the iteration fails with "the GPU has no room for it". After a load, the loop warns when
@@ -662,6 +691,12 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
   run it later) when the judge won't unload before its repaint.
 - **Before the first render**, they unload Ollama models the run didn't load (another tool's, or an earlier
   run's), printing which.
+- **An app that doesn't answer is not one that holds nothing.** Only a refused connection means "not
+  running" (and a 404, "not Ollama"). A local Ollama whose probes time out, reset or answer garbage refuses
+  the model load (an LLM error: retry once it answers), counts as maybe still holding its model (so no render
+  starts beside it), and stops the run before the first render with the fix (restart Ollama, or
+  `chimera free`). A ComfyUI that times out on its first `/system_stats` refuses the load too, rather than reading as
+  "not running" and loading the model beside a wedged card.
 - **Whatever the ComfyUI URL**, the unloads run: one given by LAN address, host name or WSL IP may be this
   machine, and an unneeded unload only costs a judge reload. The room check before a model loads needs a
   ComfyUI given as `localhost` or `127.0.0.1`, though, and on another address an image run only warns about a
@@ -671,10 +706,13 @@ The checks apply to a "local" endpoint: `localhost`, `127.x`, `::1`, or the bind
 `OLLAMA_HOST=0.0.0.0` works, read the way Ollama reads it: port 11434 when none is given). This machine's LAN
 address or host name doesn't count, so give a local Ollama or ComfyUI as `localhost` or `127.0.0.1`.
 
-Hosted and remote endpoints are untouched, and a remote ComfyUI is never asked to free. Reloading the judge
+Hosted and remote endpoints are untouched: a remote Ollama is never probed or unloaded (another machine's
+Ollama doesn't share this GPU), and a remote ComfyUI is never asked to free. Reloading the judge
 costs a few seconds per iteration for the 8B, more for a 27B, and the image model reloads only when ComfyUI
 had to free it. Set `CHIMERA_KEEP_LLM_LOADED=1` only if Ollama runs on a second GPU. By hand, `chimera free`
-unloads every Ollama model and then asks ComfyUI to free its VRAM, in that order, and `chimera doctor` reports
+unloads every Ollama model, waiting up to 10 s per model until Ollama has let go of it, and then asks ComfyUI
+to free its VRAM, in that order (asked while Ollama still held the card, ComfyUI 0.40 can run out of memory
+inside its own `/free`), and `chimera doctor` reports
 both apps' GPU memory and warns when Ollama holds 8 GB or more. Don't run other heavy GPU jobs beside a loop.
 
 ```

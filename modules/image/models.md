@@ -35,25 +35,24 @@ encoders (`qwen3.5_9b_qwen_image_2.1_pe_*`, ~8.8 GB each) are **not** needed.
 Tongyi Z-Image — core-native in ComfyUI 0.22.3, no custom node pack required.
 Uses a **Qwen-3-4B text encoder** and the AuraFlow sampler schedule.
 
-HuggingFace repo: `Comfy-Org/z_image_turbo` (both the turbo nvfp4 and the base
-bf16 weights are published there alongside the shared encoder and VAE).
+HuggingFace repos: `Comfy-Org/z_image_turbo` (the turbo nvfp4 weights, with the shared
+encoder and VAE) and `Comfy-Org/z_image` (the base bf16 weights).
 
-| File | Destination (`ComfyUI/models/…`) | Size | License |
-|------|----------------------------------|------|---------|
-| `z_image_turbo_nvfp4.safetensors` | `diffusion_models/` | ~4.5 GB | ✅ Apache-2.0 |
-| `z_image_bf16.safetensors` | `diffusion_models/` | ~12.3 GB | ✅ Apache-2.0 |
-| `qwen_3_4b.safetensors` *(shared)* | `text_encoders/` | ~8 GB | ✅ Apache-2.0 |
-| `ae.safetensors` *(shared)* | `vae/` | ~0.3 GB | ✅ Apache-2.0 |
+| File | Repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|------|----------------------------------|------|---------|
+| `z_image_turbo_nvfp4.safetensors` | `Comfy-Org/z_image_turbo` | `diffusion_models/` | ~4.5 GB | ✅ Apache-2.0 |
+| `z_image_bf16.safetensors` *(base)* | `Comfy-Org/z_image` | `diffusion_models/` | ~12.3 GB | ✅ Apache-2.0 |
+| `qwen_3_4b.safetensors` *(shared)* | `Comfy-Org/z_image_turbo` | `text_encoders/` | ~8 GB | ✅ Apache-2.0 |
+| `ae.safetensors` *(shared)* | `Comfy-Org/z_image_turbo` | `vae/` | ~0.3 GB | ✅ Apache-2.0 |
 
-> The `Comfy-Org/z_image_turbo` repo hosts both the turbo model and the shared
+> The `Comfy-Org/z_image_turbo` repo hosts the turbo model and the shared
 > encoder + VAE. Find them via the ComfyUI **Templates Library** (sidebar),
 > **ComfyUI-Manager → Model Manager**, or search Hugging Face for
 > `Comfy-Org z_image_turbo`.
 >
-> **Filename note:** upstream, the base checkpoint is published as
-> `z_image_turbo_bf16.safetensors`. Chimera's `base` / `product` graphs load it as
-> **`z_image_bf16.safetensors`** (the on-disk name in the table above), so **rename it**
-> to `z_image_bf16.safetensors` after downloading.
+> **Base checkpoint:** download `split_files/diffusion_models/z_image_bf16.safetensors`
+> from `Comfy-Org/z_image`. That is already the name Chimera's `base` / `product` graphs
+> load, so no rename is needed (the turbo repo's bf16 file is the turbo model, not the base).
 
 ### What each file does
 
@@ -113,13 +112,13 @@ FLUX.2 [dev] — activates when the model name starts with `flux2`. Uses a
 
 | File | Destination (`ComfyUI/models/…`) | Source | License |
 |------|----------------------------------|--------|---------|
-| `flux2_dev_fp8mixed.safetensors` | `diffusion_models/` | `Comfy-Org/FLUX.2` repackage (Hugging Face) | ❓ FLUX.2 [dev] non-commercial — verify; fine for personal use |
-| `mistral_3_small_flux2_bf16.safetensors` | `text_encoders/` | `Comfy-Org/FLUX.2` text encoders (Hugging Face) | ✅ Mistral / Apache-2.0 |
-| `flux2-vae.safetensors` | `vae/` | `Comfy-Org/FLUX.2` repo (Hugging Face) | ❓ FLUX.2 [dev] |
+| `flux2_dev_fp8mixed.safetensors` | `diffusion_models/` | `Comfy-Org/flux2-dev` repackage (Hugging Face) | ❓ FLUX.2 [dev] non-commercial — verify; fine for personal use |
+| `mistral_3_small_flux2_bf16.safetensors` | `text_encoders/` | `Comfy-Org/flux2-dev` text encoders (Hugging Face) | ✅ Mistral / Apache-2.0 |
+| `flux2-vae.safetensors` | `vae/` | `Comfy-Org/flux2-dev` repo (Hugging Face) | ❓ FLUX.2 [dev] |
 
 > Find them via the ComfyUI **Templates Library** (it links the exact downloads),
 > or **ComfyUI-Manager → Model Manager**, or search Hugging Face for
-> `Comfy-Org FLUX.2`.
+> `Comfy-Org flux2-dev`.
 
 ### Faster / lighter FLUX.2 variants (optional)
 
@@ -133,6 +132,13 @@ FLUX.2 [dev] — activates when the model name starts with `flux2`. Uses a
 
 ### FLUX.2 VRAM
 
-- fp8 (`flux2_dev_fp8mixed`): ~16–24 GB; ~12 GB load footprint observed.
-- NVFP4: smaller footprint, faster, **cu130 only**.
-- Tight on VRAM? Use GGUF/quantized variants via `ComfyUI-GGUF`.
+The files are bigger than the card: `flux2_dev_fp8mixed` is 35.5 GB, `flux2-dev-nvfp4-mixed` 22.8 GB and the
+bf16 Mistral encoder 35.6 GB (decimal GB, as Hugging Face lists them). The GPU memory below is the **observed
+peak** with ComfyUI's offloading, which streams the encoder from disk (comfy-aimdo), not the weight size:
+
+- fp8 (`flux2_dev_fp8mixed`): ~16–24 GB peak; ~12 GB load footprint observed.
+- NVFP4: a smaller peak, faster, **cu130 only**.
+- Chimera frees ComfyUI's other models before a FLUX.2 render, since the streamed encoder load fails
+  (Windows error 1450) while they are still staged.
+- Tight on VRAM? Pick Qwen-Image-2.1 or Z-Image. GGUF quants need the `ComfyUI-GGUF` pack's own loader
+  nodes, which Chimera's graphs don't use, so they suit your own workflows.

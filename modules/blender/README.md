@@ -62,8 +62,9 @@ System → Network → Allow Online Access`).
 
 **Upgrading Blender:** the add-on and the online-access setting live in Blender's per-version settings, so a
 new Blender version starts without them. On its first-run screen choose *Load <previous version> Settings*,
-or redo step 1 (and turn online access back on). Headless `generate.py render` needs neither: it finds the
-newest `Blender *` install by itself (or `$BLENDER_BIN`). A screenshot tool returns a black image while the
+or redo step 1 (and turn online access back on). Headless `generate.py render` needs neither. It finds
+Blender in this order: `--blender-bin`, then `$BLENDER_BIN`, then `blender` on `PATH`, then (on Windows) the
+newest `C:\Program Files\Blender Foundation\Blender *` install. A screenshot tool returns a black image while the
 Blender window is minimized; restore it first.
 
 ## Two execution paths
@@ -73,7 +74,8 @@ Blender window is minimized; restore it first.
 The MCP bridge requires Blender's **GUI to be running** and the addon enabled. Keep a
 Blender window open and the addon active for any MCP-assisted work. Every call to
 `execute_blender_code*` requires per-call approval (Tier 1); render and path tools
-require approval + a path allowlist (Tier 2).
+require approval too (Tier 2). No path allowlist is enforced: checking the path a Tier-2 call names is
+the approver's job.
 
 ### Headless render backend (`generate.py render`)
 
@@ -106,7 +108,9 @@ Three modes, all live-validated on Blender 5.1 / RTX 5090:
   reconstruction; about 3 minutes on the CPU for a 230 mm figure), and this template finishes it
   (largest piece kept, decimation pinches repaired). Every STL it writes is **print-checked** (size in
   mm, closed, pieces, volume, SOLID vs HOLLOW; `scripts/brandkit/printcheck.py`), and the report lands
-  in the console and the sidecar. A HOLLOW verdict points to `--solid`. `--color` picks the material:
+  in the console and the sidecar. A HOLLOW verdict points to `--solid`. Only a cavity sealed off from the
+  outside counts as hollow, so an open cup, a vase or a tube's bore reads SOLID, while a leaky TRELLIS.2
+  sheet stays HOLLOW. `--color` picks the material:
   `auto` (default) keeps a textured mesh's own materials, otherwise (or with `--watertight`) clay;
   `material` is always clay; `project` projects `--project-image`; `keep` always keeps. Kept textures
   skip the clean step (it would break a baked normal map), are capped at 2048 px and written as JPEG, so
@@ -114,7 +118,9 @@ Three modes, all live-validated on Blender 5.1 / RTX 5090:
   combined with `--watertight` or `--solid`, since both rebuild the surface and drop the UVs.
 
 All modes are **brand-aware**: outputs route to `brands/<brand>/outputs/` (or `outputs/`
-when brandless) with a `kind:"render"` sidecar. The test suite mocks the subprocess,
+when brandless) with a `kind:"render"` sidecar. All of one job's files (a hero PNG, an STL and a GLB, say)
+share one name, picked free in every folder they go to; a later render with the same seed keeps the
+earlier one and takes `<name>_2`, then `_3`, …. The test suite mocks the subprocess,
 so CI stays GPU-free.
 
 A fourth template, **`mesh_eval.py`**, powers the Phase 3 3D self-correction loop rather than the
@@ -132,7 +138,8 @@ emits `textured`/`textured_glb`. The stills come out colored. Driven by `--pipel
 hunyuan21 --texture` (TRELLIS.2 / Pixal3D meshes come out textured, so the loop refuses `--texture` for them).
 
 **Phase 4b — all-around multi-view bake.** Phase 4a colors a mesh from one front projection (faithful
-front, flat back). `generate.py finalize-texture --from <glb> --views front,right,back,left` finalizes a
+front, flat back). `generate.py finalize-texture --from <glb> --views front.png,right.png,back.png,left.png`
+(one image file per view) finalizes a
 **winning** mesh once with real all-around color: the **`mesh_finalize.py`** template calls
 **`_common.bake_multiview()`**, which generalizes `bake_albedo` from 1 → N views — a ring camera per view,
 a per-view `world_to_camera_view` projection UV, a per-view front-facing weight `max(0,dot(N,-dir))²`, a
@@ -151,10 +158,10 @@ Phase 3 (self-correction over renders), Phase 4a (front albedo texturing), and P
 `--finalize` is the in-loop driver: it auto-runs this `finalize-texture --auto-repaint` bake on the
 self-correction loop's winning mesh and re-judges the textured result.
 
-## Security audit (v1.0.0) & per-tool gates
+## Security audit (commit `dbbf836`) & per-tool gates
 
 **Verdict:** safe-with-precautions — official Blender Foundation server
-(`lab/blender_mcp` @ v1.0.0, GPL-3.0); deps are exactly `docutils`/`mcp[cli]`/`pyyaml`
+(`lab/blender_mcp` @ `dbbf836` (v1.0.2 +3), GPL-3.0-or-later); deps are exactly `docutils`/`mcp[cli]`/`pyyaml`
 with **zero telemetry** and no Supabase/storage3/pyiceberg, confirming this is NOT
 `ahujasid/blender-mcp`. No outbound network in the MCP server or the addon.
 Loopback-only TCP bridge (`BLENDER_MCP_HOST`/`PORT`, default localhost:9876), with
@@ -169,10 +176,11 @@ filesystem paths (Tier 2).
 | Tier | Policy | Tools |
 |---|---|---|
 | **1 — always per-call approval (RCE)** | require explicit approval on every call | `execute_blender_code`, `execute_blender_code_for_cli` |
-| **2 — approval + path allowlist** | require approval; paths must be under the project render output directory | `render_viewport_to_path`, `render_thumbnail_to_path`, the 5 `get_blendfile_summary_*_for_cli` tools (they spawn headless Blender on a caller-supplied `.blend` path) |
+| **2 — approval (check the path)** | require approval on every call; no path allowlist is enforced, so the approver checks that the path is where it should be (e.g. under the project's render output folder) | `render_viewport_to_path`, `render_thumbnail_to_path`, the 5 `get_blendfile_summary_*_for_cli` tools (they spawn headless Blender on a caller-supplied `.blend` path) |
 | **3 — auto-allow (read-only)** | frictionless; no side-effects | scene/object summaries, screenshots, jumps, `search_api_docs` / `search_manual_docs`, `get_python_api_docs` |
 
-Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.json).
+Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.json), which puts the Tier 1
+and Tier 2 tools on "ask"; it can't restrict their arguments.
 
 ### Hard rules
 
@@ -187,6 +195,10 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
   `projects.blender.org` git ref with `#subdirectory=mcp`.
 - **Re-audit on every pin bump.** When the pin is advanced, re-run the full audit
   against the diff before committing. Runbook: [`../../docs/UPDATING.md`](../../docs/UPDATING.md).
+  Last re-audit (Chimera v0.6.1): `4309a396 → dbbf836a` (v1.0.0 +5 → v1.0.2 +3): large responses
+  (screenshots, renders) no longer cut off when the socket's send buffer fills, bundled docs for Blender 5.2,
+  and the MCP SDK locked below 2. Install the add-on from the same commit. (Prior re-audits:
+  `98b0e49d → 4309a396`, `03004fd → 98b0e49d`: clean.)
 
 ## Tool surface (highlights)
 
