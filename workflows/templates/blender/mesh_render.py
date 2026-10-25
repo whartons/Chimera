@@ -11,7 +11,7 @@ scn.cycles.samples = int(p["samples"])
 scn.cycles.seed = int(p.get("seed", 0))
 scn.render.resolution_x, scn.render.resolution_y = int(p["res"][0]), int(p["res"][1])
 obj = C.import_mesh(p["mesh"])
-C.frame_object(scn, obj)
+C.frame_object(scn, obj, turntable=bool(p.get("turntable")))   # frame every pose of the spin
 
 outputs = [C.render_still(scn, os.path.join(p["out_dir"], p["stem"] + "_hero.png"))]
 if p.get("turntable"):

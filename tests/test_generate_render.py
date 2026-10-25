@@ -237,6 +237,30 @@ def test_solid_exports_raw_mm_then_solidifies_then_finishes(tmp_path, monkeypatc
     assert meta["print_check"]["t_finish_5.stl"]["verdict"] == "SOLID"
 
 
+def test_solid_says_and_records_which_pieces_it_kept(tmp_path, monkeypatch, capsys):
+    # --solid kept only the largest piece and never said so: a separate plaque vanished (2026-10-25)
+    calls, tools = [], _FakeTools()
+    run = _fake_run(calls, ["t_finish_3.stl"])
+
+    def with_pieces(template, params, **kw):
+        m = run(template, params, **kw)
+        if Path(template).name == "mesh_finish.py":
+            m.update(pieces_kept=2, pieces_dropped=3, faces_dropped=412)
+        return m
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: tmp_path / "trophy.glb")
+    monkeypatch.setattr(G.blender_runner, "run_template", with_pieces)
+    monkeypatch.setattr(G, "_print_tools", tools)
+    monkeypatch.setattr(G, "route_output", _fake_route(tmp_path))
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    G.run_render(_args(mode="finish", solid=True, scale_mm=228.6, formats="stl", seed=3), tmp_path,
+                 argparse.ArgumentParser())
+    assert "kept 2 piece(s), dropped 3 speck(s) of 412 faces" in capsys.readouterr().out
+    assert calls[1][1]["speck_frac"] == G.SPECK_FRAC == 0.01
+    meta = json.loads((tmp_path / "outputs" / "3d" / "t_finish_3.json").read_text())
+    assert (meta["solidify"]["pieces_kept"], meta["solidify"]["pieces_dropped"]) == (2, 3)
+    assert meta["solidify"]["faces_dropped"] == 412
+
+
 def test_a_solid_render_sidecar_holds_no_local_paths(tmp_path, monkeypatch):
     import re
     calls, tools = [], _FakeTools()

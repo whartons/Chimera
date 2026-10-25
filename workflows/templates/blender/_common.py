@@ -1,7 +1,10 @@
 """Shared bpy helpers for Chimera's headless Blender templates. Each template does:
     import _common as C; p = C.args(); ... ; C.emit({"outputs": [...], "blender_version": ...})
-Run only inside `blender --background --python <template> -- <json>`."""
+Run only inside `blender --background --python <template> -- <json>`. The bpy-free decisions (framing, clipping,
+OBJ axes, front projection, pieces) live in _geom, which the host's tests import."""
 import bpy, bmesh, sys, os, json, math, glob, mathutils
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _geom as G
 
 
 def args() -> dict:
@@ -94,7 +97,9 @@ def import_mesh(path):
     if ext in (".glb", ".gltf"):
         bpy.ops.import_scene.gltf(filepath=path)
     elif ext == ".obj":
-        bpy.ops.wm.obj_import(filepath=path)
+        with open(path, "rb") as fh:          # a FreeCAD OBJ is Z-up, the importer's default Y-up
+            head = fh.read(256).decode("utf-8", "replace")
+        bpy.ops.wm.obj_import(filepath=path, **G.obj_import_axes(head))
     elif ext == ".stl":
         bpy.ops.wm.stl_import(filepath=path)
     elif ext == ".fbx":
@@ -122,12 +127,14 @@ def import_mesh(path):
     return obj
 
 
-def frame_object(scn, obj, lens=70, margin=1.12):
+def frame_object(scn, obj, lens=70, margin=1.12, turntable=False):
     """Add a camera whose view contains ALL of `obj`'s bounding box (plus `margin`), plus a floor + studio
     rig SCALED to the object so it's correctly exposed at any mesh scale (a normalized Hunyuan mesh OR a
     mm-scale CAD STL — the latter imports at tens of units and washed out to near-black under the old
     fixed-size rig). The distance is solved from the lens FOV per bbox corner: the old fixed 2.2r heuristic
-    showed only ~0.75r either side of centre, so compact objects (CAD boxes) were cropped."""
+    showed only ~0.75r either side of centre, so compact objects (CAD boxes) were cropped. `turntable`: the
+    object will spin about Z through its origin (a turntable, orbit stills), so frame the bounding cylinder;
+    rotation 0 alone cropped a mesh long along Y at ~105 and 285 degrees (2026-10-25)."""
     bpy.context.view_layer.update()   # read a current matrix_world, whatever the caller just moved
     bbox = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
     center = sum(bbox, mathutils.Vector()) / 8.0
@@ -138,7 +145,7 @@ def frame_object(scn, obj, lens=70, margin=1.12):
     cam.lens = lens
     # scale the clip range with the object: Blender's default 100-unit clip_end cut the floor off behind a
     # mm-scale CAD part (it sits hundreds of units from the camera), leaving a hard black band at the top
-    cam.clip_start, cam.clip_end = radius * 0.001, radius * 1000.0
+    cam.clip_start, cam.clip_end = G.clip_range(radius)
     co = bpy.data.objects.new("Cam", cam)
     scn.collection.objects.link(co)
     scn.camera = co
@@ -149,11 +156,9 @@ def frame_object(scn, obj, lens=70, margin=1.12):
     tan_long = (cam.sensor_width / 2.0) / lens          # sensor_fit AUTO: the sensor spans the longer side
     tan_x = tan_long if rx >= ry else tan_long * rx / ry
     tan_y = tan_long if ry >= rx else tan_long * ry / rx
-    need = 0.0
-    for v in bbox:
-        p = v - center
-        closer = p.dot(toward_cam)                      # corners nearer the camera need more distance
-        need = max(need, abs(p.dot(right)) / tan_x + closer, abs(p.dot(up)) / tan_y + closer)
+    axis = obj.matrix_world.translation
+    points = G.turntable_points(bbox, (axis.x, axis.y)) if turntable else bbox
+    need = G.frame_distance(points, center, toward_cam, right, up, tan_x, tan_y)
     co.location = center + toward_cam * (margin * need or radius)
     d = center - co.location
     co.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
@@ -254,6 +259,12 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     fcam.rotation_euler = fdir.to_track_quat('-Z', 'Y').to_euler()
     prev_cam = scn.camera
     scn.camera = fcam
+    # project at the concept's aspect (world_to_camera_view frames by the scene resolution): the stills' square
+    # resolution squashed a 1216 x 832 concept (2026-10-25); bake_multiview does the same per view. Restored below.
+    concept = bpy.data.images.load(concept_path)
+    prev_res = (scn.render.resolution_x, scn.render.resolution_y)
+    if concept.size[0] and concept.size[1]:
+        scn.render.resolution_x, scn.render.resolution_y = concept.size[0], concept.size[1]
 
     # 3. projection UV from the front camera, computed directly per-loop. (bpy.ops.uv.project_from_view
     #    needs a VIEW_3D region context, which does not exist under `blender --background`; the
@@ -282,7 +293,6 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     emit = nt.nodes.new("ShaderNodeEmission")
-    concept = bpy.data.images.load(concept_path)
     ctex = nt.nodes.new("ShaderNodeTexImage"); ctex.image = concept
     cuv = nt.nodes.new("ShaderNodeUVMap"); cuv.uv_map = proj_uv
     nt.links.new(cuv.outputs["UV"], ctex.inputs["Vector"])
@@ -333,6 +343,7 @@ def bake_albedo(obj, scn, concept_path, *, palette, back_fill="palette", res=102
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     scn.camera = prev_cam
+    scn.render.resolution_x, scn.render.resolution_y = prev_res   # the stills keep their own resolution
     bpy.data.objects.remove(fcam, do_unlink=True)   # don't leak the temp cam (Phase 4b may re-bake)
     bpy.data.cameras.remove(fcam_d)
     return img
@@ -347,6 +358,8 @@ def _ring_camera(scn, centre, radius, az_deg, el_deg):
     cam_d = bpy.data.cameras.new("RingCam")
     cam = bpy.data.objects.new("RingCam", cam_d)
     scn.collection.objects.link(cam)
+    # clip to the object: the default 0.1 near plane cut the near side off a 0.03 m mesh's depth maps (2026-10-25)
+    cam_d.clip_start, cam_d.clip_end = G.clip_range(radius)
     cam.location = centre + offset * (radius * 3.0)
     view_dir = (centre - cam.location).normalized()
     cam.rotation_euler = view_dir.to_track_quat('-Z', 'Y').to_euler()

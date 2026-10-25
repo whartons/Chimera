@@ -26,6 +26,8 @@ RENDER_TIMEOUT = 1800
 _TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
                       "finish": "mesh_finish.py"}
 _RAW_MM_TEMPLATE = "mesh_raw_mm.py"     # --solid step 1: the mesh as a raw STL in millimetres
+SPECK_FRAC = 0.01                       # --solid drops pieces under 1 % of the largest one's faces as specks
+_PIECE_KEYS = ("pieces_kept", "pieces_dropped", "faces_dropped")
 
 FINALIZE_TIMEOUT = finalize_core.FINALIZE_TIMEOUT
 _FINALIZE_TEMPLATE = finalize_core.FINALIZE_TEMPLATE
@@ -73,7 +75,7 @@ def _render_params(args, asset, tmp, seed):
         p.update(mesh=str(asset), target_tris=args.target_tris, watertight=bool(args.watertight),
                  solid=bool(getattr(args, "solid", False)), scale_mm=args.scale_mm, color=args.color,
                  formats=_finish_formats(args), stl_scale=_stl_scale(asset, args.scale_mm),
-                 render_still=bool(args.render_still))
+                 render_still=bool(args.render_still), speck_frac=SPECK_FRAC)
         if args.color == "project":
             p["asset"] = str(args.project_image)
     return p
@@ -221,7 +223,12 @@ def run_render(args, repo_root, ap):
                              timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
                              pipeline_git_sha=git_provenance(repo_root))
     if solid_info:
-        meta["solidify"] = solid_info
+        # what the finish kept: dropping every piece but the largest without a word lost a separate plaque
+        pieces = {k: manifest[k] for k in _PIECE_KEYS if k in manifest}
+        if pieces:
+            print(f"finish: kept {pieces.get('pieces_kept', '?')} piece(s), dropped "
+                  f"{pieces.get('pieces_dropped', 0)} speck(s) of {pieces.get('faces_dropped', 0)} faces")
+        meta["solidify"] = {**solid_info, **pieces}
     checks = _check_stls(routed, tools)
     if checks:
         meta["print_check"] = checks

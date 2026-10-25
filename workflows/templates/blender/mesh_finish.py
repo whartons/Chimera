@@ -1,15 +1,17 @@
 """mesh_finish: import an AI mesh -> clean -> optional voxel-remesh (watertight) -> decimate ->
-optional scale-to-mm -> material (or emissive image projection) -> export STL/GLB (+ optional
+optional scale-to-mm -> material (or image projection) -> export STL/GLB (+ optional
 hero render). Params: {mesh, out_dir, stem, samples, res:[w,h], target_tris, watertight:bool,
 solid:bool, scale_mm:float|null, color: auto|material|project|keep, formats:[..], render_still:bool,
-asset?}. auto keeps a textured mesh's own materials (a TRELLIS.2 PBR GLB) and clays an untextured one.
-solid = the mesh is already one solid from the host's solidify step (`render --mode finish --solid`):
-no voxel remesh, keep only its largest piece. STL is written in millimetres, what every slicer assumes:
-stl_scale (mm per Blender unit, from the host) is 1000 for metres and 1 for an unscaled STL/OBJ input that's
-already mm. GLB stays in metres per the glTF spec."""
+asset?, speck_frac?}. auto keeps a textured mesh's own materials (a TRELLIS.2 PBR GLB) and clays an untextured
+one; project front-projects `asset` (seen from -Y) onto a UV map of its own. solid = the mesh is already one solid
+from the host's solidify step (`render --mode finish --solid`): no voxel remesh, and pieces under speck_frac
+(default 1 %) of the largest one's faces are dropped as specks. STL is written in millimetres, what every slicer
+assumes: stl_scale (mm per Blender unit, from the host) is 1000 for metres and 1 for an unscaled STL/OBJ input
+that's already mm. GLB stays in metres per the glTF spec."""
 import bpy, bmesh, mathutils, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as C
+import _geom as G
 
 p = C.args()
 scn = C.reset_scene()
@@ -51,13 +53,15 @@ if p.get("watertight"):
     bpy.ops.object.modifier_apply(modifier=rm.name)
 
 solid = bool(p.get("solid"))
-dropped = 0
+pieces = {}
 if solid:
-    # keep the largest connected piece: marching cubes can leave specks the slicer would print as debris
+    # marching cubes can leave specks the slicer would print as debris: drop the pieces under speck_frac of the
+    # largest one's faces. Keeping only the largest dropped a real second body (a separate plaque) without a word
+    # (2026-10-25); the manifest says what went, and the host prints it and records it in the sidecar.
     bm = bmesh.new()
     bm.from_mesh(obj.data)
     bm.verts.ensure_lookup_table()
-    seen, groups = set(), []
+    seen, groups, owner = set(), [], {}
     for v in bm.verts:
         if v.index in seen:
             continue
@@ -66,15 +70,20 @@ if solid:
         while stack:
             cur = stack.pop()
             members.append(cur)
+            owner[cur.index] = len(groups)
             for e in cur.link_edges:
                 o = e.other_vert(cur)
                 if o.index not in seen:
                     seen.add(o.index)
                     stack.append(o)
         groups.append(members)
-    groups.sort(key=len, reverse=True)
-    kill = [v for g in groups[1:] for v in g]
-    dropped = len(groups) - 1
+    faces = [0] * len(groups)
+    for f in bm.faces:
+        faces[owner[f.verts[0].index]] += 1
+    keep = set(G.keep_pieces(faces, float(p.get("speck_frac", 0.01))))
+    kill = [v for i, g in enumerate(groups) if i not in keep for v in g]
+    pieces = {"pieces_kept": len(keep), "pieces_dropped": len(groups) - len(keep),
+              "faces_dropped": sum(n for i, n in enumerate(faces) if i not in keep)}
     if kill:
         bmesh.ops.delete(bm, geom=kill, context='VERTS')
     bm.to_mesh(obj.data)
@@ -139,11 +148,30 @@ else:
     obj.data.materials.clear()
     if color == "project" and p.get("asset"):
         img = bpy.data.images.load(p["asset"])
+        # a front projection (from -Y: x across, z up) on a UV map of its own. The texture's Vector input was left
+        # unconnected, so Cycles read the mesh's own UVs: one flat colour on an STL/OBJ or a remeshed mesh (every
+        # point at UV 0,0) and the image scrambled across a GLB's atlas (2026-10-25)
+        import numpy as np
+        me = obj.data
+        co = np.empty(len(me.vertices) * 3)
+        me.vertices.foreach_get("co", co)
+        mw = np.array(obj.matrix_world)
+        wco = co.reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
+        su, ou, sv, ov = G.front_uv(wco[:, 0].min(), wco[:, 0].max(), wco[:, 2].min(), wco[:, 2].max(),
+                                    img.size[0] / max(img.size[1], 1))
+        vi = np.empty(len(me.loops), dtype=np.int32)
+        me.loops.foreach_get("vertex_index", vi)
+        proj = me.uv_layers.new(name="Proj")
+        proj.data.foreach_set("uv", np.stack([wco[vi, 0] * su + ou, wco[vi, 2] * sv + ov], axis=1).ravel())
         mat = bpy.data.materials.new("Projected")
         mat.use_nodes = True
         nt = mat.node_tree
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = img
+        tex.extension = 'EXTEND'
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = proj.name
+        nt.links.new(uvn.outputs["UV"], tex.inputs["Vector"])
         nt.links.new(tex.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
     else:
         mat = bpy.data.materials.new("Clay")
@@ -185,4 +213,4 @@ if p.get("render_still", True):
 
 C.emit({"outputs": outputs, "device": dev, "color": color,
         "tris_final": len(obj.data.polygons), "watertight": bool(p.get("watertight")), "solid": solid,
-        "pieces_dropped": dropped, "repaired_edges": repaired})
+        "repaired_edges": repaired, **pieces})

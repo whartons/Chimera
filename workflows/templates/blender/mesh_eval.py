@@ -36,7 +36,7 @@ bpy.ops.object.select_all(action='DESELECT')
 obj.select_set(True)
 bpy.context.view_layer.objects.active = obj
 bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
-C.frame_object(scn, obj)
+C.frame_object(scn, obj, turntable=True)     # the orbit stills spin it: frame every pose
 
 # --- geometry checks (bmesh on the imported mesh data) ---
 bm = bmesh.new()
