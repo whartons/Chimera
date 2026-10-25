@@ -6,6 +6,11 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-25
+
+The print release: AI 3D models (TRELLIS.2, Pixal3D) come out as one solid, printable STL in millimetres, and every
+finished STL is checked before it reaches a slicer.
+
 ### Added
 - **`render --mode finish --solid`: AI meshes become printable solids.** TRELLIS.2 and Pixal3D output a
   paper-thin, double-sided sheet with layers stacked inside (a shirt over the body), and `--watertight`
@@ -20,8 +25,9 @@ All notable changes to Chimera are documented here. The format follows
   separate pieces, volume, and SOLID vs HOLLOW (rays through the model, `scripts/brandkit/printcheck.py`).
   The report prints in the console and goes into the sidecar (`print_check`); a HOLLOW result points to
   `--solid`.
-- **`[print]` extra** (numpy, scipy, scikit-image) for both; `chimera doctor` reports whether it's installed. CI installs it on the Linux legs; Windows stays on
-  `[dev]`, since scikit-image pulls in Pillow and the Windows leg is the one that proves the no-Pillow paths.
+- **`[print]` extra** (numpy, scipy, scikit-image) for both; `chimera doctor` reports whether it's installed.
+  CI installs it on the Linux legs; Windows stays on `[dev]`, since scikit-image pulls in Pillow and the
+  Windows leg is the one that proves the no-Pillow paths.
 
 ### Fixed
 - **`--scale-mm` STLs loaded 1000× too small in slicers.** STL has no units and slicers read millimetres,
@@ -1174,7 +1180,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/whartons/Chimera/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/whartons/Chimera/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/whartons/Chimera/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/whartons/Chimera/compare/v0.5.0...v0.5.1
