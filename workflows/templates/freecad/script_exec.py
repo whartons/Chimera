@@ -64,11 +64,22 @@ if p.get("restrict"):
 exec(compile(src, p["script"], "exec"), ns)
 doc.recompute()
 
-# objects to export: an explicit RESULT list, else every doc object carrying geometry
+
+
+def _geometry(o):
+    """A doc object that carries a solid or a mesh. Sketches (Part::Part2DObject) are construction lines."""
+    if o.isDerivedFrom("Part::Part2DObject"):
+        return False
+    return getattr(o, "Shape", None) is not None or o.isDerivedFrom("Mesh::Feature")
+
+
+# objects to export: an explicit RESULT list, else the finished objects, the ones no other geometry uses. Every
+# object with a Shape included a Cut's Base and Tool: a box minus a cylinder came out as the uncut box + the
+# cylinder + the cut, the hole gone and ~2.5x the volume (2026-10-25). Set RESULT to export anything else.
 objs = ns.get("RESULT")
 if not objs:
     objs = [o for o in doc.Objects
-            if getattr(o, "Shape", None) is not None or o.isDerivedFrom("Mesh::Feature")]
+            if _geometry(o) and not any(_geometry(u) for u in getattr(o, "InList", []))]
 if not objs:
     raise ValueError("script produced no exportable geometry — add Part/Mesh objects to `doc` "
                      "or set RESULT=[objs]")

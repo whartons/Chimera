@@ -16,13 +16,13 @@ class _Shape:  # stands in for Part.Shape
     pass
 
 
-def _run(monkeypatch, tmp_path, script, *, restrict):
+def _run(monkeypatch, tmp_path, script, *, restrict, objects=()):
     fc = types.ModuleType("FreeCAD")
     fc.Vector = lambda *a: a
 
     class _Doc:
         Name = "chimera_cad"
-        Objects: list = []
+        Objects: list = list(objects)
 
         def recompute(self):
             pass
@@ -72,3 +72,36 @@ def test_restricted_scripts_can_define_classes(monkeypatch, tmp_path):
               "RESULT = [Part.Shape()] if Fin(3).h == 3 else []\n")
     _, exported = _run(monkeypatch, tmp_path, script, restrict=True)
     assert len(exported) == 1
+
+
+def _features(spec):
+    """Stub doc objects from {name: (TypeId, bases, has_shape, uses)}: InList is filled in from `uses`."""
+    objs = {}
+    for name, (type_id, bases, has_shape, _) in spec.items():
+        kinds = {type_id, *bases}
+        objs[name] = types.SimpleNamespace(Name=name, TypeId=type_id, Shape=object() if has_shape else None,
+                                           InList=[], isDerivedFrom=lambda t, k=kinds: t in k)
+    for name, (*_, uses) in spec.items():
+        for used in uses:
+            objs[used].InList.append(objs[name])
+    return list(objs.values())
+
+
+_PART = ("Part::Feature",)
+_SKETCH = ("Sketcher::SketchObject", ("Part::Part2DObject", "Part::Feature"), True, ())
+
+
+@pytest.mark.parametrize("spec, want", [
+    # a box minus a cylinder exported the uncut box + the cylinder + the cut: the hole vanished, ~2.5x the volume
+    ({"Box": ("Part::Box", _PART, True, ()), "Hole": ("Part::Cylinder", _PART, True, ()),
+      "Cut": ("Part::Cut", _PART, True, ("Box", "Hole"))}, ["Cut"]),
+    ({"Sketch": _SKETCH, "Pad": ("PartDesign::Pad", _PART, True, ("Sketch",)),
+      "Body": ("PartDesign::Body", _PART, True, ("Pad",))}, ["Body"]),
+    ({"Sketch": _SKETCH, "Box": ("Part::Box", _PART, True, ())}, ["Box"]),           # a loose sketch is no solid
+    ({"A": ("Part::Box", _PART, True, ()), "B": ("Part::Sphere", _PART, True, ())}, ["A", "B"]),
+    # a group holds no geometry of its own, so what it contains is still a leaf
+    ({"Group": ("App::DocumentObjectGroup", (), False, ("Box",)), "Box": ("Part::Box", _PART, True, ())}, ["Box"]),
+])
+def test_without_result_only_the_finished_objects_are_exported(monkeypatch, tmp_path, spec, want):
+    _, exported = _run(monkeypatch, tmp_path, "x = 1\n", restrict=False, objects=_features(spec))
+    assert [o.Name for o in exported] == want
