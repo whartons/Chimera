@@ -802,3 +802,46 @@ def test_a_brand_default_watermark_on_music_says_nothing(monkeypatch, tmp_path, 
     monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
     generate.run(_img_args(seed=4, watermark=None, modality="audio", mode="music", subject="a sting"), repo, _StubAp())
     assert "--watermark" not in capsys.readouterr().err
+
+
+
+# --- 2026-10-25 review: values ComfyUI refuses stop the CLI before it frees the GPU or uploads -------------
+class _ApError(Exception):
+    pass
+
+
+class _RaisingAp:
+    def error(self, msg):
+        raise _ApError(msg)
+
+
+class _NothingSent(FakeComfy):
+    def free(self, **k):
+        pytest.fail("nothing may be freed")
+
+    def upload_video(self, p):
+        pytest.fail("nothing may be uploaded")
+
+    def queue_prompt(self, wf):
+        pytest.fail("nothing may be queued")
+
+
+def test_a_foley_clip_longer_than_hunyuan_renders_stops_before_the_upload(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    clip = repo / "brands" / "b" / "references" / "long.mp4"
+    clip.parent.mkdir(parents=True); clip.write_bytes(b"v")
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (30.0, 75.0, 640, 360))
+    monkeypatch.setattr(generate, "ComfyClient", _NothingSent)
+    with pytest.raises(_ApError, match="1 to 60 s"):
+        generate.run(_img_args(modality="audio", mode="foley", subject="rain", from_video="long.mp4", seed=3,
+                               free_before=True), repo, _RaisingAp())
+
+
+def test_a_key_ace_step_does_not_know_stops_before_the_gpu_is_freed(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    shutil.copy(ROOT / "workflows" / "templates" / "brand-audio-music.json",
+                repo / "workflows" / "templates" / "brand-audio-music.json")
+    monkeypatch.setattr(generate, "ComfyClient", _NothingSent)
+    with pytest.raises(_ApError, match="--keyscale 'H minor'"):
+        generate.run(_img_args(modality="audio", mode="music", subject="anthem", model="acestep", keyscale="H minor",
+                               seed=3, free_before=True), repo, _RaisingAp())

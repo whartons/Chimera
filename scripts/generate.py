@@ -314,7 +314,8 @@ def _prepare_audio(args, m, brand_dir, client, ap):
     model = getattr(args, "model", None)   # --model, or pinned by replay; else brand/default
     try:   # before the foley upload: a request the mode can't render is a CLI error
         audio_filler.check_options(m, args.mode, model=model, duration=args.duration,
-                                   lyrics=getattr(args, "lyrics", None))
+                                   lyrics=getattr(args, "lyrics", None), bpm=getattr(args, "bpm", None),
+                                   keyscale=getattr(args, "keyscale", None))
     except ValueError as e:
         ap.error(str(e))
     if args.mode == "music":
@@ -342,6 +343,10 @@ def _prepare_audio(args, m, brand_dir, client, ap):
     if (fr is None or dur is None) and (args.fps is None or args.duration is None):
         print(f"warning: could not probe {path.name}; using frame_rate={frame_rate} duration={duration}"
               " (pass --fps/--duration to override)", file=sys.stderr)
+    try:   # the clip's own length and rate, before it uploads: HunyuanFoleySampler takes 1-60 s at up to 120 fps
+        audio_filler.check_options(m, "foley", model=model, duration=duration, frame_rate=frame_rate)
+    except ValueError as e:
+        ap.error(f"{path.name}: {e}")
     # a replay passes the recorded size too (the watermark canvas), so it needn't probe the clip again
     return {"mode": "foley", "from_video": client.upload_video(path), "_files": {"from_video": path},
             "frame_rate": frame_rate, "duration": duration, "fps": frame_rate,
