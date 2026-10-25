@@ -52,7 +52,9 @@ def _check_inputs(data, inp):
             raise ValueError(f"inputs.{k} {inp[k]!r} isn't text")
     if data.get("model") is not None and not isinstance(data["model"], str):
         raise ValueError(f"model {data['model']!r} isn't a file name")
-    if data["modality"] != "3d" and not (inp.get("subject") or "").strip():
+    # an empty subject is a render (`audio --subject ""`: the brand's music_tags carry the brief); only a
+    # missing one isn't (2026-10-25 review)
+    if data["modality"] != "3d" and inp.get("subject") is None:
         raise ValueError("the sidecar records no inputs.subject")
     fmt = inp.get("format") or data.get("format")
     if fmt is not None and str(fmt).lower() not in ("glb", "stl", "obj"):

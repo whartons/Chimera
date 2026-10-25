@@ -495,3 +495,16 @@ def test_cross_family_music_replay_with_no_recorded_prompt_or_an_empty_brief(mon
     assert R.replay_drift(rec, model=SA3, wf={}, modality="audio", mode="music", model_override="sa3") == []
     rec["prompt"] = ""                                                  # an empty brief: SA3's is the BPM alone
     assert R.replay_drift(rec, model=SA3, wf={}, modality="audio", mode="music", model_override="sa3") == []
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+@pytest.mark.parametrize("modality, mode", [("audio", "music"), ("image", "txt2img")])
+def test_a_render_with_an_empty_subject_replays(modality, mode):
+    # `audio --brand B --subject ""` is a valid render (the brand's music_tags carry the brief), and replay refused it
+    a = R.args_from_sidecar(_sc(modality=modality, mode=mode, brand="b", inputs={"subject": ""}))
+    assert a.subject == ""
+
+
+def test_a_sidecar_with_a_null_subject_is_still_refused():
+    with pytest.raises(ValueError, match="records no inputs.subject"):
+        R.args_from_sidecar(_sc(inputs={"subject": None}))
