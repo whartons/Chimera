@@ -582,8 +582,15 @@ def main():
     rn.add_argument("--as", dest="as_", choices=["backdrop"], default="backdrop",
                     help="(comfy-scene) image placement (only 'backdrop' in V1; plane/texture are roadmap)")
     rn.add_argument("--target-tris", dest="target_tris", type=int, default=200000, help="(finish) decimate target")
-    rn.add_argument("--watertight", action="store_true", help="(finish) voxel-remesh to a manifold solid")
-    rn.add_argument("--scale-mm", dest="scale_mm", type=float, default=None, help="(finish) longest-dim mm")
+    rn.add_argument("--watertight", action="store_true",
+                    help="(finish) voxel-remesh to a closed surface; for already-solid meshes such as Hunyuan3D 2.1. "
+                         "A TRELLIS.2 or Pixal3D mesh comes out hollow this way: use --solid")
+    rn.add_argument("--solid", action="store_true",
+                    help="(finish) rebuild a thin, double-sided AI mesh (TRELLIS.2, Pixal3D) as one solid for "
+                         "printing: closes leaks, keeps only the outer skin, Poisson-reconstructs it. Needs "
+                         "--scale-mm and the [print] extra; about 3 minutes on the CPU for a 230 mm print")
+    rn.add_argument("--scale-mm", dest="scale_mm", type=float, default=None,
+                    help="(finish) longest side in mm; STL is always written in millimetres")
     rn.add_argument("--color", choices=["auto", "material", "project", "keep"], default="auto",
                     help="(finish) auto (default): keep a textured mesh's own materials (e.g. a TRELLIS.2 PBR GLB, "
                          "exported with JPEG textures), else clay; material = clay; project = --project-image; "

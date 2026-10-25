@@ -184,7 +184,9 @@ def run_checks(client, repo_root, brand=None):
 
     # 5. optional host helpers (used by generate.py; graceful fallbacks exist, so info not fail)
     for mod, pkg, why in (("PIL", "pillow", "non-PNG logo sizing"),
-                          ("av", "av", "foley fps/duration auto-probe")):
+                          ("av", "av", "foley fps/duration auto-probe"),
+                          ("skimage", "-e .[print]",   # scikit-image pulls in numpy + scipy, the rest of [print]
+                           "3D printing: render --mode finish --solid + the STL print check")):
         try:
             __import__(mod)
             out.append(("ok", f"{mod} available ({why})"))

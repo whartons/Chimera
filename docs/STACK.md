@@ -41,13 +41,14 @@ The `chimera` package (**v0.6.1**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (1197 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (1230 tests) |
 | **ruff** | `>=0.17.1,<0.18` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`); one minor, the same as the pre-commit hook, so a new ruff can't break CI unannounced |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent |
+| **numpy** / **scipy** / **scikit-image** | `>=1.26` / `>=1.11` / `>=0.22` | optional `[print]` | 3D printing: `render --mode finish --solid` (`brandkit/solidify.py`: voxel closing, FFT Poisson, marching cubes) and the STL print check (`brandkit/printcheck.py`, numpy + scipy); without them `--solid` asks for the extra and the check is skipped with a note |
 | **av** (PyAV) | `>=12` | optional `[video]` | foley fps/duration auto-probe (`generate._probe_video`) for clips without a Chimera sidecar (Chimera renders carry exact timing in theirs) — degrades to explicit `--fps/--duration` if absent |
 
-`pip install -e ".[dev]"` for the full tooling; `[images]`/`[video]` are opt-in host-side helpers.
+`pip install -e ".[dev]"` for the full tooling; `[images]`/`[video]`/`[print]` are opt-in host-side helpers.
 
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
@@ -137,8 +138,9 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (1197 tests, all run locally and on the Linux leg, which installs the `[images]` extra; 1189 on Windows,
-which stays on `[dev]` so the 8 Pillow-gated tests skip there and the no-Pillow paths are proven;
+py3.12 (1230 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
+1204 on Windows, which stays on `[dev]`, so the 8 Pillow-gated and 18 print-gated tests skip there and the no-Pillow
+paths are proven; `[print]` would bring Pillow along through scikit-image;
 `--cov-fail-under=85`). Python 3.13 and 3.14 also run on Linux but aren't required. CI runs weekly too (Mondays
 06:00 UTC), so an upstream release that breaks the suite shows up in a week with no commits. Codecov is **not**
 required; [`codecov.yml`](../codecov.yml) makes the patch status informational. **Dependabot** watches `pip`,

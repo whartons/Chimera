@@ -6,6 +6,33 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`render --mode finish --solid`: AI meshes become printable solids.** TRELLIS.2 and Pixal3D output a
+  paper-thin, double-sided sheet with layers stacked inside (a shirt over the body), and `--watertight`
+  sealed it into a hollow shell. `--solid` (needs `--scale-mm`) has Blender write the mesh as a raw STL in mm
+  at the print size (new template `mesh_raw_mm.py`: seams welded, small holes capped), rebuilds it on the
+  host as one solid (`scripts/brandkit/solidify.py`: closes leaks, picking the closing radius from the jump
+  in solid volume when the body cavity seals; keeps only the outer skin; FFT Poisson reconstruction from its
+  normals), then finishes it (largest piece kept, decimation pinches repaired). Tested on the 5090 box (CPU
+  only, about 3 minutes for a 230 mm figure): a fresh TRELLIS.2 trophy went from HOLLOW, 44 cm³ in 30 pieces
+  with 6,478 open edges, to one 481 cm³ solid; two leaky trophies picked 1.6 and 2.0 mm, as found by hand.
+- **STL print check.** Every STL that `--mode finish` writes is checked: size in mm, closed and manifold,
+  separate pieces, volume, and SOLID vs HOLLOW (rays through the model, `scripts/brandkit/printcheck.py`).
+  The report prints in the console and goes into the sidecar (`print_check`); a HOLLOW result points to
+  `--solid`.
+- **`[print]` extra** (numpy, scipy, scikit-image) for both; `chimera doctor` reports whether it's installed. CI installs it on the Linux legs; Windows stays on
+  `[dev]`, since scikit-image pulls in Pillow and the Windows leg is the one that proves the no-Pillow paths.
+
+### Fixed
+- **`--scale-mm` STLs loaded 1000× too small in slicers.** STL has no units and slicers read millimetres,
+  but Blender's units are metres, so `--scale-mm 60` came out as 0.06 mm. STL is now written in mm: a GLB/FBX
+  or any `--scale-mm` model goes out ×1000, and an unscaled STL/OBJ input (a FreeCAD part, already mm) keeps its
+  numbers. GLB stays in metres, as glTF specifies.
+- **A `--scale-mm` model floated above the floor in the hero render.** Scaling about the origin left a
+  TRELLIS.2 GLB 0.39 m up (a dimmer render) and a mm-scale mesh 114 m up (a near-black one), away from the
+  floor and the light rig. The model is now centred on the floor after scaling, so the STL also starts at
+  z = 0.
+
 ## [0.6.1] - 2026-10-16
 
 The upkeep release: a weekly / monthly / quarterly maintenance routine, then its first update window (Blender

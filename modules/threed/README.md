@@ -9,9 +9,9 @@ Takes a single input image and produces a 3D mesh exported as a `.glb` file. Thr
 
 | `--model` | Output | Time (RTX 5090) | Pick it for |
 |-----------|--------|-----------------|-------------|
-| **`trellis2`** *(default)* | **textured** mesh (PBR: base color, metallic-roughness, normal, AO), background cut out | ~90–135 s | most assets; best likeness in the 2026-10 review |
+| **`trellis2`** *(default)* | **textured** mesh (PBR: base color, metallic-roughness, normal, AO), background cut out | ~90–135 s | most assets; best likeness in the 2026-10 review; prints via `render --mode finish --solid` |
 | `pixal3d` | textured, like TRELLIS.2, and matched to the photo's camera (MoGe FOV) | ~100–115 s | reconstructing an object as photographed |
-| `hunyuan21` | **shape only** (grey), ~1.1 M tris | ~25–35 s | fast drafts, 3D printing, or coloring it yourself with the Blender bakes |
+| `hunyuan21` | **shape only** (grey), ~1.1 M tris | ~25–35 s | fast drafts, 3D printing (already solid: `--watertight` is enough), or coloring it yourself with the Blender bakes |
 
 A model file name works too, and a brand can pin one with `threed.model`.
 
@@ -52,7 +52,9 @@ python scripts/generate.py 3d \
   dependency-free glTF→STL/OBJ writer). STL and OBJ carry geometry only; the GLB keeps TRELLIS.2 and
   Pixal3D's PBR textures, and it stays beside a converted STL/OBJ. Use `glb` for viewing/sharing, `stl` for
   3D printing, `obj` for CAD/Blender. Conversion reads one-part GLBs (ComfyUI's output); for a GLB in
-  several parts use `generate.py render --mode finish --formats stl`. (STL/OBJ of a dense mesh are large —
+  several parts use `generate.py render --mode finish --formats stl`. The converted STL keeps the model's
+  own units (about one unit tall, so a slicer reads ~1 mm) and a TRELLIS.2 / Pixal3D mesh is a hollow
+  sheet: **to print, use `render --mode finish --solid --scale-mm <size>`** (see below). (STL/OBJ of a dense mesh are large —
   generate them on demand rather than committing them.)
 - There is **no `--subject`** — this modality is image-conditioned, not
   text-conditioned. The geometry is driven entirely by the input image.
@@ -181,8 +183,39 @@ than 32 GB).
 
 ## Preparing a mesh for 3D printing / casting (field-tested)
 
-Turning a generated mesh into a physical object (3D print or cast) is easier when you treat it
-as **one watertight solid**, not an assembly:
+**TRELLIS.2 and Pixal3D don't output solids.** Each mesh is a paper-thin, double-sided *sheet* (an
+outer and an inner surface ~0.6 mm apart at 230 mm), with layers stacked inside it (a shirt over the
+body), so the body is an empty cavity. A voxel remesh (`--watertight`) seals that into a **hollow
+shell**; a slicer prints thin walls around nothing. Hunyuan3D 2.1 is solid by construction (an SDF),
+but softer, and it keeps a ground plate when the image shows a floor shadow.
+
+```bash
+pip install -e ".[print]"      # numpy + scipy + scikit-image
+chimera render --mode finish --from trophy.glb --solid --scale-mm 228.6 --formats stl,glb
+```
+
+`--solid` (`scripts/brandkit/solidify.py`):
+1. **Find the outside.** Voxelize every triangle (0.3 mm at 230 mm; coarser for bigger prints), close
+   gaps by a radius *r*, flood-fill everything the outside can't reach. A leak into the body cavity has
+   no open edges (TRELLIS closes thin parts), but it leaves the solid hollow, so sealing it shows up as a
+   jump in volume. *r* is the radius right after the last big jump (1.6 mm on one trophy, 2.0 mm on two
+   leaky ones); bigger radii only web concave gaps shut.
+2. **Keep only the outer skin.** Triangles whose front lies outside that solid; the sheet's inner side
+   and the buried layers go.
+3. **Rebuild one surface.** The skin's normals (smoothly interpolated, creases kept) drive an FFT
+   Poisson solve for an inside/outside field; marching cubes and light smoothing give the final solid.
+   Every per-voxel inside/outside rule tried instead left visible artefacts (contour rings, specks,
+   serrated seams).
+
+Then the finish keeps the largest piece, repairs decimation pinches and writes STL in mm. Every STL
+`--mode finish` writes is print-checked (size in mm, closed, pieces, volume, SOLID vs HOLLOW). Measured
+on the 5090 box (CPU only): about 3 minutes and a few GB of RAM for a 230 mm figure; a fresh TRELLIS.2
+model of a 200 mm trophy went from HOLLOW (44 cm³ in 30 pieces) to one 481 cm³ SOLID. **Judge the
+result** with a low, raking light at full size: a shrunken overview hides surface defects. The source
+image matters too: a plain background, as in a product shot. A busy scene (a castle behind the
+character) can come back as a plate behind the figure, which no clean-up removes.
+
+Treat the object as **one watertight solid**, not an assembly:
 
 - **Prefer a single fused solid over a kit-of-parts.** When converting a logo, emblem, or
   figure into a physical object, model/mesh the *whole thing* as one solid. A multi-part "kit"
@@ -194,9 +227,10 @@ as **one watertight solid**, not an assembly:
   **separate by loose parts**, and **drop near-planar fragments** (thinnest dimension < ~2% of
   the longest). The Blender `mesh_finish` path (`generate.py render ... --mode finish`) does the
   weld / voxel-remesh / decimate / scale pass and exports a clean STL + GLB.
-- **Watertight + real wall thickness.** Slicers need a manifold, watertight solid; surface-net
-  output can have thin or open shells — thicken/voxel-remesh as needed.
-- **Formats:** `--format stl` for printing; for parametric, dimensioned parts author them in
+- **Watertight + real wall thickness.** Slicers need a manifold, watertight solid: `--solid` for
+  TRELLIS.2 / Pixal3D sheets, `--watertight` for meshes that are already solid (Hunyuan3D 2.1).
+- **Formats:** `render --mode finish --scale-mm <size> --formats stl` for printing (STL in mm); for
+  parametric, dimensioned parts author them in
   FreeCAD instead (`generate.py cad` → STEP/STL) where wall thickness and fit are exact.
 
 ## VRAM
@@ -231,8 +265,9 @@ In the 2026-10 review (three photos, same seeds), TRELLIS.2 and Pixal3D both bea
 - they cut the subject out of a cluttered photo, where Hunyuan3D rebuilt the desk and monitor with it;
 - TRELLIS.2 was the most faithful on two of three, and Pixal3D was cleaner on the third.
 
-**Hunyuan3D still wins on speed** (about 4×), and its dense shape-only mesh is a good start for **3D
-printing**: `--format stl` plus the `mesh_finish` path above. The Blender color bakes (`--texture`,
+**Hunyuan3D still wins on speed** (about 4×), and its dense shape-only mesh is already solid, a good
+start for **3D printing** with `--watertight`. TRELLIS.2 gives the most faithful shapes but prints only
+through `--solid` (see *Preparing a mesh for 3D printing* above). The Blender color bakes (`--texture`,
 `--finalize`, `finalize-texture`) also target it.
 
 **TRELLIS.2 GLBs are big:** about 60–77 MB (700k faces plus PNG PBR textures). To share or commit one,

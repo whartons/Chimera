@@ -53,6 +53,7 @@ with a Z-Image or FLUX.2 file for its concept image (or `--from-image`). See
 ```bash
 git clone https://github.com/whartons/Chimera && cd Chimera
 pip install -e ".[dev]"     # the `chimera` CLI + test/lint tooling (python scripts/generate.py also works)
+pip install -e ".[print]"   # optional: 3D printing (`render --mode finish --solid` + the STL print check)
 chimera doctor              # preflight: ComfyUI reachable? node types + each modality's default models? GPU memory?
 chimera free                # clear GPU memory: unload Ollama's models, then ComfyUI's
 ```
@@ -84,7 +85,7 @@ chimera audio --brand <brand> --mode foley --from-video clip.mp4 --subject "tire
 
 ```bash
 chimera render --from rover.glb --turntable                  # Blender Cycles hero PNG + 360° MP4
-chimera render --from rover.glb --mode finish --watertight   # clean → print-ready STL/GLB figurine
+chimera render --from trophy.glb --mode finish --solid --scale-mm 228.6   # AI mesh → one solid, print-ready STL in mm
 chimera cad --shape tube --radius 12 --inner-radius 8 --height 30 --formats step,stl   # parametric CAD solid
 chimera cad --mode script --script mug.py --formats step,stl  # generative CAD: run an agent-authored FreeCAD script
 chimera finalize-texture --from winner.glb --auto-repaint --concept concept.png --subject "an armored rover" --comfy-output-dir <dir>
@@ -116,7 +117,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream, security advisories and outdated host apps; monthly and quarterly checklists | [MAINTENANCE.md](docs/MAINTENANCE.md) · [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **1197 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **1230 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -127,7 +128,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | [`video`](modules/video/) | Wan 2.2 image-to-video (default) + Fun Camera moves (`--camera`) · LTX-2.3 with native synced audio (`--model ltx23`) | ✅ |
 | [`audio`](modules/audio/) | Stable Audio 3 (music + sound effects) · ACE-Step (`--model acestep`, sings `--lyrics`) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | TRELLIS.2 (default, textured PBR) · Pixal3D · Hunyuan3D 2.1 (shape only) — image → mesh (GLB / STL / OBJ) | ✅ |
-| [`blender`](modules/blender/) | MCP bridge (live GUI); `generate.py render` (headless mesh render, ComfyUI→scene, finish/figurine); `finalize-texture` (all-around bake) | ✅ |
+| [`blender`](modules/blender/) | MCP bridge (live GUI); `generate.py render` (headless mesh render, ComfyUI→scene, finish/figurine, `--solid` printable STL); `finalize-texture` (all-around bake) | ✅ |
 | [`cad`](modules/cad/) | MCP bridge (live GUI); `generate.py cad` (parametric primitives, CAD/mesh convert, agent-authored scripts) → STEP/STL/OBJ | ✅ |
 
 ## 🔭 How it works
