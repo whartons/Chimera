@@ -153,7 +153,7 @@ class LLMClient:
         self.timeout = timeout
         effort = (reasoning_effort or os.environ.get("CHIMERA_LLM_REASONING_EFFORT") or "").strip().lower()
         self.reasoning_effort = effort or None
-        self._ollama = None   # is base_url a local Ollama? probed once, by release()
+        self._ollama = None   # is base_url a local Ollama? probed until it says yes (_ollama_root)
         if not self.base_url:
             raise LLMConfigError(
                 "set CHIMERA_LLM_BASE_URL (e.g. https://api.openai.com/v1, https://api.anthropic.com/v1, "
@@ -232,12 +232,15 @@ class LLMClient:
         return content
 
     def _ollama_root(self, _opener):
-        """The Ollama root when base_url is an Ollama server, else None. A remote endpoint is probed once; a
-        local one until it answers, since one failed probe (Ollama restarting or starting late) used to turn
-        the GPU checks off for the whole run."""
+        """The Ollama root when base_url is a LOCAL Ollama server (only those share this GPU), else None. Probed
+        until it answers, since one failed probe (Ollama restarting or starting late) used to turn the GPU checks
+        off for the whole run. Raises gpu.ProbeError when it can't tell: a local server that took the connection
+        but didn't answer is maybe an Ollama holding memory, where a refused connection is one that isn't running."""
+        if not gpu.is_local(self.base_url):
+            return None
         root = gpu.ollama_root(self.base_url)
-        if self._ollama is None or (self._ollama is False and gpu.is_local(self.base_url)):
-            self._ollama = gpu.is_ollama(root, _opener=_opener)
+        if not self._ollama:
+            self._ollama = gpu.is_ollama(root, _opener=_opener, strict=True)
         return root if self._ollama else None
 
     def _ollama_name(self):
@@ -252,16 +255,22 @@ class LLMClient:
         """Before a request that will load this model into a LOCAL Ollama, pass its memory need to make_room
         (set by the agent loops), so ComfyUI hands the GPU over first. No-op when unset, for hosted or remote
         endpoints, or when the model is already resident. Raises LLMError when the room never came: Ollama
-        would load onto the full card regardless (it can't see ComfyUI's memory), and that froze a PC."""
+        would load onto the full card regardless (it can't see ComfyUI's memory), and that froze a PC. Also when
+        a local Ollama doesn't answer (a timeout, not a refused connection): what it holds is unknown, and a
+        timed-out probe used to read as "not running" or "nothing loaded" (2026-10-25 review)."""
         if self.make_room is None or not gpu.is_local(self.base_url):
             return
-        root = self._ollama_root(_opener)
-        if root is None:
-            return
-        loaded = gpu.loaded_models(root, _opener=_opener)
-        if any(gpu.same_model(n, self._ollama_name()) for n, _ in loaded):
-            return
-        need = gpu.vram_need_range(root, self._ollama_name(), _opener=_opener)
+        try:
+            root = self._ollama_root(_opener)
+            if root is None:
+                return   # not Ollama, or not running: the request fails without loading anything
+            loaded = gpu.loaded_models(root, _opener=_opener, strict=True)
+            if any(gpu.same_model(n, self._ollama_name()) for n, _ in loaded):
+                return
+            need = gpu.vram_need_range(root, self._ollama_name(), _opener=_opener, strict=True)
+        except gpu.ProbeError as e:
+            raise LLMError(f"not loading {self.model}: {e}, so the GPU check can't tell what Ollama holds. Retry once "
+                           "it answers (restart Ollama if it's stuck).") from None
         if not need:
             return   # Ollama doesn't have the model, so the request fails without loading anything
         floor, full = need
@@ -291,19 +300,27 @@ class LLMClient:
                   "environment variables, say), so the check sizes models right", file=sys.stderr)
 
     def resident(self, _opener=urllib.request.urlopen) -> bool:
-        """True when this client's model is loaded in a local Ollama."""
-        root = self._ollama_root(_opener) if gpu.is_local(self.base_url) else None
-        return root is not None and gpu.is_resident(root, self._ollama_name(), _opener=_opener)
+        """True when this client's model is loaded in a local Ollama, or may be: one that doesn't answer (a
+        timeout, not a refused connection) can't say it let go, so the loops don't render beside it."""
+        try:
+            root = self._ollama_root(_opener)
+            return root is not None and gpu.is_resident(root, self._ollama_name(), _opener=_opener, strict=True)
+        except gpu.ProbeError:
+            return True
 
     def release(self, _opener=urllib.request.urlopen) -> bool:
         """Hand the GPU back: if base_url is a local Ollama and this client's model is resident, unload
         it now (keep_alive 0) instead of letting it sit for Ollama's ~5-minute keep-alive, and wait until
         Ollama no longer lists it. The loops call this before each ComfyUI render. Only a RESIDENT model is
-        unloaded (Ollama may load a missing one to unload it). No-op for hosted APIs or with
-        CHIMERA_KEEP_LLM_LOADED=1; never raises. True when it unloaded the model."""
+        unloaded (Ollama may load a missing one to unload it). No-op for hosted and remote endpoints (another
+        machine's Ollama doesn't share this GPU) or with CHIMERA_KEEP_LLM_LOADED=1; never raises. True when it
+        unloaded the model."""
         if gpu.keep_llms_loaded():
             return False
-        root = self._ollama_root(_opener)
+        try:
+            root = self._ollama_root(_opener)
+        except gpu.ProbeError:
+            return False   # can't tell; resident() then says it may be loaded, and the render waits
         if root is None or not gpu.is_resident(root, self._ollama_name(), _opener=_opener):
             return False
         return gpu.unload(root, self._ollama_name(), wait=_UNLOAD_WAIT, _opener=_opener)

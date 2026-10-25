@@ -116,8 +116,9 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
             client.release()
             if not gpu.keep_llms_loaded() and getattr(client, "resident", None) is not None and client.resident():
                 # an LLMError, like the GPU's "no room": the script didn't fail, so code-gen isn't told it did
-                raise LLMError(f"the code-gen model {client.model} is still loaded in Ollama, so not rendering "
-                               "beside it; `python scripts/generate.py free` unloads it")
+                raise LLMError(f"the code-gen model {client.model} is still loaded in Ollama (or Ollama isn't "
+                               "answering to say), so not rendering beside it; `python scripts/generate.py free` "
+                               "unloads it")
         state["stage"] = "script"   # from here to the STL, a failure is the script's (pre-filter, FreeCAD, outputs)
         try:
             _assert_safe(script)   # the loop execs LLM-authored scripts — reject obvious escapes

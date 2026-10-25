@@ -9,6 +9,16 @@ from scripts.agent.llm import LLMClient
 _real_smi = gpu._nvidia_smi_gb   # captured at import, before the autouse fixture swaps it out
 
 
+def _refused():
+    """What urllib raises when nothing listens at the address: the app isn't running."""
+    return urllib.error.URLError(ConnectionRefusedError(10061, "connection refused"))
+
+
+def _timed_out():
+    """What urllib raises when an app took the connection but didn't answer in time (busy, or wedged)."""
+    return urllib.error.URLError(TimeoutError("timed out"))
+
+
 class _Resp:
     def __init__(self, payload):
         self._b = b"" if payload is None else json.dumps(payload).encode()
@@ -32,7 +42,7 @@ def _server(routes, log):
         body = json.loads(req.data) if getattr(req, "data", None) else None
         log.append((method, path, body))
         if (method, path) not in routes:
-            raise urllib.error.URLError("connection refused")
+            raise _refused()
         return _Resp(routes[(method, path)])
     return open_
 
@@ -68,7 +78,7 @@ def test_loaded_models_parses_ps_and_tolerates_a_stopped_ollama():
 
 def test_unload_all_unloads_each_resident_model_with_keep_alive_zero():
     log = []
-    done = gpu.unload_all("http://o", _opener=_server(_OLLAMA, log))
+    done = gpu.unload_all("http://o", _opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], log))
     assert [n for n, _ in done] == ["qwen3-vl:8b-instruct", "qwen3.6-27b"]
     posts = [b for m, p, b in log if m == "POST"]
     assert posts == [{"model": "qwen3-vl:8b-instruct", "keep_alive": 0},
@@ -93,14 +103,14 @@ def _ollama(models, log, forgets=True):
             if forgets:
                 ps[:] = [m for m in ps if m["name"] != body["model"]]
             return _Resp({})
-        raise urllib.error.URLError("connection refused")
+        raise _refused()
     return open_
 
 
 def test_release_unloads_only_its_own_resident_model_on_ollama(monkeypatch):
     monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
     log = []
-    c = LLMClient(base_url="http://o/v1", model="qwen3-vl:8b-instruct")
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
     assert c.release(_opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], log)) is True
     assert [b for m, p, b in log if m == "POST"] == [{"model": "qwen3-vl:8b-instruct", "keep_alive": 0}]
     assert log[-1][1] == "/api/ps"             # and it checked that the model really left
@@ -120,25 +130,26 @@ def test_release_never_loads_a_model_that_is_not_resident(monkeypatch):
     # Ollama's keep_alive-0 call can load a missing model first; only unload what /api/ps lists.
     monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
     log = []
-    c = LLMClient(base_url="http://o/v1", model="some-other-model")
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="some-other-model")
     assert c.release(_opener=_server(_OLLAMA, log)) is False
-    assert not [1 for m, p, b in log if m == "POST"]
+    assert log and not [1 for m, p, b in log if m == "POST"]
 
 
-def test_release_is_a_noop_for_non_ollama_endpoints_and_caches_detection(monkeypatch):
+def test_release_never_probes_a_hosted_endpoint(monkeypatch):
+    # only a local Ollama shares this GPU: a hosted or remote endpoint isn't even asked (it used to be probed once)
     monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
     log = []
     c = LLMClient(base_url="https://api.example.com/v1", model="m")
-    opener = _server({}, log)                     # no /api/version -> not Ollama
+    opener = _server(_OLLAMA, log)
     assert c.release(_opener=opener) is False
     assert c.release(_opener=opener) is False
-    assert [p for m, p, b in log] == ["/api/version"]   # probed once, then cached
+    assert log == []
 
 
 def test_release_respects_the_keep_loaded_opt_out(monkeypatch):
     monkeypatch.setenv("CHIMERA_KEEP_LLM_LOADED", "1")
     log = []
-    c = LLMClient(base_url="http://o/v1", model="qwen3-vl:8b-instruct")
+    c = LLMClient(base_url="http://127.0.0.1:11434/v1", model="qwen3-vl:8b-instruct")
     assert c.release(_opener=_server(_OLLAMA, log)) is False
     assert log == []
 
@@ -149,12 +160,12 @@ class _Comfy:
 
     def system_stats(self):
         if not self.up:
-            raise urllib.error.URLError("refused")
+            raise _refused()
         return {"devices": [{"vram_free": 4 * 2**30, "vram_total": 32 * 2**30}]}
 
     def free(self):
         if not self.up:
-            raise urllib.error.URLError("refused")
+            raise _refused()
         self.log.append(("COMFY", "/free", None))
 
 
@@ -162,7 +173,7 @@ def test_free_all_unloads_ollama_before_asking_comfyui_to_free():
     # 2026-10-14: ComfyUI 0.40 ran out of CUDA memory INSIDE its own /free while Ollama held ~26 GB,
     # and hung. Ollama must let go first.
     log = []
-    report = gpu.free_all(_Comfy(log), "http://o", _opener=_server(_OLLAMA, log))
+    report = gpu.free_all(_Comfy(log), "http://o", _opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], log))
     order = [p for m, p, b in log if p in ("/api/generate", "/free")]
     assert order == ["/api/generate", "/api/generate", "/free"]
     assert report["comfy"] == "freed" and [n for n, _ in report["ollama"]] == ["qwen3-vl:8b-instruct", "qwen3.6-27b"]
@@ -231,19 +242,21 @@ def test_free_subcommand_runs_free_all_with_the_given_urls(monkeypatch, capsys):
 
 # --- the reverse hand-off: ComfyUI makes room before a local Ollama model loads (2026-10-15) --------
 class _Card:
-    """A ComfyUI that holds most of the card until /free, then gives it back after a poll or two."""
+    """A ComfyUI that holds most of the card until /free, then gives it back after a poll or two (its own
+    reservation, torch_vram_total, drops to 0.5 GB once it has let go)."""
     def __init__(self, free_gb, after_free_gb, polls_to_free=1, up=True):
         self.free_gb, self.after, self.polls, self.up, self.freed = free_gb, after_free_gb, polls_to_free, up, 0
 
     def system_stats(self):
         if not self.up:
-            raise urllib.error.URLError("refused")
+            raise _refused()
         if self.freed and self.polls <= 0:
             self.free_gb = self.after
         elif self.freed:
             self.polls -= 1
+        held = 0.5 if self.freed and self.polls <= 0 else 4
         return {"devices": [{"type": "cuda", "vram_total": 32 * 2**30, "vram_free": (self.free_gb + 0.5) * 2**30,
-                             "torch_vram_free": 0.5 * 2**30}]}
+                             "torch_vram_free": 0.5 * 2**30, "torch_vram_total": held * 2**30}]}
 
     def free(self):
         self.freed += 1
@@ -728,3 +741,117 @@ def test_per_layer_head_counts_without_kv_heads_or_key_length(monkeypatch):
     show = {"model_info": {"general.architecture": "x", "x.block_count": 2, "x.attention.head_count": [8, 8],
                            "x.embedding_length": 1024, "x.context_length": 4096}}
     assert gpu._kv_cache_bytes(show) == int(16 * 256 * 4096 * 0.5625)
+
+
+# --- 2026-10-25 review: an app that doesn't answer is not an app that holds nothing ----------------------------
+import pytest  # noqa: E402
+from scripts.agent.llm import LLMError  # noqa: E402
+
+_LOCAL = "http://127.0.0.1:11434/v1"
+
+
+def _failing(fail, how=_timed_out, models=(), log=None):
+    """A fake local Ollama that answers every API but raises how() on the paths in `fail`."""
+    def open_(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else req
+        method = req.get_method() if hasattr(req, "get_method") else "GET"
+        path = "/" + url.split("://", 1)[1].split("/", 1)[1]
+        if log is not None:
+            log.append((method, path, None))
+        if path in fail:
+            raise how()
+        routes = {"/api/version": {"version": "0.40.5"}, "/api/ps": {"models": list(models)},
+                  "/api/tags": {"models": [{"name": "judge:8b", "size": 6 * 2**30}]}, "/api/generate": {},
+                  "/v1/chat/completions": {"choices": [{"message": {"content": "ok"}}]}}
+        if path not in routes:
+            raise _refused()
+        return _Resp(routes[path])
+    return open_
+
+
+@pytest.mark.parametrize("path", ["/api/version", "/api/ps", "/api/tags"])
+@pytest.mark.parametrize("how", [_timed_out, lambda: TimeoutError("timed out"),
+                                 lambda: ConnectionResetError(10054, "connection reset")])
+def test_a_local_ollama_that_does_not_answer_is_not_read_as_room(path, how):
+    # a probe that timed out read as "Ollama isn't running" or "nothing loaded", and the model loaded unchecked
+    log = []
+    c = LLMClient(base_url=_LOCAL, model="judge:8b")
+    c.make_room = lambda need, floor=None: True
+    with pytest.raises(LLMError, match="didn't answer"):
+        c.chat([{"role": "user", "content": "x"}], _opener=_failing({path}, how, log=log))
+    assert "/v1/chat/completions" not in [p for m, p, b in log]
+
+
+def test_a_local_ollama_that_does_not_answer_may_still_hold_its_model():
+    # resident() read a timed-out /api/ps as "not loaded", so the loops rendered beside it
+    assert LLMClient(base_url=_LOCAL, model="judge:8b").resident(_opener=_failing({"/api/ps"})) is True
+    assert LLMClient(base_url=_LOCAL, model="judge:8b").resident(_opener=_failing({"/api/version"})) is True
+    assert LLMClient(base_url=_LOCAL, model="judge:8b").resident(_opener=_failing({"/api/ps"}, _refused)) is False
+    assert LLMClient(base_url=_LOCAL, model="judge:8b").release(_opener=_failing({"/api/version"})) is False
+
+
+def test_unload_does_not_read_a_timed_out_ps_as_gone():
+    now, sleep = _clock()
+    assert gpu.unload("http://o", "judge:8b", wait=10, _opener=_failing({"/api/ps"}), _sleep=sleep, _clock=now) is False
+    assert gpu.unload("http://o", "judge:8b", wait=10, _opener=_failing({"/api/ps"}, _refused), _sleep=sleep,
+                      _clock=now) is True                       # Ollama stopped: its memory is free
+
+
+@pytest.mark.parametrize("err", [_timed_out, lambda: TimeoutError("timed out"),
+                                 lambda: ConnectionResetError(10054, "reset")])
+def test_make_room_refuses_when_comfyui_does_not_answer_at_all(err, capsys):
+    # a wedged ComfyUI (its first /system_stats timed out) read as "not running", and the model loaded beside it
+    now, sleep = _clock()
+    card = _Card(0.1, 29)
+    card.system_stats = lambda: (_ for _ in ()).throw(err())
+    assert gpu.make_room(card, 9 * 2**30, wait=5, _sleep=sleep, _clock=now) is False
+    assert "didn't answer" in capsys.readouterr().err
+    assert gpu.make_room(_Card(0.1, 29, up=False), 9 * 2**30, _sleep=sleep, _clock=now) is None   # not running
+
+
+def test_a_model_bigger_than_the_card_waits_for_comfyui_to_empty():
+    # capped at the card minus 3 GB, 29.5 GB free "fit" while ComfyUI still held 2 GB that Ollama can't see
+    now, sleep = _clock()
+
+    class _Keeps(_Card):
+        def system_stats(self):
+            s = super().system_stats()
+            s["devices"][0]["torch_vram_total"] = 2 * 2**30
+            return s
+    card = _Keeps(free_gb=20, after_free_gb=29.5)
+    assert gpu.make_room(card, 35 * 2**30, wait=5, _sleep=sleep, _clock=now) is False and card.freed == 1
+    assert gpu.make_room(_Card(free_gb=20, after_free_gb=29.5), 35 * 2**30, _sleep=sleep, _clock=now) is True
+
+
+def test_release_leaves_a_remote_ollama_alone():
+    # the docs say remote endpoints are untouched, but release() unloaded a LAN Ollama's model
+    log = []
+    c = LLMClient(base_url="http://192.168.1.50:11434/v1", model="qwen3-vl:8b-instruct")
+    assert c.release(_opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], log)) is False
+    assert log == []
+
+
+def test_free_all_asks_comfyui_to_free_only_after_ollama_has_let_go():
+    # /free ran straight after keep_alive 0, while Ollama's runner still held the memory: the order free_all exists
+    # to avoid (ComfyUI 0.40 can run out of memory inside /free)
+    log, ps, linger = [], [dict(m) for m in _OLLAMA[("GET", "/api/ps")]["models"]], {}
+
+    def open_(req, timeout=None):
+        path = "/" + req.full_url.split("://", 1)[1].split("/", 1)[1]
+        body = json.loads(req.data) if req.data else None
+        if path == "/api/version":
+            return _Resp({"version": "0.40.5"})
+        if path == "/api/generate":
+            linger[body["model"]] = 1                     # listed for one more poll after keep_alive 0
+            return _Resp({})
+        for name in [n for n, left in linger.items() if left <= 0]:
+            ps[:] = [m for m in ps if m["name"] != name]
+        linger.update({n: left - 1 for n, left in linger.items()})
+        log.append(("ps", len(ps)))
+        return _Resp({"models": list(ps)})
+
+    class _C:
+        def free(self):
+            log.append(("free", None))
+    gpu.free_all(_C(), "http://127.0.0.1:11434", _opener=open_)
+    assert log[-1] == ("free", None) and log[-2] == ("ps", 0)
