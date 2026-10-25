@@ -31,3 +31,22 @@ def test_build_config_has_paths_and_base_model(tmp_path):
     assert cfg["dataset_dir"] == "brands/B/training"
     assert cfg["output_dir"] == "brands/B/lora"
     assert cfg["base_model"] == m.defaults.model
+
+
+def test_scan_dataset_reads_a_caption_saved_in_the_windows_code_page(tmp_path):
+    # a caption saved as "ANSI" by Notepad (cp1252) raised an uncaught UnicodeDecodeError
+    b = _brand(tmp_path, with_caption=False)
+    (b / "training" / "a.txt").write_bytes("a café sign".encode("cp1252"))
+    assert scan_dataset(b / "training")[0][1] == "a café sign"
+
+
+def test_scan_dataset_reads_a_utf8_caption_with_a_bom(tmp_path):
+    b = _brand(tmp_path, with_caption=False)
+    (b / "training" / "a.txt").write_text("a café sign", encoding="utf-8-sig")
+    assert scan_dataset(b / "training")[0][1] == "a café sign"
+
+
+def test_scan_dataset_never_fails_on_a_caption_it_cannot_decode(tmp_path):
+    b = _brand(tmp_path, with_caption=False)
+    (b / "training" / "a.txt").write_bytes(b"a \x81\x8d sign")   # bytes cp1252 leaves undefined
+    assert scan_dataset(b / "training")[0][1].startswith("a ")
