@@ -358,7 +358,7 @@ def _ring_camera(scn, centre, radius, az_deg, el_deg):
     cam_d = bpy.data.cameras.new("RingCam")
     cam = bpy.data.objects.new("RingCam", cam_d)
     scn.collection.objects.link(cam)
-    # clip to the object: the default 0.1 near plane cut the near side off a 0.03 m mesh's depth maps (2026-10-25)
+    # clip to the object: the default 0.1 near plane cut the near side off a 40 mm ball's depth map (2026-10-25)
     cam_d.clip_start, cam_d.clip_end = G.clip_range(radius)
     cam.location = centre + offset * (radius * 3.0)
     view_dir = (centre - cam.location).normalized()

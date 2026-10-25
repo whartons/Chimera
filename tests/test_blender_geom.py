@@ -32,7 +32,7 @@ def test_a_freecad_obj_imports_z_up_and_any_other_obj_keeps_the_default():
     assert _calls_in("_common.py", "import_mesh", "obj_import_axes")
 
 
-# --- the ring cameras' clip range follows the object (a 0.03 m mesh lost its near side to the 0.1 m default) ---
+# --- the ring cameras' clip range follows the object (a 40 mm ball lost its near side to the 0.1 m default) ---
 
 @pytest.mark.parametrize("radius", [0.02, 0.05, 1.0, 400.0])
 def test_the_clip_range_holds_a_ring_camera_view_of_any_size(radius):

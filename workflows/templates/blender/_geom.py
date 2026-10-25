@@ -16,7 +16,7 @@ def obj_import_axes(head: str) -> dict:
 
 def clip_range(radius):
     """Camera (clip_start, clip_end) for an object of bounding `radius`: Blender's fixed 0.1-1000 cut the near side
-    off a ring-camera view of a 0.03 m mesh and the floor off behind a mm-scale CAD part."""
+    off a ring-camera view of a 40 mm mesh in metres and the floor off behind a mm-scale CAD part."""
     r = max(float(radius), 1e-6)
     return r * 0.001, r * 1000.0
 
