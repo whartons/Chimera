@@ -6,6 +6,12 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-25
+
+The review release: a full bug and documentation sweep of v0.6.2, live-tested across every modality and both
+agent loops. The GPU hand-off fails closed, the judge is harder to fool, same-seed renders keep the earlier one,
+and `--solid` fits in about 2 GB of RAM.
+
 ### Added
 - **`--no-watermark`.** A brand with `watermark.enabled_default: true` had no way to render one image without
   the logo. Every subcommand that takes `--watermark` now takes `--no-watermark` too; with neither, the brand's
@@ -1351,7 +1357,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/whartons/Chimera/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/whartons/Chimera/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/whartons/Chimera/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/whartons/Chimera/compare/v0.5.1...v0.6.0
