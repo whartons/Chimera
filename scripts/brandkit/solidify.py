@@ -33,7 +33,7 @@ SIGMA_VOX = 0.35 / 0.3                   # normal splat width
 FRONT_VOX = 0.5 / 0.3                    # how far in front of a face to test "outside"
 PAD_VOX = 16                             # empty border (the FFT is periodic)
 LEAK_JUMP = 1.2                          # a sealed leak adds 50-470 % solid in one step; webbing gaps adds 2-9 %
-CHUNK_POINTS = 2_000_000                 # surface samples per batch
+CHUNK_POINTS = 400_000                   # surface samples per batch (~0.1 GB of per-point arrays)
 NO_VOLUME = ("no closed volume to fill: the mesh is an open surface (a flat face or a single-sided sheet), so it has "
              "no inside. --solid needs a closed surface or a double-sided sheet")
 
