@@ -34,6 +34,7 @@ SIGMA_VOX = 0.35 / 0.3                   # normal splat width
 FRONT_VOX = 0.5 / 0.3                    # how far in front of a face to test "outside"
 PAD_VOX = 16                             # empty border (the FFT is periodic)
 LEAK_JUMP = 1.2                          # a sealed leak adds 50-470 % solid in one step; webbing gaps adds 2-9 %
+CHUNK_POINTS = 2_000_000                 # surface samples per batch
 
 
 def pick_close_radius(radii, volumes):
@@ -128,26 +129,46 @@ def _splat(field, g, wn, strides):
                     field[c][at] += np.bincount(inv, weights=wn[:, c] * wt, minlength=len(base))
 
 
-def _sample(tris, step):
-    """Points on every triangle spaced <= step; their triangle ids, per-point weights (summing to 1 per
-    triangle) and barycentric coordinates."""
-    e = np.stack([np.linalg.norm(tris[:, 1] - tris[:, 0], axis=1), np.linalg.norm(tris[:, 2] - tris[:, 1], axis=1),
-                  np.linalg.norm(tris[:, 0] - tris[:, 2], axis=1)], axis=1).max(axis=1)
-    n_sub = np.clip(np.ceil(e / step).astype(int), 1, 64)
-    pts, ids, wts, bary = [], [], [], []
-    for n in np.unique(n_sub):
-        sel = np.nonzero(n_sub == n)[0]
-        t = tris[sel]
-        i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1), indexing="ij")
-        keep = (i + j) <= n
-        u, v = i[keep] / n, j[keep] / n
-        w = 1.0 - u - v
-        p = t[:, None, 0] * w[None, :, None] + t[:, None, 1] * u[None, :, None] + t[:, None, 2] * v[None, :, None]
-        pts.append(p.reshape(-1, 3))
-        ids.append(np.repeat(sel, len(u)))
-        wts.append(np.full(len(sel) * len(u), 1.0 / len(u)))
-        bary.append(np.tile(np.stack([w, u, v], axis=1), (len(sel), 1)))
-    return np.concatenate(pts), np.concatenate(ids), np.concatenate(wts), np.concatenate(bary)
+def _sample(tris, step, chunk=None):
+    """Points on every triangle, at most `step` apart along the two edges at the corner opposite its longest
+    edge, in batches of about `chunk` points: (points, triangle ids, per-point weights summing to 1 per triangle,
+    barycentric coordinates in the triangle's own corner order). The subdivision was capped at 64, so a big CAD or
+    decimated face was dotted every few voxels: a dimpled flat face and a fake leak (2026-10-25). Splitting each
+    edge on its own keeps a long thin sliver to a row of points instead of a 64^2 grid; the batches keep memory
+    flat."""
+    chunk = chunk or CHUNK_POINTS
+    o = (np.argmax(np.linalg.norm(tris[:, [1, 2, 0]] - tris, axis=2), axis=1) + 2) % 3
+    rows = np.arange(len(tris))
+    a = tris[rows, o]
+    ab, ac = tris[rows, (o + 1) % 3] - a, tris[rows, (o + 2) % 3] - a
+    nu = np.maximum(np.ceil(np.linalg.norm(ab, axis=1) / step), 1).astype(np.int64)
+    nv = np.maximum(np.ceil(np.linalg.norm(ac, axis=1) / step), 1).astype(np.int64)
+    pairs, group = np.unique(np.stack([nu, nv], axis=1), axis=0, return_inverse=True)
+    group = group.ravel()
+    order = np.argsort(group, kind="stable")
+    bounds = np.searchsorted(group[order], np.arange(len(pairs) + 1))
+    buf, size = [], 0
+    for g, (n_u, n_v) in enumerate(pairs):
+        i, j = np.meshgrid(np.arange(n_u + 1), np.arange(n_v + 1), indexing="ij")
+        keep = i * n_v + j * n_u <= n_u * n_v                 # i/n_u + j/n_v <= 1, exactly
+        u, v = i[keep] / n_u, j[keep] / n_v
+        lattice = np.stack([1.0 - u - v, u, v], axis=1)       # weights of corners o, o+1, o+2
+        sel_all = order[bounds[g]:bounds[g + 1]]
+        for s in range(0, len(sel_all), max(1, chunk // len(u))):
+            sel = sel_all[s:s + max(1, chunk // len(u))]
+            p = a[sel, None] + ab[sel, None] * u[None, :, None] + ac[sel, None] * v[None, :, None]
+            ids = np.repeat(sel, len(u))
+            bary = np.empty((len(ids), 3))
+            k = np.arange(len(ids))
+            for c in range(3):
+                bary[k, (o[ids] + c) % 3] = np.tile(lattice[:, c], len(sel))
+            buf.append((p.reshape(-1, 3), ids, np.full(len(ids), 1.0 / len(u)), bary))
+            size += len(ids)
+            if size >= chunk:
+                yield tuple(np.concatenate(x) for x in zip(*buf, strict=True))
+                buf, size = [], 0
+    if buf:
+        yield tuple(np.concatenate(x) for x in zip(*buf, strict=True))
 
 
 def solidify(tris, *, vox, close_mm=None, smooth_normals=True, crease_deg=35.0, taubin=6):
@@ -166,10 +187,10 @@ def solidify(tris, *, vox, close_mm=None, smooth_normals=True, crease_deg=35.0, 
         return np.clip(np.floor((p - lo) / vox).astype(np.int64), 0, np.array(shape) - 1)
 
     # 1. a robust solid from every triangle; pick the closing radius
-    pts, _, _, _ = _sample(tris, vox * 0.5)
-    iv = vox_of(pts)
     surf = np.zeros(shape, dtype=bool)
-    surf[iv[:, 0], iv[:, 1], iv[:, 2]] = True
+    for pts, _, _, _ in _sample(tris, vox * 0.5):
+        iv = vox_of(pts)
+        surf[iv[:, 0], iv[:, 1], iv[:, 2]] = True
     del iv, pts
     radii = [close_mm / vox] if close_mm else list(CLOSE_RADII_VOX)
     near = _sq_dist(surf, max(radii))           # squared distance to the surface: every radius's dilation
@@ -196,26 +217,35 @@ def solidify(tris, *, vox, close_mm=None, smooth_normals=True, crease_deg=35.0, 
         raise ValueError("no outer surface found (is the mesh empty or inside out?)")
 
     # 3. Poisson reconstruction from the skin's oriented samples
-    pts, pid, w, bary = _sample(skin, vox * 0.5)
+    corner = None
     if smooth_normals:
         _, vid = np.unique(np.round(skin.reshape(-1, 3) / 1e-4).astype(np.int64), axis=0, return_inverse=True)
         vid = vid.reshape(-1, 3)
+        # vertex normals weighted by each face's corner angle, not its area: at a box corner the big top face
+        # outweighed the sides, so no crease was seen and Phong normals tilted across the whole face, doming a
+        # flat CAD face 0.25 mm (2026-10-25); on an even AI mesh the two weightings agree
+        e1 = np.roll(skin, -1, axis=1) - skin
+        e2 = np.roll(skin, 1, axis=1) - skin
+        ang = np.arccos(np.clip((e1 * e2).sum(-1) / np.maximum(np.linalg.norm(e1, axis=-1)
+                                                              * np.linalg.norm(e2, axis=-1), 1e-12), -1, 1))
+        del e1, e2
         vn = np.zeros((vid.max() + 1, 3))
         for k in range(3):
-            np.add.at(vn, vid[:, k], skin_n * skin_a[:, None])
+            np.add.at(vn, vid[:, k], skin_n * ang[:, k, None])
         vn /= np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-12)
         corner = vn[vid]
         crease = (corner * skin_n[:, None, :]).sum(-1) < np.cos(np.radians(crease_deg))
         corner = np.where(crease[..., None], skin_n[:, None, :], corner)
-        nrm = (corner[pid] * bary[:, :, None]).sum(1)
-        nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
-    else:
-        nrm = skin_n[pid]
-    wn = nrm * (skin_a[pid] * w)[:, None]
     strides = np.array([shape[1] * shape[2], shape[2], 1])
     field = [np.zeros(math.prod(shape), dtype=np.float32) for _ in range(3)]
-    _splat(field, (pts - lo) / vox, wn, strides)
-    del wn
+    for pts, pid, w, bary in _sample(skin, vox * 0.5):
+        if corner is None:
+            nrm = skin_n[pid]
+        else:
+            nrm = (corner[pid] * bary[:, :, None]).sum(1)
+            nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-12)
+        _splat(field, (pts - lo) / vox, nrm * (skin_a[pid] * w)[:, None], strides)
+    del nrm
     # the Poisson solve in float32/complex64, in place where it can be: one component's spectrum at a time
     kx = (2 * np.pi * fft.fftfreq(shape[0], d=vox)).astype(np.float32)[:, None, None]
     ky = (2 * np.pi * fft.fftfreq(shape[1], d=vox)).astype(np.float32)[None, :, None]
@@ -242,8 +272,12 @@ def solidify(tris, *, vox, close_mm=None, smooth_normals=True, crease_deg=35.0, 
     del k2
     chi = fft.irfftn(div, s=shape, workers=-1, overwrite_x=True)
     del div
-    iso = float(np.average(ndimage.map_coordinates(chi, ((pts - lo) / vox).T, order=1, mode="nearest"),
-                           weights=skin_a[pid] * w))
+    at_skin = wsum = 0.0                                   # iso: chi's area-weighted mean on the skin
+    for pts, pid, w, _ in _sample(skin, vox * 0.5):
+        wt = skin_a[pid] * w
+        at_skin += float(ndimage.map_coordinates(chi, ((pts - lo) / vox).T, order=1, mode="nearest") @ wt)
+        wsum += float(wt.sum())
+    iso = at_skin / wsum
     if float(chi.ravel()[inner].mean()) < iso:             # make "inside" the high side
         np.negative(chi, out=chi)
         iso = -iso

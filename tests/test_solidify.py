@@ -82,6 +82,30 @@ def test_the_closing_radius_is_the_one_right_after_the_last_big_jump(name):
     assert S.pick_close_radius(radii, [curve[r] for r in radii]) == want
 
 
+def test_big_triangles_are_sampled_all_over():
+    # a CAD-like 100 x 100 x 10 mm slab in 12 triangles: a 64-step cap on the subdivision dotted each face every
+    # ~2 mm, so the flat top came out dimpled (0.28 mm) and the closed volume swung 96-106 cm3 by radius
+    out, info = S.solidify(box((0, 0, 0), (100, 100, 10)), vox=0.5)
+    v = out.reshape(-1, 3)
+    top = v[(v[:, 0] > 20) & (v[:, 0] < 80) & (v[:, 1] > 20) & (v[:, 1] < 80) & (v[:, 2] > 5), 2]
+    assert np.abs(top - top.mean()).max() < 0.05
+    vols = list(info["solid_cm3_by_radius"].values())
+    assert max(vols) / min(vols) < 1.02
+    assert info["close_mm"] == min(info["solid_cm3_by_radius"])
+
+
+def test_sampling_a_huge_face_comes_in_batches():
+    tris = box((0, 0, 0), (100, 100, 10))
+    batches = list(S._sample(tris, 0.25, chunk=50_000))
+    assert len(batches) > 1 and all(len(b[0]) <= 50_000 + 200_000 for b in batches)
+    pts, ids, w, bary = (np.concatenate(x) for x in zip(*batches, strict=True))
+    assert np.allclose(np.bincount(ids, weights=w), 1.0)                  # each face's weights sum to 1
+    assert np.allclose((tris[ids] * bary[:, :, None]).sum(1), pts)        # bary is in the face's own corner order
+    for f in range(len(tris)):                                            # every face sampled to the step
+        assert (ids == f).sum() >= 0.5 * (np.linalg.norm(np.cross(tris[f, 1] - tris[f, 0], tris[f, 2] - tris[f, 0]))
+                                          / 0.25 ** 2)
+
+
 # --- memory: a compact 228.6 mm print (a bust, a vase) got an 800^3 grid, ~27 GB at ~53 B a voxel (2026-10-25) ---
 
 def test_a_compact_print_gets_a_grid_under_the_cap():
