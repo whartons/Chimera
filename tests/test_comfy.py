@@ -211,3 +211,74 @@ def test_wait_gives_up_with_a_clear_error_when_comfyui_stays_down(monkeypatch):
     monkeypatch.setattr(comfy.time, "sleep", lambda s: None)
     with pytest.raises(ConnectionError, match="lost contact with ComfyUI"):
         comfy.ComfyClient().wait("abc", max_misses=3)
+
+
+# --- a prompt that vanished from ComfyUI fails instead of waiting out the timeout (2026-10-25 review) --------
+class _Clock:
+    """comfy.time stand-in: sleep() advances the clock, so a wait that never ends hits max_wait at once."""
+    def __init__(self):
+        self.now = 0.0
+
+    def time(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
+
+
+def _route(monkeypatch, history, queue):
+    """A urlopen fake answering /history/<id> and /queue from callables (one call per request)."""
+    calls = []
+
+    def fake(req, timeout=0):
+        url = req if isinstance(req, str) else req.full_url
+        calls.append(url)
+        return FakeResp(json.dumps(queue() if url.endswith("/queue") else history()).encode())
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(comfy, "time", _Clock())
+    return calls
+
+
+_DONE = {"abc": {"status": {"status_str": "success"}, "outputs": {}}}
+_EMPTY_QUEUE = {"queue_running": [], "queue_pending": []}
+
+
+def _history_after(n):
+    """/history/abc answers {} for the first n polls, then the finished record."""
+    polls = {"n": 0}
+
+    def history():
+        polls["n"] += 1
+        return _DONE if polls["n"] > n else {}
+    return history
+
+
+def test_wait_fails_when_the_prompt_is_neither_queued_nor_in_history(monkeypatch):
+    # ComfyUI restarted mid-render, or the job was cancelled from its queue: /history/<id> stays {} forever
+    calls = _route(monkeypatch, lambda: {}, lambda: _EMPTY_QUEUE)
+    with pytest.raises(RuntimeError, match="no longer queued"):
+        comfy.ComfyClient().wait("abc", max_wait=3600)
+    assert len(calls) < 20   # found out within a few polls, not after an hour
+
+
+def test_wait_keeps_waiting_while_the_prompt_is_still_queued(monkeypatch):
+    _route(monkeypatch, _history_after(30), lambda: {"queue_running": [[0, "other", {}, {}, []]],
+                                                     "queue_pending": [[1, "abc", {}, {}, []]]})
+    assert comfy.ComfyClient().wait("abc") == _DONE
+
+
+def test_wait_rereads_history_once_when_the_job_finished_between_the_two_reads(monkeypatch):
+    # /history said "not yet", then the job finished before /queue was read: the result is there on a re-read
+    _route(monkeypatch, _history_after(5), lambda: _EMPTY_QUEUE)
+    assert comfy.ComfyClient().wait("abc") == _DONE
+
+
+def _queue_down():
+    raise comfy.urllib.error.URLError("reset")
+
+
+@pytest.mark.parametrize("queue", [_queue_down, lambda: {}], ids=["read-fails", "not-comfyuis-queue"])
+def test_wait_rides_out_a_queue_read_that_tells_nothing(monkeypatch, queue):
+    # the /queue check is a hint: a failed or unrecognised read must not abort a render that is still running
+    _route(monkeypatch, _history_after(12), queue)
+    assert comfy.ComfyClient().wait("abc") == _DONE
