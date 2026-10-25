@@ -118,7 +118,8 @@ def _print_tools():
 
 def _check_stls(paths, tools):
     """Print-check every STL output (size in mm, closed, pieces, SOLID vs HOLLOW). Returns {name: report};
-    skips with a note when the [print] extra isn't installed."""
+    skips with a note when the [print] extra isn't installed. A check that fails is reported, never raised: it runs
+    after routing, so an exception left the outputs without a sidecar (2026-10-25)."""
     stls = [p for p in paths if p.suffix.lower() == ".stl"]
     if not stls:
         return {}
@@ -130,8 +131,13 @@ def _check_stls(paths, tools):
         return {}
     reports = {}
     for p in stls:
-        reports[p.name] = pc.check_file(p)
-        print(pc.format_report(reports[p.name], p.name))
+        try:
+            report = pc.check_file(p)
+            print(pc.format_report(report, p.name))
+        except Exception as e:   # noqa: BLE001 - a report about the file, not a reason to lose it
+            print(f"warning: print check of {p.name} failed ({e})", file=sys.stderr)
+            report = {"error": str(e)}
+        reports[p.name] = report
     return reports
 
 
@@ -188,7 +194,14 @@ def run_render(args, repo_root, ap):
                                         blender_bin=args.blender_bin, timeout=args.timeout or RENDER_TIMEOUT)
             print("solidify: rebuilding the mesh as one solid (CPU, a few minutes for a large print)...")
             mesh_in = tmp / "solid_mm.stl"
-            solid_info = tools[0].solidify_file(raw, mesh_in)
+            # its ValueError (an open or empty mesh) and MemoryError reached the user as tracebacks (2026-10-25)
+            try:
+                solid_info = tools[0].solidify_file(raw, mesh_in)
+            except MemoryError:
+                print("render failed: solidify ran out of memory (it needs about 2 GB free); close other "
+                      "programs and retry", file=sys.stderr); sys.exit(1)
+            except ValueError as e:
+                print(f"render failed: solidify: {e}", file=sys.stderr); sys.exit(1)
             print(f"solidify: closing radius {solid_info['close_mm']} mm, {solid_info['volume_cm3']} cm3 solid")
         manifest = blender_runner.run_template(
             template, _render_params(args, mesh_in, tmp, seed),

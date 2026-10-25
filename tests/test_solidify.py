@@ -82,6 +82,23 @@ def test_the_closing_radius_is_the_one_right_after_the_last_big_jump(name):
     assert S.pick_close_radius(radii, [curve[r] for r in radii]) == want
 
 
+@pytest.mark.parametrize("tris", [np.zeros((0, 3, 3)), np.array([[[0, 0, 0], [1, 1, 1], [2, 2, 2]]], float)],
+                         ids=["empty", "all degenerate"])
+def test_no_triangles_is_a_clear_error(tris, tmp_path):
+    # numpy's "zero-size array to reduction operation minimum" reached the user
+    with pytest.raises(ValueError, match="no triangles"):
+        S.solidify(tris, vox=0.5)
+    with pytest.raises(ValueError, match="no triangles"):
+        S.solidify_file(PC.write_stl(tmp_path / "raw.stl", tris), tmp_path / "solid.stl")
+
+
+def test_an_open_flat_face_has_no_volume_to_fill():
+    # a flat square "succeeded" as a 67 mm sheet with 1332 open edges
+    square = np.array([[[0, 0, 0], [50, 0, 0], [50, 50, 0]], [[0, 0, 0], [50, 50, 0], [0, 50, 0]]], float)
+    with pytest.raises(ValueError, match="no closed volume"):
+        S.solidify(square, vox=0.5)
+
+
 def test_big_triangles_are_sampled_all_over():
     # a CAD-like 100 x 100 x 10 mm slab in 12 triangles: a 64-step cap on the subdivision dotted each face every
     # ~2 mm, so the flat top came out dimpled (0.28 mm) and the closed volume swung 96-106 cm3 by radius

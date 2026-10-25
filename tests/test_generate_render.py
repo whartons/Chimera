@@ -265,6 +265,47 @@ def test_finish_without_the_print_extra_still_works_and_skips_the_check(tmp_path
     assert "print check skipped" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("err, want", [
+    (ValueError("no closed volume to fill: the mesh is an open surface"), "no closed volume"),
+    (MemoryError(), "out of memory"),
+])
+def test_a_solidify_failure_is_a_clean_cli_error(tmp_path, monkeypatch, capsys, err, want):
+    # a ValueError or MemoryError from solidify reached the user as a raw traceback (2026-10-25)
+    calls, tools = [], _FakeTools()
+
+    def fail(src, dst, **kw):
+        raise err
+    tools.solidify.solidify_file = staticmethod(fail)
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: tmp_path / "trophy.glb")
+    monkeypatch.setattr(G.blender_runner, "run_template", _fake_run(calls, ["t_finish_8.stl"]))
+    monkeypatch.setattr(G, "_print_tools", tools)
+    monkeypatch.setattr(G, "route_output", _fake_route(tmp_path))
+    with pytest.raises(SystemExit) as e:
+        G.run_render(_args(mode="finish", solid=True, scale_mm=228.6, formats="stl", seed=8), tmp_path,
+                     argparse.ArgumentParser())
+    err_text = capsys.readouterr().err
+    assert e.value.code == 1 and "render failed: solidify" in err_text and want in err_text
+    assert [t for t, _ in calls] == ["mesh_raw_mm.py"]                   # the finish never ran
+
+
+def test_a_print_check_that_breaks_still_leaves_the_sidecar(tmp_path, monkeypatch, capsys):
+    # an exception from the check came after routing, so the outputs were left without a sidecar
+    calls, tools = [], _FakeTools()
+
+    def broken(path):
+        raise ValueError("the STL has no triangles")
+    tools.printcheck.check_file = staticmethod(broken)
+    monkeypatch.setattr(G, "_resolve_asset", lambda *x, **k: tmp_path / "m.glb")
+    monkeypatch.setattr(G.blender_runner, "run_template", _fake_run(calls, ["m_finish_9.stl"]))
+    monkeypatch.setattr(G, "_print_tools", tools)
+    monkeypatch.setattr(G, "route_output", _fake_route(tmp_path))
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    G.run_render(_args(mode="finish", formats="stl", seed=9), tmp_path, argparse.ArgumentParser())
+    assert "print check of m_finish_9.stl failed" in capsys.readouterr().err
+    meta = json.loads((tmp_path / "outputs" / "3d" / "m_finish_9.json").read_text())
+    assert "no triangles" in meta["print_check"]["m_finish_9.stl"]["error"]
+
+
 @pytest.mark.parametrize("asset, scale_mm, want", [
     ("/x/m.glb", None, 1000.0),      # glTF is in metres: a 1-unit GLB is a 1000 mm STL
     ("/x/m.fbx", None, 1000.0),

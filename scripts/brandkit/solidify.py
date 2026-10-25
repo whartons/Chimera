@@ -35,6 +35,8 @@ FRONT_VOX = 0.5 / 0.3                    # how far in front of a face to test "o
 PAD_VOX = 16                             # empty border (the FFT is periodic)
 LEAK_JUMP = 1.2                          # a sealed leak adds 50-470 % solid in one step; webbing gaps adds 2-9 %
 CHUNK_POINTS = 2_000_000                 # surface samples per batch
+NO_VOLUME = ("no closed volume to fill: the mesh is an open surface (a flat face or a single-sided sheet), so it has "
+             "no inside. --solid needs a closed surface or a double-sided sheet")
 
 
 def pick_close_radius(radii, volumes):
@@ -175,10 +177,12 @@ def solidify(tris, *, vox, close_mm=None, smooth_normals=True, crease_deg=35.0, 
     """(N, 3, 3) triangles in mm -> (M, 3, 3) triangles of one closed solid, plus an info dict (close_mm,
     solid_cm3_by_radius, skin_faces, volume_cm3, voxel_mm). `close_mm` fixes the closing radius instead of
     choosing it."""
-    tris = np.asarray(tris, dtype=np.float64)
+    tris = np.asarray(tris, dtype=np.float64).reshape(-1, 3, 3)
     cr = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
     a2 = np.linalg.norm(cr, axis=1)
     ok = a2 > 1e-12
+    if not ok.any():         # numpy's "zero-size array to reduction operation" reached the user (2026-10-25)
+        raise ValueError("no triangles to solidify: the mesh is empty or every face has zero area")
     tris, fn, area = tris[ok], cr[ok] / a2[ok, None], 0.5 * a2[ok]
     lo = tris.reshape(-1, 3).min(axis=0) - PAD_VOX * vox
     shape = grid_shape(np.ptp(tris.reshape(-1, 3), axis=0), vox)
@@ -203,6 +207,8 @@ def solidify(tris, *, vox, close_mm=None, smooth_normals=True, crease_deg=35.0, 
     if r != radii[-1]:
         inside = _closed(near, r)
     del near
+    if not inside.any():
+        raise ValueError(NO_VOLUME)
     # voxels of the solid, to orient the indicator (a sample: the old argmax of a float depth map cost 4 B a voxel)
     inner = np.flatnonzero(inside.ravel()[::997]) * 997
     if not len(inner):
@@ -283,6 +289,10 @@ def solidify(tris, *, vox, close_mm=None, smooth_normals=True, crease_deg=35.0, 
         iso = -iso
     verts, faces, _, _ = measure.marching_cubes(chi, level=iso, spacing=(vox, vox, vox))
     del chi
+    # an open surface has no inside: the indicator never separates one, and the level set runs off the grid (a
+    # flat square came back as a 67 mm sheet with 1332 open edges and no error, 2026-10-25)
+    if (verts.min(axis=0) < vox).any() or (verts.max(axis=0) > (np.array(shape) - 2) * vox).any():
+        raise ValueError(NO_VOLUME)
     verts += lo
     if taubin:
         # Taubin (lambda/mu) smoothing evens out the last voxel steps without shrinking the figure
@@ -310,7 +320,7 @@ def solidify_file(src, dst, *, vox=None, close_mm=None, **kw) -> dict:
     """STL (mm) -> solid STL (mm). The voxel size follows the model's size (voxel_for_size) unless `vox` is
     given."""
     tris = read_stl(src)
-    if vox is None:
+    if vox is None and len(tris):
         vox = voxel_for_size(np.ptp(tris.reshape(-1, 3), axis=0))
     out, info = solidify(tris, vox=vox, close_mm=close_mm, **kw)
     write_stl(dst, out, header=b"chimera solidify (mm)")
