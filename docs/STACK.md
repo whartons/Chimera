@@ -139,8 +139,8 @@ optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-ke
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
 py3.12 (1224 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
-1216 on Windows, which installs `[print]` but not Pillow, so the 8 Pillow-gated tests skip there and the no-Pillow
-paths are proven;
+1198 on Windows, which stays on `[dev]`, so the 8 Pillow-gated and 18 print-gated tests skip there and the no-Pillow
+paths are proven; `[print]` would bring Pillow along through scikit-image;
 `--cov-fail-under=85`). Python 3.13 and 3.14 also run on Linux but aren't required. CI runs weekly too (Mondays
 06:00 UTC), so an upstream release that breaks the suite shows up in a week with no commits. Codecov is **not**
 required; [`codecov.yml`](../codecov.yml) makes the patch status informational. **Dependabot** watches `pip`,

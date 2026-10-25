@@ -41,12 +41,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      # Both legs install [print] (numpy/scipy/scikit-image: the --solid rebuild + the STL print check). Linux
-      # adds the Pillow extra, so the contact sheet the judge scores (montage.py) and the Pillow cross-checks run
-      # and count toward coverage; Windows leaves Pillow out and proves the no-Pillow fallbacks (8 Pillow-gated
-      # tests skip there).
+      # Linux adds the [print] and [images] extras, so the --solid rebuild, the STL print check, the contact sheet
+      # the judge scores (montage.py) and the Pillow cross-checks run and count toward coverage. Windows stays on
+      # [dev] and proves the no-Pillow fallbacks: scikit-image in [print] pulls in Pillow, so the 8 Pillow-gated
+      # and 18 print-gated tests skip there.
       - name: Install (editable + dev tooling)
-        run: python -m pip install -e ".[dev,print${{ matrix.os == 'ubuntu-latest' && ',images' || '' }}]"
+        run: python -m pip install -e ".[dev${{ matrix.os == 'ubuntu-latest' && ',print,images' || '' }}]"
       - name: Lint (ruff — correctness rules)
         run: ruff check .
       - name: Run tests (with coverage)

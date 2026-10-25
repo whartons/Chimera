@@ -20,7 +20,8 @@ All notable changes to Chimera are documented here. The format follows
   separate pieces, volume, and SOLID vs HOLLOW (rays through the model, `scripts/brandkit/printcheck.py`).
   The report prints in the console and goes into the sidecar (`print_check`); a HOLLOW result points to
   `--solid`.
-- **`[print]` extra** (numpy, scipy, scikit-image) for both; CI installs it on both legs.
+- **`[print]` extra** (numpy, scipy, scikit-image) for both. CI installs it on the Linux legs; Windows stays on
+  `[dev]`, since scikit-image pulls in Pillow and the Windows leg is the one that proves the no-Pillow paths.
 
 ### Fixed
 - **`--scale-mm` STLs loaded 1000× too small in slicers.** STL has no units and slicers read millimetres,
