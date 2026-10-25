@@ -88,6 +88,17 @@ def _backend_error(backend):
     return None
 
 
+def _pillow_missing():
+    """True when Pillow can't be imported. The mesh3d and cad loops judge a contact sheet that montage builds
+    with Pillow every iteration; without it each iteration failed inside the loop ("iteration failed"), so on a
+    `.[dev]`-only install those loops could never pass and nothing said why (2026-10-25 review)."""
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        return True
+    return False
+
+
 def _resolve_manifest(repo_root, brand):
     """With --brand, load brands/<brand>/brand.yaml (branded self-correction). Brandless (brand
     None/'') -> the neutral default_manifest(): build_rubric collapses to subject + quality, so the
@@ -377,6 +388,9 @@ def main():
     if not args.comfy_output_dir and not (args.pipeline == "cad" and args.backend == "api"):
         ap.error("--comfy-output-dir is required (ComfyUI render and/or the Qwen judge write there); "
                  "omit it only for `--pipeline cad --backend api`")
+    if args.pipeline in ("mesh3d", "cad") and _pillow_missing():
+        ap.error(f"--pipeline {args.pipeline} judges a contact sheet built with Pillow, which isn't installed: "
+                 'pip install -e ".[images]"')
 
     if args.max_iters is None:
         args.max_iters = 3 if args.pipeline in ("mesh3d", "cad") else 4

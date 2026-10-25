@@ -103,3 +103,35 @@ def test_a_judge_on_the_codegen_model_is_left_to_codegen():
     assert not AG._same_llm(NS(model="qwen3-vl:8b-instruct", base_url="http://127.0.0.1:11434/v1"), gen)
     assert not AG._same_llm(NS(model="qwen3.8:27b", base_url="https://api.example.com/v1"), gen)
     assert not AG._same_llm(None, gen) and not AG._same_llm(gen, None)
+
+
+
+# --- the contact-sheet loops need Pillow, and say so up front (2026-10-25 review) --------------------------
+@pytest.mark.pillow_check
+@pytest.mark.parametrize("pipeline", ["mesh3d", "cad"])
+def test_the_contact_sheet_loops_refuse_to_start_without_pillow(monkeypatch, capsys, pipeline):
+    # every iteration's contact sheet raised in montage, which the loop logged as "iteration failed": on a
+    # `.[dev]`-only install these loops could never pass, and nothing said why
+    monkeypatch.setitem(sys.modules, "PIL", None)   # `import PIL` fails, as without the [images] extra
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: pytest.fail("the loop must not run"))
+    with pytest.raises(SystemExit) as e:
+        _run(["--pipeline", pipeline, "--subject", "a mug", "--comfy-output-dir", "/tmp/o"], monkeypatch)
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and 'pip install -e ".[images]"' in err and "contact sheet" in err
+
+
+@pytest.mark.pillow_check
+def test_the_image_loop_still_runs_without_pillow(monkeypatch):
+    import types
+    import scripts.agent.llm as LLM
+
+    class _Stop(Exception):
+        pass
+    monkeypatch.setitem(sys.modules, "PIL", None)
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw: types.SimpleNamespace(
+        role=role, model="m", base_url="http://x/v1", release=lambda: None, make_room=None, resident=lambda: False))
+    monkeypatch.setattr(AG, "ComfyClient", lambda url: types.SimpleNamespace(base=url))
+    monkeypatch.setattr(AG, "_make_generate", lambda *a, **k: (lambda *x: "s"))
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: (_ for _ in ()).throw(_Stop()))
+    with pytest.raises(_Stop):
+        _run(["--subject", "x", "--comfy-output-dir", "/tmp/o", "--llm-tier", "small"], monkeypatch)

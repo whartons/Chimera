@@ -7,6 +7,11 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "pillow_check: runs auto_generate's real Pillow check for the contact-sheet "
+                                       "loops (conftest stubs it for every other test)")
+
+
 @pytest.fixture(autouse=True)
 def _no_live_ollama(monkeypatch):
     """Tests never reach a real Ollama. The loops' default judge is a local Ollama client, so a run's
@@ -77,6 +82,17 @@ def _no_endpoint_preflight(request, monkeypatch):
         return
     from scripts.agent import auto_generate
     monkeypatch.setattr(auto_generate, "_endpoint_problems", lambda roles: [])
+
+
+@pytest.fixture(autouse=True)
+def _pillow_for_the_sheet_loops(request, monkeypatch):
+    """auto_generate refuses --pipeline mesh3d|cad without Pillow (their judged contact sheet needs it), and CI's
+    Windows leg has none; the tests that run those loops' main() fake the sheet. Tests of the check itself are
+    marked `pillow_check`."""
+    if request.node.get_closest_marker("pillow_check"):
+        return
+    from scripts.agent import auto_generate
+    monkeypatch.setattr(auto_generate, "_pillow_missing", lambda: False)
 
 
 @pytest.fixture(autouse=True)
