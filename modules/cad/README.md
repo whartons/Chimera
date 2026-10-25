@@ -106,7 +106,7 @@ python scripts/generate.py cad --mode script --script mug.py --formats step,stl
   `FreeCADCmd` emits **geometry only**; STEP is the BREP/parametric format Blender can't
   read, so `cad` is how you produce it. **glTF is GUI-only in FreeCAD** — export STL and
   hand it to `render --mode mesh` for a Cycles render/turntable, or `render --mode finish`
-  for a print-ready figurine. That STL → Blender hop is also the render-for-judge route the
+  for a print-ready figurine (the STL keeps its mm unless you resize it with `--scale-mm`). That STL → Blender hop is also the render-for-judge route the
   CAD self-correction loop uses (see `--mode script` below).
 - **Binary:** resolved from `--freecad-bin`, `$FREECAD_BIN`, `FreeCADCmd`/`freecadcmd` on
   PATH, then the default Windows install (`C:\Program Files\FreeCAD *\bin\FreeCADCmd.exe`).

@@ -265,10 +265,22 @@ def test_finish_without_the_print_extra_still_works_and_skips_the_check(tmp_path
     assert "print check skipped" in capsys.readouterr().err
 
 
-def test_finish_stl_is_exported_in_millimetres():
-    # Blender units are metres and STL has no units: a slicer read `--scale-mm 60` as 0.06 mm
+@pytest.mark.parametrize("asset, scale_mm, want", [
+    ("/x/m.glb", None, 1000.0),      # glTF is in metres: a 1-unit GLB is a 1000 mm STL
+    ("/x/m.fbx", None, 1000.0),
+    ("/x/m.glb", 60.0, 1000.0),      # --scale-mm sizes the model in metres; a slicer read 60 as 0.06 mm
+    ("/x/part.stl", None, 1.0),      # STL/OBJ are unitless, mm by convention (a FreeCAD part): keep the
+    ("/x/PART.OBJ", None, 1.0),      #   numbers, or a 30 mm part comes back 30,000 mm
+    ("/x/part.stl", 60.0, 1000.0),   # rescaled to metres, so back to mm (the --solid path lands here)
+])
+def test_finish_stl_scale_follows_the_input_units(asset, scale_mm, want):
+    p = G._render_params(_args(mode="finish", scale_mm=scale_mm), asset, Path("/tmp/w"), 3)
+    assert p["stl_scale"] == want
+
+
+def test_finish_template_exports_stl_at_the_host_scale():
     src = (REPO / "workflows" / "templates" / "blender" / "mesh_finish.py").read_text(encoding="utf-8")
-    assert "global_scale=1000.0" in src
+    assert 'global_scale=float(p.get("stl_scale", 1000.0))' in src
 
 
 def test_cli_accepts_solid(monkeypatch):

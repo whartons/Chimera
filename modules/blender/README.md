@@ -96,8 +96,9 @@ Three modes, all live-validated on Blender 5.1 / RTX 5090:
 - **`--mode finish`** — AI mesh → clean → optional `--watertight` voxel remesh →
   decimate (`--target-tris`) → optional `--scale-mm` → material → export STL / GLB (+ hero render).
   The **figurine / character-finish** pipeline for print-ready output. **STL is written in
-  millimetres** (Blender metres × 1000, what every slicer assumes; GLB stays in metres per glTF), and
-  after scaling the model is set back on the floor, centred. **`--solid`** (needs `--scale-mm` and
+  millimetres**, what every slicer assumes: a GLB/FBX (metres) or any `--scale-mm` model goes out ×1000,
+  and an unscaled STL/OBJ input keeps its numbers, since those are already mm (a FreeCAD part stays the
+  size you drew it). GLB stays in metres per glTF. After scaling the model is set back on the floor, centred. **`--solid`** (needs `--scale-mm` and
   `pip install -e ".[print]"`) is the print path for TRELLIS.2 and Pixal3D meshes, which are thin
   double-sided sheets that `--watertight` turns into hollow shells: Blender writes the mesh as a raw
   STL in mm at the print size (`mesh_raw_mm.py`, seams welded, small holes capped), the host rebuilds

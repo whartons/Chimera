@@ -72,11 +72,19 @@ def _render_params(args, asset, tmp, seed):
     else:  # finish
         p.update(mesh=str(asset), target_tris=args.target_tris, watertight=bool(args.watertight),
                  solid=bool(getattr(args, "solid", False)), scale_mm=args.scale_mm, color=args.color,
-                 formats=_finish_formats(args),
+                 formats=_finish_formats(args), stl_scale=_stl_scale(asset, args.scale_mm),
                  render_still=bool(args.render_still))
         if args.color == "project":
             p["asset"] = str(args.project_image)
     return p
+
+
+def _stl_scale(asset, scale_mm):
+    """mm per Blender unit for the finish STL. Blender reads an STL/OBJ's unitless numbers as metres, but they're
+    mm by convention (a FreeCAD part), so an unscaled one goes back out as-is: x1000 made a 30 mm part 30,000 mm.
+    glTF/FBX are in metres, and so is anything --scale-mm sized: x1000 (2026-10)."""
+    unitless = Path(str(asset)).suffix.lower() in (".stl", ".obj")
+    return 1.0 if unitless and not scale_mm else 1000.0
 
 
 def _finish_formats(args):

@@ -20,13 +20,14 @@ All notable changes to Chimera are documented here. The format follows
   separate pieces, volume, and SOLID vs HOLLOW (rays through the model, `scripts/brandkit/printcheck.py`).
   The report prints in the console and goes into the sidecar (`print_check`); a HOLLOW result points to
   `--solid`.
-- **`[print]` extra** (numpy, scipy, scikit-image) for both. CI installs it on the Linux legs; Windows stays on
+- **`[print]` extra** (numpy, scipy, scikit-image) for both; `chimera doctor` reports whether it's installed. CI installs it on the Linux legs; Windows stays on
   `[dev]`, since scikit-image pulls in Pillow and the Windows leg is the one that proves the no-Pillow paths.
 
 ### Fixed
 - **`--scale-mm` STLs loaded 1000× too small in slicers.** STL has no units and slicers read millimetres,
-  but Blender's units are metres, so `--scale-mm 60` came out as 0.06 mm. STL is now written in mm
-  (`global_scale=1000`); GLB stays in metres, as glTF specifies.
+  but Blender's units are metres, so `--scale-mm 60` came out as 0.06 mm. STL is now written in mm: a GLB/FBX
+  or any `--scale-mm` model goes out ×1000, and an unscaled STL/OBJ input (a FreeCAD part, already mm) keeps its
+  numbers. GLB stays in metres, as glTF specifies.
 - **A `--scale-mm` model floated above the floor in the hero render.** Scaling about the origin left a
   TRELLIS.2 GLB 0.39 m up (a dimmer render) and a mm-scale mesh 114 m up (a near-black one), away from the
   floor and the light rig. The model is now centred on the floor after scaling, so the STL also starts at

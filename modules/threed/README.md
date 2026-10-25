@@ -9,9 +9,9 @@ Takes a single input image and produces a 3D mesh exported as a `.glb` file. Thr
 
 | `--model` | Output | Time (RTX 5090) | Pick it for |
 |-----------|--------|-----------------|-------------|
-| **`trellis2`** *(default)* | **textured** mesh (PBR: base color, metallic-roughness, normal, AO), background cut out | ~90–135 s | most assets; best likeness in the 2026-10 review |
+| **`trellis2`** *(default)* | **textured** mesh (PBR: base color, metallic-roughness, normal, AO), background cut out | ~90–135 s | most assets; best likeness in the 2026-10 review; prints via `render --mode finish --solid` |
 | `pixal3d` | textured, like TRELLIS.2, and matched to the photo's camera (MoGe FOV) | ~100–115 s | reconstructing an object as photographed |
-| `hunyuan21` | **shape only** (grey), ~1.1 M tris | ~25–35 s | fast drafts, 3D printing, or coloring it yourself with the Blender bakes |
+| `hunyuan21` | **shape only** (grey), ~1.1 M tris | ~25–35 s | fast drafts, 3D printing (already solid: `--watertight` is enough), or coloring it yourself with the Blender bakes |
 
 A model file name works too, and a brand can pin one with `threed.model`.
 

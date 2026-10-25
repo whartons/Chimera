@@ -4,8 +4,9 @@ hero render). Params: {mesh, out_dir, stem, samples, res:[w,h], target_tris, wat
 solid:bool, scale_mm:float|null, color: auto|material|project|keep, formats:[..], render_still:bool,
 asset?}. auto keeps a textured mesh's own materials (a TRELLIS.2 PBR GLB) and clays an untextured one.
 solid = the mesh is already one solid from the host's solidify step (`render --mode finish --solid`):
-no voxel remesh, keep only its largest piece. STL is written in millimetres (Blender metres x 1000,
-which is what every slicer assumes); GLB stays in metres per the glTF spec."""
+no voxel remesh, keep only its largest piece. STL is written in millimetres, what every slicer assumes:
+stl_scale (mm per Blender unit, from the host) is 1000 for metres and 1 for an unscaled STL/OBJ input that's
+already mm. GLB stays in metres per the glTF spec."""
 import bpy, bmesh, mathutils, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as C
@@ -161,9 +162,9 @@ obj.select_set(True)
 bpy.context.view_layer.objects.active = obj
 if "stl" in fmts:
     stl = os.path.join(p["out_dir"], p["stem"] + ".stl")
-    # STL has no units and slicers read it as mm; Blender units are metres, so --scale-mm 60 used to load as
-    # 0.06 mm (2026-10)
-    bpy.ops.wm.stl_export(filepath=stl, export_selected_objects=True, global_scale=1000.0)
+    # STL has no units and slicers read it as mm. The host sends mm per Blender unit: 1000 for metres (glTF, or
+    # after --scale-mm; raw units loaded --scale-mm 60 as 0.06 mm), 1 for an unscaled STL/OBJ that's already mm
+    bpy.ops.wm.stl_export(filepath=stl, export_selected_objects=True, global_scale=float(p.get("stl_scale", 1000.0)))
     outputs.append(stl)
 if "glb" in fmts:
     glb = os.path.join(p["out_dir"], p["stem"] + ".glb")

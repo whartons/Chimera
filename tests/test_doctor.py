@@ -125,16 +125,18 @@ def test_doctor_malformed_brand_yaml_degrades_not_crashes(tmp_path):
 
 
 def test_doctor_reports_missing_optional_helpers(monkeypatch):
-    # force PIL + av to be unimportable so the ('info', ...) arm with the pip hints is exercised
+    # force PIL, av and skimage to be unimportable so the ('info', ...) arm with the pip hints is exercised
     real_import = builtins.__import__
     def no_optional(name, *a, **k):
-        if name in ("PIL", "av"):
+        if name in ("PIL", "av", "skimage"):
             raise ImportError("forced")
         return real_import(name, *a, **k)
     monkeypatch.setattr(builtins, "__import__", no_optional)
     results = doctor.run_checks(FakeClient(stats={"system": {}}, object_info=_oi(set())), ROOT)
     assert ("info", "PIL not installed - optional (non-PNG logo sizing); pip install pillow") in results
     assert ("info", "av not installed - optional (foley fps/duration auto-probe); pip install av") in results
+    assert ("info", "skimage not installed - optional (3D printing: render --mode finish --solid + the STL "
+                    "print check); pip install -e .[print]") in results
 
 
 def test_doctor_malformed_system_stats_still_reachable(monkeypatch):
