@@ -117,7 +117,7 @@ def _jpeg_size(f):
             return (h, w) if orientation in _ROTATED else (w, h)
         length = struct.unpack(">H", seg)[0]
         if marker == 0xE1 and orientation is None:   # APP1: the first Exif block counts, as in Pillow
-            app1 = f.read(length - 2)
+            app1 = f.read(max(0, length - 2))   # a damaged length below 2 must not read the whole file
             if app1[:6] == b"Exif\x00\x00":
                 orientation = _exif_orientation(app1)
             continue

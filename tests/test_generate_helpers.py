@@ -792,6 +792,14 @@ def test_image_size_of_a_rotated_phone_jpeg_is_its_upright_size_without_pillow(t
     assert _image_size(p) == size
 
 
+def test_image_size_reads_past_a_damaged_app1_length_without_pillow(tmp_path, monkeypatch):
+    # a length below 2 must not swallow the rest of the file (the frame header after it still counts)
+    _no_pillow(monkeypatch)
+    jpg = _jpeg(320, 200)
+    p = tmp_path / "a.jpg"; p.write_bytes(jpg[:2] + b"\xff\xe1\x00\x01" + jpg[2:])
+    assert _image_size(p) == (320, 200)
+
+
 def test_image_size_of_a_rotated_jpeg_with_pillow_is_what_loadimage_sees(tmp_path):
     Image = pytest.importorskip("PIL.Image")
     from PIL import ImageOps
