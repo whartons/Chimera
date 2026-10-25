@@ -65,9 +65,36 @@ from scripts.brandkit.dcc_cli import (  # noqa: E402
 )
 
 
+_ROTATED = (5, 6, 7, 8)   # EXIF orientations that turn the stored image a quarter turn (width <-> height)
+
+
+def _exif_orientation(app1):
+    """The EXIF Orientation (tag 0x0112) in a JPEG APP1 segment's payload; 1 (as stored) when it has none or
+    the block can't be read."""
+    if app1[:6] != b"Exif\x00\x00":
+        return 1
+    tiff = app1[6:]
+    e = {b"II": "<", b"MM": ">"}.get(tiff[:2])
+    if e is None:
+        return 1
+    try:
+        ifd = struct.unpack(e + "I", tiff[4:8])[0]
+        for i in range(struct.unpack(e + "H", tiff[ifd:ifd + 2])[0]):
+            at = ifd + 2 + 12 * i
+            tag, kind = struct.unpack(e + "HH", tiff[at:at + 4])
+            if tag == 0x0112:
+                fmt = {3: "H", 4: "I"}.get(kind)   # a SHORT, as the standard says; a LONG Pillow reads too
+                return struct.unpack(e + fmt, tiff[at + 8:at + 8 + struct.calcsize(fmt)])[0] if fmt else 1
+    except struct.error:   # a truncated EXIF block: the frame size still stands
+        pass
+    return 1
+
+
 def _jpeg_size(f):
-    """(width, height) from a JPEG's frame header (what Pillow reports), or None."""
+    """(width, height) from a JPEG's frame header, swapped when its EXIF orientation turns it a quarter turn:
+    the size ComfyUI's LoadImage loads (it applies the rotation), or None."""
     f.seek(2)
+    orientation = None
     while True:
         b = f.read(1)
         while b and b != b"\xff":
@@ -84,8 +111,17 @@ def _jpeg_size(f):
             return None
         if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):   # a start-of-frame
             data = f.read(5)
-            return (struct.unpack(">H", data[3:5])[0], struct.unpack(">H", data[1:3])[0]) if len(data) == 5 else None
-        f.seek(struct.unpack(">H", seg)[0] - 2, 1)
+            if len(data) < 5:
+                return None
+            w, h = struct.unpack(">H", data[3:5])[0], struct.unpack(">H", data[1:3])[0]
+            return (h, w) if orientation in _ROTATED else (w, h)
+        length = struct.unpack(">H", seg)[0]
+        if marker == 0xE1 and orientation is None:   # APP1: the first Exif block counts, as in Pillow
+            app1 = f.read(length - 2)
+            if app1[:6] == b"Exif\x00\x00":
+                orientation = _exif_orientation(app1)
+            continue
+        f.seek(length - 2, 1)
 
 
 def _header_size(path):
@@ -115,12 +151,15 @@ def _image_size(path):
     """(width, height) of a logo or source image, or None if it can't be determined. Uses Pillow when
     available (png/jpg/webp/bmp/tiff/gif), else reads the PNG/GIF/WebP/JPEG header itself, so the graph
     (the watermark canvas, the logo size) is the same with or without Pillow and a replay on the other
-    kind of install reports no drift. None -> callers use a canvas-proportional geometry estimate
-    (correct SIZE on-graph, only the corner offset is approximate)."""
+    kind of install reports no drift. The size is the upright one ComfyUI's LoadImage loads: it applies the
+    EXIF rotation, so a phone photo stored 4032x3024 with orientation 6 is 3024x4032 there, and a corner
+    watermark placed for 4032 wide fell off the frame (2026-10-25 review). None -> callers use a
+    canvas-proportional geometry estimate (correct SIZE on-graph, only the corner offset is approximate)."""
     try:
         from PIL import Image
         with Image.open(path) as im:
-            return im.size
+            w, h = im.size
+            return (h, w) if im.getexif().get(0x0112) in _ROTATED else (w, h)
     except ImportError:
         pass                       # no Pillow -> header read below
     except Exception:

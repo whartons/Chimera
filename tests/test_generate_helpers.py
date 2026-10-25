@@ -740,3 +740,39 @@ def test_clip_timing_reads_a_clip_sidecar_saved_with_a_bom(tmp_path, monkeypatch
     clip.with_suffix(".json").write_text(json.dumps({"inputs": {"fps": 16, "length": 81, "width": 768,
                                                                 "height": 512}}), encoding="utf-8-sig")
     assert generate._clip_timing(clip) == (16.0, 81 / 16, 768, 512)
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def _exif_app1(orientation, order="II"):
+    """An APP1 Exif segment holding one IFD0 entry: Orientation (0x0112, a SHORT)."""
+    e = "<" if order == "II" else ">"
+    tiff = (order.encode() + struct.pack(e + "HI", 42, 8) + struct.pack(e + "H", 1)
+            + struct.pack(e + "HHIHH", 0x0112, 3, 1, orientation, 0) + struct.pack(e + "I", 0))
+    payload = b"Exif\x00\x00" + tiff
+    return b"\xff\xe1" + struct.pack(">H", 2 + len(payload)) + payload
+
+
+@pytest.mark.parametrize("orientation, size", [(1, (4032, 3024)), (3, (4032, 3024)), (5, (3024, 4032)),
+                                               (6, (3024, 4032)), (8, (3024, 4032))])
+@pytest.mark.parametrize("order", ["II", "MM"])
+def test_image_size_of_a_rotated_phone_jpeg_is_its_upright_size_without_pillow(tmp_path, monkeypatch,
+                                                                              orientation, size, order):
+    # ComfyUI's LoadImage applies the EXIF rotation: a phone photo stored 4032x3024 with orientation 6 is a
+    # 3024x4032 image there, so a bottom-right watermark placed for 4032 wide landed off the frame
+    _no_pillow(monkeypatch)
+    jpg = _jpeg(4032, 3024)
+    p = tmp_path / "phone.jpg"; p.write_bytes(jpg[:2] + _exif_app1(orientation, order) + jpg[2:])
+    assert _image_size(p) == size
+
+
+def test_image_size_of_a_rotated_jpeg_with_pillow_is_what_loadimage_sees(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageOps
+    p = tmp_path / "phone.jpg"
+    exif = Image.Exif(); exif[0x0112] = 6
+    Image.new("RGB", (64, 48)).save(p, exif=exif)
+    with Image.open(p) as im:
+        upright = ImageOps.exif_transpose(im).size      # what ComfyUI's LoadImage loads
+    assert upright == (48, 64)
+    assert _image_size(p) == upright
+    assert generate._header_size(p) == upright           # and the no-Pillow read agrees
