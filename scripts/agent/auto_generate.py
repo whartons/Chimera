@@ -447,9 +447,10 @@ def main():
         return LocalVLMJudge(client, repo_root, args.comfy_output_dir)
 
     if args.pipeline == "cad":
-        from scripts.agent.cad_generate import make_cad_generate
+        from scripts.agent.cad_generate import CadFeedbackExpander, make_cad_generate
         from scripts.agent.llm import LLMCadGenerator
         rubric = build_rubric(m, args.subject, modality="3d")   # clean-solid form rubric (BREP is manifold)
+        expander = CadFeedbackExpander(expander)   # code-gen gets the judge's avoid terms and reasons too
         # the judge and rewriter go before each iteration's renders too (code-gen releases itself before
         # Blender): a resident judge sat beside the next Blender render and a --backend local judge graph. One
         # on code-gen's own model is left to code-gen, which loads it next and releases it before Blender.

@@ -78,6 +78,23 @@ def test_the_cad_loop_also_unloads_the_judge_and_rewriter_before_rendering(monke
     assert wrapped["roles"] == ["judge", "rewriter"]
 
 
+def test_the_cad_loop_gives_code_gen_the_judges_feedback(monkeypatch):
+    # code-gen got only the positive prompt, which lacks a judge's avoid terms and reasons (2026-10-25 review)
+    import scripts.agent.llm as LLM
+    from scripts.agent.cad_generate import CadFeedbackExpander
+    from scripts.agent.expander import TemplatedExpander
+    seen = {}
+
+    class _Stop(Exception):
+        pass
+    monkeypatch.setattr(LLM, "client_for_role", lambda role, **kw:
+                        type("C", (), {"release": lambda self: None, "make_room": None, "model": role})())
+    monkeypatch.setattr(AG, "run_loop", lambda **kw: seen.update(kw) or (_ for _ in ()).throw(_Stop()))
+    with pytest.raises(_Stop):
+        _run(["--pipeline", "cad", "--subject", "a mug", "--llm-tier", "small"], monkeypatch)
+    assert isinstance(seen["expander"], CadFeedbackExpander) and isinstance(seen["expander"].inner, TemplatedExpander)
+
+
 def test_a_judge_on_the_codegen_model_is_left_to_codegen():
     # the large tier runs one model for every role: unloading the judge only made code-gen reload it
     from types import SimpleNamespace as NS

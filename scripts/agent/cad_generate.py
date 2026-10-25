@@ -3,11 +3,12 @@
 Returns a generate(pos, neg, seed) closure with the same signature run_loop's other generators use, so
 the model-free loop core is reused unchanged. No ComfyUI in the loop unless the judge is the Qwen backend
 (the LLM judge / --backend api makes it a pure LLM+FreeCAD+Blender loop). pos carries the subject + the
-expander's accumulated FIX feedback; the LLMCadGenerator revises its previous script from it."""
+judge's feedback (CadFeedbackExpander); the LLMCadGenerator revises its previous script from it."""
 from __future__ import annotations
 import json, re, shutil, tempfile
 from pathlib import Path
 
+from scripts.agent.expander import PromptExpander, brand_guard, parse_fixes
 from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
 from scripts.agent.llm import LLMError
 from scripts.agent.loop import SeedNames
@@ -51,6 +52,29 @@ def _assert_safe(script: str):
                            "autonomous scripts may only do FreeCAD modelling (no shell/network/file ops)")
 
 
+class CadFeedbackExpander(PromptExpander):
+    """The loop's expander for the CAD pipeline, whose positive prompt is code-gen's revision feedback rather than
+    an image prompt. The templated expander puts a judge's 'avoid X' terms only into the negative, and its NOT-MET
+    reasons into the positive only when no FIX parsed, so "NOT-MET - hook arm 2 mm thick, fragile. FIX: avoid thin
+    hook arm" reached code-gen as "Correct the previous attempt. a wall hook" (2026-10-25 review). This wraps the
+    loop's expander and adds both to the positive: the avoid terms, and the judge's issue lines."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def expand(self, subject, manifest, prior_issues=None):
+        pos, neg = self.inner.expand(subject, manifest, prior_issues)
+        if not prior_issues:
+            return pos, neg
+        _, avoid = brand_guard(*parse_fixes(prior_issues), manifest)
+        found = [str(i) for i in prior_issues if str(i) not in pos]   # no-FIX issues are in it already
+        if avoid:
+            pos += "\nAvoid: " + ", ".join(avoid)
+        if found:
+            pos += "\nThe judge found:\n" + "\n".join(f"- {i}" for i in found)
+        return pos, neg
+
+
 def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blender_runner=bl_run):
     """Build the loop's generate(pos, neg, seed) -> routed-contact-sheet-path closure."""
     repo_root = Path(repo_root)
@@ -62,14 +86,14 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
     name = SeedNames()   # a repeated seed's pass gets its own files (the winner's sheet must survive)
 
     def generate(pos, neg, seed):
-        # 1. code-gen. Brief = the clean subject; the loop's FIX directives (folded into `pos` by the
-        # expander) are passed as explicit revision feedback once we have a prior script to revise. The
-        # last run's error rides along: the loop no longer threads failures into the prompt, but the
-        # codegen needs the FreeCAD traceback to fix its script. Only the script's own failures count: an
-        # LLM or GPU error isn't the script's fault, and telling code-gen otherwise sent it chasing them.
+        # 1. code-gen. Brief = the clean subject; the judge's feedback (folded into `pos` by the expander, with
+        # CadFeedbackExpander's avoid terms and issue lines) is passed as explicit revision feedback once we have a
+        # prior script to revise. The last run's error rides along: the loop no longer threads failures into the
+        # prompt, but the codegen needs the FreeCAD traceback to fix its script. Only the script's own failures
+        # count: an LLM or GPU error isn't the script's fault, and telling code-gen otherwise sent it chasing them.
         feedback = None if state["first"] else pos
         if state.get("error"):
-            feedback = f"{feedback or ''}\nThe previous script failed: {state.pop('error')}".strip()
+            feedback = f"{feedback or ''}\nThe previous script failed: {state['error']}".strip()
         try:
             return _generate_once(pos, seed, feedback, name(seed))
         except LLMError:
@@ -82,6 +106,8 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
     def _generate_once(pos, seed, feedback, tag):
         state["stage"] = "codegen"
         script = generator.generate_script(args.subject, fix_feedback=feedback)
+        # cleared only once code-gen has seen it: popped before, it was lost when code-gen failed (2026-10-25)
+        state.pop("error", None)
         state["first"] = False
         # off the GPU before Blender renders (and a --backend local judge loads in ComfyUI): neither can see
         # a resident Ollama model's memory on Windows, and a 27B codegen holds about 20 GB
