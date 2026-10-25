@@ -281,3 +281,16 @@ def test_route_output_names_the_app_that_listed_a_missing_file(tmp_path):
     # a Blender or FreeCAD job used to be reported as ComfyUI's, with a --comfy-output-dir hint
     with pytest.raises(outputs.NoOutputError, match="Blender listed ghost.png as an output"):
         route_output(tmp_path, "b", tmp_path / "ghost.png", "mesh", 1, producer="Blender")
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+@pytest.mark.parametrize("name", ['my"brand', "a<b", "a>b", "a|b", "what?", "star*", "a:b", "a/b", "a\\b",
+                                  "bell\x07", "del\x7f", "c1\x85"])
+def test_a_brand_name_windows_cannot_create_is_refused(name):
+    # `new-brand 'what?'` passed the check, then copytree raised WinError 123; a '"' broke brand.yaml's name:
+    assert outputs.brand_name_ok(name) is False
+
+
+@pytest.mark.parametrize("name", ["acme", "my brand", "Café & Co", "東京-brand", "it's #1", "a.b"])
+def test_an_ordinary_brand_name_is_still_accepted(name):
+    assert outputs.brand_name_ok(name) is True

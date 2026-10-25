@@ -668,3 +668,16 @@ def test_main_escapes_what_the_console_cannot_encode(monkeypatch):
         generate.main()
     out.flush()
     assert b"\\u2192" in out.buffer.getvalue()
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def test_new_brand_reports_a_folder_the_os_will_not_create_in_one_line(monkeypatch, capsys):
+    # WinError 123 from copytree came out as a traceback
+    import scripts.brandkit.scaffold as scaffold
+
+    def refuse(root, name):
+        raise OSError(22, "The filename, directory name, or volume label syntax is incorrect", f"brands/{name}")
+    monkeypatch.setattr(scaffold, "new_brand", refuse)
+    with pytest.raises(SystemExit) as e:
+        _main(monkeypatch, "new-brand", "CON")
+    assert e.value.code == 2 and "can't create brands/CON" in capsys.readouterr().err

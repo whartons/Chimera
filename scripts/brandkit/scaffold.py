@@ -6,6 +6,7 @@ lint checklist to stdout in ASCII (Windows cp1252) and returns the fail count fo
 from __future__ import annotations
 import re, shutil
 from pathlib import Path
+import yaml
 
 from .manifest import load_manifest, ManifestError
 from .nodes import model_file
@@ -17,7 +18,7 @@ _LEVEL_MARK = {"ok": "[ok]  ", "warn": "[warn]", "fail": "[FAIL]", "info": "[inf
 def new_brand(repo_root, name) -> Path:
     """Copy brands/_template/ to brands/<name>/, refuse if it exists, seed the name: field."""
     if not brand_name_ok(name):
-        raise ValueError(f"invalid brand name {name!r}: use a simple folder-safe name")
+        raise ValueError(f"invalid brand name {name!r}: use a simple folder-safe name (none of <>:\"/\\|?*)")
     src = Path(repo_root) / "brands" / "_template"
     if not src.is_dir():
         raise FileNotFoundError(f"template not found: {src}")
@@ -28,7 +29,10 @@ def new_brand(repo_root, name) -> Path:
     try:
         yaml_path = dest / "brand.yaml"
         text = yaml_path.read_text(encoding="utf-8")
-        text = re.sub(r'(?m)^name:.*$', f'name: "{name}"', text, count=1)
+        # YAML's own double-quoted form (escapes and all), so any name the check lets through reads back as
+        # itself; a function replacement, so re.sub doesn't read a backslash in it as a group reference
+        quoted = yaml.safe_dump(str(name), default_style='"', allow_unicode=True, width=10**9).strip()
+        text = re.sub(r'(?m)^name:.*$', lambda _m: f"name: {quoted}", text, count=1)
         yaml_path.write_text(text, encoding="utf-8")
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
