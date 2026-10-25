@@ -13,9 +13,9 @@ layers stacked inside it (a shirt over the body), not a solid. A voxel remesh tu
 The global solve bridges the seams where layers meet; every per-voxel inside/outside rule we tried left artefacts
 (contour rings, specks, serrated seams). Distances are in voxels and the voxel is 1/762 of the longest side (down to
 0.05 mm), so the settings proven on a 228.6 mm trophy at 0.3 mm (close 1.2-4 mm, splat 0.35 mm) scale with the
-print. A compact print gets a coarser voxel, so the grid stays under MAX_VOXELS (~16 B a voxel at the peak, about
-2 GB). Input and output are in mm. Needs numpy, scipy and
-scikit-image (the [print] extra); a couple of minutes on the CPU for a 230 mm figure."""
+print. A compact print gets a coarser voxel, so the grid stays under MAX_VOXELS. Input and output are in mm. Needs
+numpy, scipy and scikit-image (the [print] extra). Measured on the CPU at the cap (2026-10-25): a 228.6 mm sheet
+of 720 k triangles peaked at 2.1 GB (18 B a voxel) and took 94 s."""
 from __future__ import annotations
 import math
 
@@ -27,7 +27,7 @@ from .printcheck import read_stl, write_stl
 
 MIN_VOXEL_MM = 0.05                      # a resin printer's pixel; below ~38 mm the distances stop shrinking
 VOXELS_PER_LONGEST_SIDE = 762            # 228.6 mm -> 0.3 mm, the proven setting
-MAX_VOXELS = 120_000_000                 # ~2 GB at the peak (~16 B a voxel); a compact print gets a coarser voxel
+MAX_VOXELS = 120_000_000                 # ~2 GB at the peak (16-20 B a voxel); a compact print gets a coarser voxel
 CLOSE_RADII_VOX = (4.0, 16 / 3, 20 / 3, 8.0, 32 / 3, 40 / 3)   # 1.2 .. 4.0 mm at 0.3 mm voxels
 SIGMA_VOX = 0.35 / 0.3                   # normal splat width
 FRONT_VOX = 0.5 / 0.3                    # how far in front of a face to test "outside"

@@ -200,7 +200,7 @@ def run_render(args, repo_root, ap):
             try:
                 solid_info = tools[0].solidify_file(raw, mesh_in)
             except MemoryError:
-                print("render failed: solidify ran out of memory (it needs about 2 GB free); close other "
+                print("render failed: solidify ran out of memory (it needs about 2.5 GB free); close other "
                       "programs and retry", file=sys.stderr); sys.exit(1)
             except ValueError as e:
                 print(f"render failed: solidify: {e}", file=sys.stderr); sys.exit(1)

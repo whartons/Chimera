@@ -65,7 +65,6 @@ exec(compile(src, p["script"], "exec"), ns)
 doc.recompute()
 
 
-
 def _geometry(o):
     """A doc object that carries a solid or a mesh. Sketches (Part::Part2DObject) are construction lines."""
     if o.isDerivedFrom("Part::Part2DObject"):

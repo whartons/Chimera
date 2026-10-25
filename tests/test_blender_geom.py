@@ -48,16 +48,21 @@ def test_both_cameras_use_the_scaled_clip_range():
 
 # --- a turntable frames every pose, not just rotation 0 ---
 
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _unit(a):
+    n = math.sqrt(sum(c * c for c in a))
+    return tuple(c / n for c in a)
+
+
 def _camera_basis():
-    toward = (0.7, -1.0, 0.5)
-    n = math.sqrt(sum(c * c for c in toward))
-    toward = tuple(c / n for c in toward)
-    right = (-toward[1], toward[0], 0.0)                       # (-toward) x Z, normalized
-    n = math.hypot(*right)
-    right = (right[0] / n, right[1] / n, 0.0)
-    up = (right[1] * -toward[2] - 0 * -toward[1], 0 * -toward[0] - right[0] * -toward[2],
-          right[0] * -toward[1] - right[1] * -toward[0])       # right x (-toward)
-    return toward, right, up
+    """frame_object's 3/4 high view: (toward_cam, right, up)."""
+    toward = _unit((0.7, -1.0, 0.5))
+    back = tuple(-c for c in toward)
+    right = _unit(_cross(back, (0.0, 0.0, 1.0)))
+    return toward, right, _unit(_cross(right, back))
 
 
 def _crops(dist, corners, toward, right, up, tan):
