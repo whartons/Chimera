@@ -37,7 +37,7 @@ from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.outputs import (NoOutputError, brand_name_ok, comfy_output_path, fresh_output_name,
                                       route_output, select_output, write_sidecar)
 from scripts.brandkit.provenance import file_digest, git_provenance  # git_provenance's historical home was here
-from scripts.brandkit.sidecar import build_meta
+from scripts.brandkit.sidecar import build_meta, render_identity
 
 FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
            "3d": threed_filler.build}
@@ -492,34 +492,41 @@ def run(args, repo_root, ap):
         print(str(e), file=sys.stderr); sys.exit(1)
 
     if src is not None:
-        # a replay keeps the recorded seed, so it must not land on (and replace) the render it reproduces
-        try:
-            dest = route_output(repo_root, args.brand, src, args.mode, seed, keep_existing=expect is not None)
-        except NoOutputError as e:
-            print(str(e), file=sys.stderr); sys.exit(1)
-        fmt = None  # only set for 3d; passed to build_meta (None -> omitted from sidecar)
-        if args.modality == "3d":
-            # ComfyUI only saves GLB; convert to the requested export format host-side (geometry only, for
-            # printing or CAD). The GLB stays beside it: TRELLIS.2 and Pixal3D bake their textures into it.
-            fmt = (args.format or m.threed.format or "glb").lower()
-            if fmt != "glb":
-                from scripts.brandkit.mesh import convert
-                try:
-                    dest = convert(dest, fmt)
-                except ValueError as e:
-                    print(f"{e} (the GLB is at {dest})", file=sys.stderr); sys.exit(1)
+        # only set for 3d; passed to build_meta (None -> omitted from sidecar)
+        fmt = (args.format or m.threed.format or "glb").lower() if args.modality == "3d" else None
         model_used = _resolve_model_used(args, m)
         inputs = _resolve_sidecar_inputs(args, m, fmt)
         if args.modality == "audio" and args.mode == "foley":
             # the timing and size actually used (probed, or read from the clip's sidecar): a replay without
             # PyAV, or of a clip whose sidecar has gone, used to fall back to 25 fps / 5 s and fail as drift
             inputs.update(fps=fkw["fps"], duration=fkw["duration"], width=fkw["width"], height=fkw["height"])
+        # built before routing: its identity decides whether this render may take the place of a same-named one
         meta = build_meta(modality=args.modality, mode=args.mode, brand=args.brand, seed=seed,
                           model=model_used, watermark=do_watermark, comfy_url=args.comfy_url,
                           wf=wf, inputs=inputs,
                           timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
                           fmt=fmt, comfyui_version=client.comfyui_version(),
                           pipeline_git_sha=git_provenance(repo_root), input_hashes=input_hashes)
+        # a replay keeps the recorded seed, so it must not land on (and replace) the render it reproduces; any
+        # other render replaces a same-named one only when it is identical, else it takes <stem>_2, <stem>_3...
+        try:
+            dest = route_output(repo_root, args.brand, src, args.mode, seed, keep_existing=expect is not None,
+                                identity=render_identity(meta))
+        except NoOutputError as e:
+            print(str(e), file=sys.stderr); sys.exit(1)
+        if args.modality == "3d":
+            # ComfyUI only saves GLB; convert to the requested export format host-side (geometry only, for
+            # printing or CAD). The GLB stays beside it: TRELLIS.2 and Pixal3D bake their textures into it.
+            if fmt != "glb":
+                from scripts.brandkit.mesh import convert
+                try:
+                    dest = convert(dest, fmt)
+                except ValueError as e:
+                    print(f"{e} (the GLB is at {dest})", file=sys.stderr); sys.exit(1)
+            # Under a reused name (an identical re-render), an .stl or .obj from an earlier --format is not this
+            # render's, and the sidecar would no longer describe it (2026-10-25 review). A free name has none.
+            for ext in {".stl", ".obj"} - {dest.suffix.lower()}:
+                dest.with_suffix(ext).unlink(missing_ok=True)
         write_sidecar(dest, meta)
         print(f"output -> {dest}")
     else:

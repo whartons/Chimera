@@ -845,3 +845,58 @@ def test_a_key_ace_step_does_not_know_stops_before_the_gpu_is_freed(monkeypatch,
     with pytest.raises(_ApError, match="--keyscale 'H minor'"):
         generate.run(_img_args(modality="audio", mode="music", subject="anthem", model="acestep", keyscale="H minor",
                                seed=3, free_before=True), repo, _RaisingAp())
+
+
+
+# --- 2026-10-25 review: a same-seed render replaces only an identical one -----------------------------------
+def _render_image(monkeypatch, repo, tmp_path, subject, data, **over):
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir(exist_ok=True)
+    (comfyout / "out.png").write_bytes(data)
+    generate.run(_img_args(seed=7, subject=subject, comfy_output_dir=str(comfyout), **over), repo, _StubAp())
+
+
+def test_a_different_prompt_with_the_same_seed_keeps_both_renders(monkeypatch, tmp_path):
+    # 'a red cat' then 'a blue dog' with --seed 7 left only the dog, and the cat's sidecar was gone too
+    repo = _tmp_repo(tmp_path)
+    _render_image(monkeypatch, repo, tmp_path, "a red cat", b"CAT")
+    _render_image(monkeypatch, repo, tmp_path, "a blue dog", b"DOG")
+    out = repo / "brands" / "b" / "outputs" / "images"
+    assert (out / "b_txt2img_7.png").read_bytes() == b"CAT" and (out / "b_txt2img_7_2.png").read_bytes() == b"DOG"
+    # each sidecar sits beside the image it describes
+    assert "a red cat" in json.loads((out / "b_txt2img_7.json").read_text(encoding="utf-8"))["prompt"]
+    assert "a blue dog" in json.loads((out / "b_txt2img_7_2.json").read_text(encoding="utf-8"))["prompt"]
+
+
+def test_an_identical_rerender_replaces_the_earlier_one(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    _render_image(monkeypatch, repo, tmp_path, "a red cat", b"CAT1")
+    _render_image(monkeypatch, repo, tmp_path, "a red cat", b"CAT2")
+    out = repo / "brands" / "b" / "outputs" / "images"
+    assert sorted(p.name for p in out.iterdir()) == ["b_txt2img_7.json", "b_txt2img_7.png"]
+    assert (out / "b_txt2img_7.png").read_bytes() == b"CAT2"
+
+
+def test_an_identical_3d_rerender_in_another_format_drops_the_stale_one(monkeypatch, tmp_path):
+    # the GLB and sidecar were replaced but the earlier --format stl's STL stayed, which the sidecar no longer
+    # described
+    import scripts.brandkit.mesh as mesh
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+
+    def fake_convert(p, fmt):
+        out = Path(p).with_suffix("." + fmt)
+        out.write_bytes(fmt.encode())
+        return out
+    monkeypatch.setattr(mesh, "convert", fake_convert)
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir()
+    for fmt in ("stl", "obj"):
+        (comfyout / "out.glb").write_bytes(b"glb")
+        args = _3d_args(seed=5, comfy_output_dir=str(comfyout))
+        args.format = fmt
+        generate.run(args, repo, _StubAp())
+    d = repo / "brands" / "b" / "outputs" / "3d"
+    assert sorted(p.name for p in d.iterdir()) == ["b_image_5.glb", "b_image_5.json", "b_image_5.obj"]
+    assert json.loads((d / "b_image_5.json").read_text(encoding="utf-8"))["format"] == "obj"

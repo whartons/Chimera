@@ -225,3 +225,22 @@ def test_a_freecad_job_listing_a_missing_file_is_one_line(tmp_path, monkeypatch,
     with pytest.raises(SystemExit) as e:
         G.run_cad(_cad(formats="step"), tmp_path, argparse.ArgumentParser())
     assert e.value.code == 1 and "cad failed: FreeCAD listed ghost.step" in capsys.readouterr().err
+
+
+def test_two_cad_jobs_with_one_seed_keep_both_and_each_keeps_its_files_together(tmp_path, monkeypatch):
+    # the second box replaced the first one's STEP, STL and sidecar (2026-10-25 review); routed file by file
+    # under the keep-both rule, its STL would have taken a third name
+    def fake_freecad(t, p, **kw):
+        outs = [Path(p["out_dir"]) / f"{p['stem']}.{ext}" for ext in p["formats"]]
+        for o in outs:
+            o.write_text(str(p["length"]))
+        return {"outputs": [str(o) for o in outs], "freecad_version": "1.1.1"}
+    monkeypatch.setattr(G.freecad_runner, "run_template", fake_freecad)
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    G.run_cad(_cad(length=40.0), tmp_path, argparse.ArgumentParser())
+    G.run_cad(_cad(length=50.0), tmp_path, argparse.ArgumentParser())
+    d = tmp_path / "outputs" / "3d"
+    assert sorted(p.name for p in d.iterdir()) == ["primitive_5.json", "primitive_5.step", "primitive_5.stl",
+                                                   "primitive_5_2.json", "primitive_5_2.step", "primitive_5_2.stl"]
+    assert (d / "primitive_5.stl").read_text() == "40.0" and (d / "primitive_5_2.stl").read_text() == "50.0"
+    assert json.loads((d / "primitive_5_2.json").read_text())["outputs"] == ["primitive_5_2.step", "primitive_5_2.stl"]

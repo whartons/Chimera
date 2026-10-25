@@ -33,16 +33,104 @@ def test_route_brandless_goes_to_global_outputs(tmp_path):
     assert dest.exists() and not src.exists()
     assert dest == tmp_path / "outputs" / "images" / "txt2img_1.png"
 
-def test_route_overwrites_existing_dest(tmp_path):
-    # a prior render already sits at the destination name (in the media-type subfolder)
-    out_dir = tmp_path / "brands" / "example-brand" / "outputs" / "images"
-    out_dir.mkdir(parents=True)
-    (out_dir / "example-brand_txt2img_7.png").write_bytes(b"OLD")
+def _meta(prompt="a red cat", values="v1", hashes=None):
+    """A render sidecar's identity-bearing fields (sidecar.build_meta's shape)."""
+    prov = {"graph_signature": "sig", "graph_values": values}
+    if hashes:
+        prov["input_hashes"] = hashes
+    return {"schema": 2, "modality": "image", "mode": "txt2img", "seed": 7, "prompt": prompt, "negative": "",
+            "provenance": prov}
+
+
+def _rendered(out_dir, stem, meta, data=b"OLD"):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{stem}.png").write_bytes(data)
+    (out_dir / f"{stem}.json").write_text(_json.dumps(meta), encoding="utf-8")
+
+
+def _src(tmp_path, data=b"NEW"):
     src = tmp_path / "global" / "new.png"
-    src.parent.mkdir(parents=True); src.write_bytes(b"NEW")
-    dest = route_output(repo_root=tmp_path, brand="example-brand", src=src,
-                        mode="txt2img", seed=7)
+    src.parent.mkdir(parents=True, exist_ok=True); src.write_bytes(data)
+    return src
+
+
+def test_route_overwrites_existing_dest(tmp_path):
+    # an identical re-render (same graph, same prompts, same input files) replaces the earlier one cleanly
+    from scripts.brandkit.sidecar import render_identity
+    out_dir = tmp_path / "brands" / "example-brand" / "outputs" / "images"
+    _rendered(out_dir, "example-brand_txt2img_7", _meta(hashes={"asset": "abc"}))
+    src = _src(tmp_path)
+    dest = route_output(repo_root=tmp_path, brand="example-brand", src=src, mode="txt2img", seed=7,
+                        identity=render_identity(_meta(hashes={"asset": "abc"})))
+    assert dest.name == "example-brand_txt2img_7.png"
     assert dest.read_bytes() == b"NEW" and not src.exists()
+    assert sorted(p.name for p in out_dir.iterdir()) == ["example-brand_txt2img_7.json", "example-brand_txt2img_7.png"]
+
+
+@pytest.mark.parametrize("new", [_meta(prompt="a blue dog"), _meta(values="v2"),
+                                 _meta(hashes={"asset": "other"})], ids=["prompt", "settings", "input-file"])
+def test_a_different_render_with_the_same_seed_keeps_both(tmp_path, new):
+    # 'a red cat' then 'a blue dog' with --seed 7 left only the dog: route_output replaced the cat and its sidecar
+    from scripts.brandkit.sidecar import render_identity
+    out_dir = tmp_path / "brands" / "b" / "outputs" / "images"
+    _rendered(out_dir, "b_txt2img_7", _meta(hashes={"asset": "abc"} if "input_hashes" in new["provenance"] else None))
+    dest = route_output(tmp_path, "b", _src(tmp_path), "txt2img", 7, identity=render_identity(new))
+    assert dest.name == "b_txt2img_7_2.png" and dest.read_bytes() == b"NEW"
+    assert (out_dir / "b_txt2img_7.png").read_bytes() == b"OLD"
+
+
+def test_the_next_free_name_counts_up_and_an_identical_render_reuses_its_own(tmp_path):
+    from scripts.brandkit.sidecar import render_identity
+    out_dir = tmp_path / "brands" / "b" / "outputs" / "images"
+    _rendered(out_dir, "b_txt2img_7", _meta("a red cat"))
+    _rendered(out_dir, "b_txt2img_7_2", _meta("a blue dog"))
+    third = route_output(tmp_path, "b", _src(tmp_path, b"FROG"), "txt2img", 7, identity=render_identity(_meta("frog")))
+    assert third.name == "b_txt2img_7_3.png"
+    again = route_output(tmp_path, "b", _src(tmp_path, b"DOG2"), "txt2img", 7,
+                         identity=render_identity(_meta("a blue dog")))
+    assert again.name == "b_txt2img_7_2.png" and again.read_bytes() == b"DOG2"   # the dog's own name, replaced
+
+
+def test_a_caller_that_cannot_tell_never_replaces(tmp_path):
+    # no identity (a Blender job, an agent iteration) or no readable sidecar: the earlier file is kept
+    from scripts.brandkit.sidecar import render_identity
+    out_dir = tmp_path / "outputs" / "images"
+    _rendered(out_dir, "txt2img_7", _meta())
+    assert route_output(tmp_path, None, _src(tmp_path), "txt2img", 7).name == "txt2img_7_2.png"
+    (out_dir / "txt2img_7.json").write_text("{not json", encoding="utf-8")
+    assert route_output(tmp_path, None, _src(tmp_path), "txt2img", 7, identity=render_identity(_meta())).name == \
+        "txt2img_7_3.png"
+
+
+def test_an_old_sidecar_without_a_graph_record_is_never_the_same_render():
+    from scripts.brandkit.sidecar import render_identity
+    assert render_identity({"schema": 1, "prompt": "x"}) is None
+    assert render_identity({"schema": 2, "kind": "cad", "provenance": {"params_signature": "p"}}) is None
+    assert render_identity(_meta()) == render_identity(_json.loads(_json.dumps(_meta())))   # survives the file
+
+
+def test_a_jobs_files_share_one_free_name_across_their_folders(tmp_path):
+    # Blender/FreeCAD jobs route several files under one name (STEP+STL, PNG+GLB): a per-file free name split
+    # them (STL _2, GLB _3), so the job picks one name free in every folder it writes to
+    (tmp_path / "outputs" / "images").mkdir(parents=True)
+    (tmp_path / "outputs" / "images" / "finish_7.png").write_bytes(b"old still")
+    srcs = [tmp_path / "a.stl", tmp_path / "a.glb"]
+    assert outputs.job_stem(tmp_path, None, srcs, "finish", 7) == "finish_7"      # 3d/ is empty: first free
+    srcs.append(tmp_path / "a.png")
+    stem = outputs.job_stem(tmp_path, None, srcs, "finish", 7)
+    assert stem == "finish_7_2"                                                    # images/ holds finish_7
+    for s in srcs:
+        s.write_bytes(b"new")
+    routed = [route_output(tmp_path, None, s, "finish", 7, stem=stem).name for s in srcs]
+    assert routed == ["finish_7_2.stl", "finish_7_2.glb", "finish_7_2.png"]
+    with pytest.raises(NoOutputError, match="plain names"):
+        outputs.job_stem(tmp_path, None, srcs, "../x", 7)
+    other = tmp_path / "b.png"
+    other.write_bytes(b"x")
+    for bad in (dict(brand="..", stem="ok"), dict(brand=None, stem="../escape")):   # a picked name is checked too
+        with pytest.raises(NoOutputError):
+            route_output(tmp_path, bad["brand"], other, "finish", 7, stem=bad["stem"])
+    assert other.exists()
 
 def test_route_retries_on_transient_lock(tmp_path, monkeypatch):
     src = tmp_path / "global" / "img.png"

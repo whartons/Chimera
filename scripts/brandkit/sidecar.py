@@ -169,6 +169,20 @@ def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, 
     return meta
 
 
+def render_identity(meta):
+    """What makes two ComfyUI renders the same render, read off a build_meta sidecar: the graph's structure
+    and settings, the prompt text (graph_values leaves it out, so 'a red cat' and 'a blue dog' with one seed
+    share it) and what each input file held. route_output replaces a same-named render only when this matches.
+    None for a sidecar with no graph record (a Blender or FreeCAD job, an agent-run summary, an old schema-1
+    file): that is never the same render."""
+    prov = meta.get("provenance") if isinstance(meta, dict) else None
+    if not isinstance(prov, dict) or not prov.get("graph_values"):
+        return None
+    return {"modality": meta.get("modality"), "graph_signature": prov.get("graph_signature"),
+            "graph_values": prov["graph_values"], "prompt": meta.get("prompt"), "negative": meta.get("negative"),
+            "input_hashes": prov.get("input_hashes") or {}}
+
+
 def _params_sig(params: dict, template: str) -> str:
     blob = json.dumps({"t": template, "p": params}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()[:16]

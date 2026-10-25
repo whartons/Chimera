@@ -18,7 +18,7 @@ from . import freecad as freecad_runner
 from .comfy import ComfyClient
 from .dcc import job_outputs
 from .manifest import ManifestError, default_manifest, load_manifest
-from .outputs import NoOutputError, route_output, write_sidecar
+from .outputs import NoOutputError, job_stem, route_output, write_sidecar
 from .provenance import git_provenance
 from .sidecar import build_cad_meta, build_render_meta
 
@@ -196,7 +196,10 @@ def run_render(args, repo_root, ap):
         outs = manifest.get("outputs", [])
         if not outs:
             print("render produced no outputs", file=sys.stderr); sys.exit(1)
-        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, producer="Blender") for o in outs]
+        # one name for the job's files (still, GLB, STL), free in every folder: a same-seed job keeps both
+        stem = job_stem(repo_root, args.brand, outs, args.mode, seed)
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, stem=stem, producer="Blender")
+                  for o in outs]
     except (blender_runner.BlenderJobError, NoOutputError) as e:
         print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
     finally:
@@ -323,7 +326,10 @@ def run_cad(args, repo_root, ap):
         outs = job_outputs(manifest, tmp, freecad_runner.FreeCADJobError)   # a script prints its own manifest
         if not outs:
             print("cad produced no outputs", file=sys.stderr); sys.exit(1)
-        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, producer="FreeCAD") for o in outs]
+        # one name for the job's STEP/STL/OBJ, free in every folder: a same-seed job keeps both (2026-10-25)
+        stem = job_stem(repo_root, args.brand, outs, args.mode, seed)
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, stem=stem, producer="FreeCAD")
+                  for o in outs]
     except (freecad_runner.FreeCADJobError, NoOutputError) as e:
         print(f"cad failed: {e}", file=sys.stderr); sys.exit(1)
     finally:

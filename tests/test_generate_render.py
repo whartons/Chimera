@@ -292,3 +292,27 @@ def test_cli_accepts_solid(monkeypatch):
                                       "--scale-mm", "228.6"])
     GEN.main()
     assert seen == [(True, 228.6)]
+
+
+def test_two_finishes_with_one_seed_keep_both_and_each_keeps_its_files_together(tmp_path, monkeypatch):
+    # the second finish replaced the first one's still, STL, GLB and sidecar (2026-10-25 review)
+    (tmp_path / "a.glb").write_text("a")
+    (tmp_path / "b.glb").write_text("b")
+
+    def fake_blender(t, p, **kw):
+        outs = [Path(p["out_dir"]) / f"{p['stem']}{ext}" for ext in (".png", ".stl", ".glb")]
+        for o in outs:
+            o.write_text(Path(p["mesh"]).name)
+        return {"outputs": [str(o) for o in outs], "blender_version": "5.2.2"}
+    monkeypatch.setattr(G.blender_runner, "run_template", fake_blender)
+    monkeypatch.setattr(G, "_check_stls", lambda paths, tools: {})
+    monkeypatch.setattr(G, "git_provenance", lambda r: None)
+    for mesh in ("a.glb", "b.glb"):
+        G.run_render(_args(mode="finish", from_=str(tmp_path / mesh)), tmp_path, argparse.ArgumentParser())
+    out = tmp_path / "outputs"
+    assert sorted(p.name for p in (out / "3d").iterdir()) == ["finish_7.glb", "finish_7.stl",
+                                                              "finish_7_2.glb", "finish_7_2.stl"]
+    assert sorted(p.name for p in (out / "images").iterdir()) == ["finish_7.json", "finish_7.png",
+                                                                  "finish_7_2.json", "finish_7_2.png"]
+    assert (out / "3d" / "finish_7.stl").read_text() == "a.glb" and (out / "3d" / "finish_7_2.stl").read_text() == "b.glb"
+    assert json.loads((out / "images" / "finish_7_2.json").read_text())["source"] == "b.glb"
