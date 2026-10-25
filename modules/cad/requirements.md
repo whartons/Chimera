@@ -11,7 +11,7 @@
 | | |
 |---|---|
 | **App** | FreeCAD **1.1.4 or newer** (earlier releases have HIGH crafted-`.FCStd` advisories) |
-| **Python** | 3.12 (bundled with FreeCAD 1.0+) |
+| **Python** | 3.11 (bundled with FreeCAD 1.0 and 1.1) |
 | **Download** | <https://www.freecad.org/downloads.php> |
 
 FreeCAD must be running with its GUI active for MCP-assisted work (see [README.md](README.md)).

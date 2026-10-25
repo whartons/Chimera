@@ -6,6 +6,141 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`--no-watermark`.** A brand with `watermark.enabled_default: true` had no way to render one image without
+  the logo. Every subcommand that takes `--watermark` now takes `--no-watermark` too; with neither, the brand's
+  default decides, as before. The sidecar records the watermark the render used, and a replay keeps it.
+- **Replay notices an input file that changed since the render.** Sidecars kept only an input's file name, so
+  replay used whatever file had it (a `--from-image` photo from another folder, a logo replaced in place) and
+  reported no drift. The sidecar's provenance now records `input_hashes`, a short sha256 of each file the
+  render read (the image `--asset`, `--from-image`, `--from-video` and the watermark logo). Replay compares
+  them and lists a mismatch with the other drift, so it stops unless `--accept-drift`, with or without
+  `replay --model`. Older sidecars replay as before.
+
+### Changed
+- **A same-seed render keeps the earlier one.** Outputs are named `<brand>_<mode>_<seed>`, and a new render
+  replaced whatever had that name: `a red cat` then `a blue dog` with `--seed 7` left only the dog, and the
+  cat's sidecar went with it. A taken name is now replaced only by an identical re-render (the same graph,
+  settings, prompt, negative and input files); anything else takes `<name>_2`, `<name>_3`, …, with its sidecar
+  beside it. Replays keep their own `_replay`, `_replay2` names. All of a `render` or `cad` job's files (a
+  still, an STL and a GLB) share one name, picked free in every folder they go to. A later agent-loop run with
+  the same seeds keeps the earlier run's files, and an identical 3D re-render deletes an `.stl` or `.obj` an
+  earlier `--format` left under its name.
+- **Uploads never replace another run's input.** Uploads overwrote by default, and `LoadImage` reads its file
+  when the job runs, so two runs at once (two terminals, an agent firing several jobs) could swap each other's
+  `logos/primary.png` or `product.png` in ComfyUI's `input/` before the earlier job read it. ComfyUI now keeps
+  a file whose content is identical and stores different content under a free name (`primary (1).png`), and
+  every graph uses the name it returns. Replay doesn't count that copy name as a settings change; the input
+  hash checks the content.
+- **brand.yaml's top-level fields are checked when it loads.** `palette: "#1c1f22"` was split into its
+  characters, a mapping `style` or a list `negative` went into the prompt as Python text, and a typo such as
+  `prompt_sufix:` vanished. A single palette string is now one colour; `style`, `prompt_prefix`,
+  `prompt_suffix` and `negative` must be text; palette entries must be strings (an unquoted hex colour is a
+  YAML comment); and unknown top-level keys warn, as a block's do. `logo.position` and `watermark.position` are
+  read without regard to case or separator and must be one of `top-left`, `top-right`, `bottom-left`,
+  `bottom-right` or `center`: `Top-Left` went to the bottom-right corner and `top-center` to the top-right.
+- **Flags a render can't use are no longer silent.** `audio --from-video clip.mp4` (or `--fps`) without
+  `--mode foley` ignored the clip and rendered music from the foley text; it is now an error naming
+  `--mode foley`. `--watermark` on a 3D mesh, a music or sfx track, or `image --mode logo` prints a one-line
+  note instead of vanishing (a brand's own default stays quiet).
+- **The mesh3d and cad loops say they need Pillow.** Both judge a contact sheet built with Pillow, so on a
+  `.[dev]`-only install every iteration failed as "iteration failed" and the loops could never pass.
+  `auto_generate.py --pipeline mesh3d|cad` now stops up front naming `pip install -e ".[images]"`; the image
+  loop is unaffected. `chimera doctor`'s Pillow line names the contact sheet.
+
+### Fixed
+- **Judge verdicts that passed on a confession, a "false" or a thought.** A NOT-MET before the verdict label
+  on its line (`Summary: criterion 2 is NOT-MET (orange body). Overall: PASS`) passed; it now fails, while
+  `NOT-MET: none. Overall: PASS` still passes. A pass field set to no (`PASS: false`, `Passed: No`, JSON's
+  `"passed": false`) read as a PASS, and an echoed format label (`Overall (PASS/FAIL): PASS`) as a FAIL. A
+  thinking model's inline reasoning (`<think>…</think>`, an unclosed `<think>`, reasoning before a stray
+  `</think>`) is dropped before parsing: its "So overall this should PASS" read as the verdict.
+- **A broken part no longer wins best-of.** When nothing passed, the loop returned the highest score, so a CAD
+  part in 16 pieces at 0.95 beat a clean one at 0.85. `GeometryAwareJudge` marks the verdicts it fails, and
+  they now rank below every clean candidate.
+- **A judge reply cut off at `max_tokens` fails the iteration.** One cut off mid-sentence was judged on the
+  fragment; one cut off while thinking now gets the thinking-off retry. Code-gen and the rewriter still take a
+  cut-off reply. A `message: null`, a non-text content or other odd response shapes are LLM errors the loops
+  handle instead of crashes, content sent as a list of parts is joined, and a code fence with any language
+  tag (```` ```py ````) no longer leaves the tag as the script's first line.
+- **11 GB cards get the small tier.** The medium tier started at 11 GiB, so an 11 GB card (11.00 GiB) got it,
+  where the docs say under 12 GB is small. It now starts at 11.5 GiB; a 12 GB card (about 11.99) stays medium.
+- **CAD code-gen hears what the judge found.** It got only the expander's positive prompt, which carries a
+  judge's "avoid X" terms only in the negative and its NOT-MET reasons only when no FIX parsed, so "NOT-MET -
+  hook arm 2 mm thick, fragile. FIX: avoid thin hook arm" reached code-gen as "Correct the previous attempt. a
+  wall hook". It now also gets an `Avoid: …` line and a `The judge found: …` list. The last FreeCAD error is
+  cleared only once code-gen has returned, so a code-gen failure no longer loses it.
+- **An Ollama or ComfyUI that doesn't answer is not one that holds nothing.** The GPU hand-off read every failed
+  probe as "not running": a local Ollama whose probes timed out let a model load without the room check, read
+  as holding nothing before a render, and a timed-out `/api/ps` read as "unloaded"; a wedged ComfyUI read as
+  not running, so the model loaded beside it. Now only a refused connection means "not running" (and a 404
+  "not Ollama"); a timeout, a reset or a garbled reply from a local endpoint refuses the load or the render,
+  and stops a loop before its first render. Hosted and remote endpoints stay unprobed, and a remote Ollama's
+  model is no longer unloaded.
+- **A model bigger than the card waits for ComfyUI to empty**, not just for free memory: 29.5 of 32 GB free
+  "fit" a 35 GB model while ComfyUI still held 2 GB that Ollama can't see. The room now counts only once
+  ComfyUI holds under 1 GB.
+- **`chimera free` waits for Ollama to let go** (up to 10 s per model) before it asks ComfyUI to free, which
+  ComfyUI 0.40 can fail inside while Ollama still holds the card.
+- **A prompt ComfyUI dropped fails in seconds, not after the timeout.** If ComfyUI restarted mid-render, or the
+  job was cancelled from its queue, `/history/<id>` answered `{}` forever and the CLI waited out the modality's
+  timeout (up to 3600 s). Every fifth empty poll now asks `/queue`; a prompt in neither the running nor the
+  pending list gets one more history read, then fails with an error saying ComfyUI restarted or the job was
+  cancelled.
+- **A null in a brand.yaml block means the field's default.** `watermark: {position: null}` with
+  `--watermark` crashed after the logo upload, `audio: {music_tags: null}` crashed in the prompt, and
+  `defaults: {model: null}` built the FLUX.2 graph with no model, freed the GPU and came back as HTTP 400. A
+  null for a number or a switch was an error. `threed.format: null` is `glb`.
+- **`new-brand` refuses a name it can't create.** `<>"|?*` got through, so on Windows `new-brand 'what?'`
+  ended in an uncaught WinError 123, and on POSIX a `"` broke brand.yaml's `name:` line. Brand names now refuse
+  `<>:"/\|?*` and every control character, the name is written in YAML's double-quoted form, and a name the
+  OS reserves is one clean error.
+- **The LoRA trainer's crashes are clean errors.** `train_brand_lora.py --brand typo` and a broken brand.yaml
+  were tracebacks; it now checks the name as `generate.py` does and reports a missing or broken manifest in one
+  line. A caption saved in the Windows code page raised `UnicodeDecodeError` and a UTF-8 BOM stayed in the
+  caption: captions are read as UTF-8 (BOM dropped), falling back to cp1252. The tracked example config named
+  `flux2_dev_fp8mixed` after the trainer moved to the brand's `defaults.model`; it now names
+  `qwen_image_2.1_int8_convrot`, and the dry-run message no longer assumes a FLUX backend.
+- **A rotated phone photo is sized the way ComfyUI loads it.** `LoadImage` applies the EXIF rotation, but the
+  size read for the watermark canvas didn't, so a phone JPEG stored 4032×3024 with orientation 6 placed the
+  bottom-right logo off the frame in relight or product mode while the sidecar said `watermark: true`. Both
+  size reads (Pillow's, and the no-Pillow header read) now swap width and height for orientations 5–8, and a
+  damaged EXIF length no longer hides the JPEG's size.
+- **LTX sizes snap to multiples of 32.** `EmptyLTXVLatentVideo` floors its size to 32, so `video --model ltx23
+  --width 1280 --height 720` rendered 1280×704 while the sidecar and the watermark placement said 720. LTX
+  sizes now snap down to 32 (64 at least), as Wan's do to 16.
+- **ACE-Step and foley values ComfyUI refuses are CLI errors** before the GPU is freed and the clip uploaded,
+  not an HTTP 400 after. ACE-Step's key must be one of its 34 (case and spacing normalised: `F# Minor` sends
+  `F# minor`), its BPM 10 to 300 and its length 1 to 1000 s, from the CLI or the brand; Stable Audio 3 keeps
+  free key text and gets the same 1000 s ceiling, and its 1 s floor now covers the brand's `music_duration`
+  too. Foley checks the clip's timing (1 to 60 s, 1 to 120 fps) before the upload.
+- **Foley reads a WebM or MKV clip's length.** PyAV reports no frame count for them, so the probe found no
+  duration and foley rendered 5 s whatever the clip's length; it now uses the video stream's duration, else
+  the container's.
+- **An STL converted from a GLB stands up in a slicer.** glTF is Y-up and STL Z-up, but `generate.py 3d
+  --format stl` copied the coordinates straight across, so the model lay on its back. The STL now gets a +90°
+  turn about X (no mirror, so the facets still face out); OBJ stays Y-up, its own convention.
+- **An open cup or a tube's bore is not a hollow cavity.** The print check scored solid vs hollow by how much
+  of each ray lay inside the model, so a clean one-piece cup read HOLLOW and was told to run `--solid`, and the
+  CAD tube example read UNCLEAR. A gap between two inside runs now counts only when it is sealed (under 5% of
+  directions from its middle reach the outside), so open shapes read SOLID while leaky TRELLIS.2 sheets stay
+  HOLLOW.
+- **A render with an empty subject replays.** `audio --brand B --subject ""` is a valid render, but replay
+  refused its sidecar as having no `inputs.subject`; only a missing subject is refused now.
+- **Untracked files don't make the recorded commit `-dirty`.** `git status` counted them, so the example
+  brand's new renders marked every later render's `pipeline_git_sha` dirty. A git status slower than its
+  timeout also threw away the commit already read; the sidecar now keeps it.
+
+### Docs
+- Download sources corrected: Z-Image base is `split_files/diffusion_models/z_image_bf16.safetensors` from
+  `Comfy-Org/z_image` (no rename), the FLUX.2 files come from `Comfy-Org/flux2-dev`, and LTX-2.3's Gemma encoder
+  is ~8.8 GB from `Comfy-Org/ltx-2`. FLUX.2's VRAM rows are labelled as observed peaks beside the file sizes.
+- The blender_mcp launcher in `docs/SETUP.md` gains `--with "mcp[cli]~=1.12"` (without it, `uvx` resolves MCP
+  SDK 2.x and the server dies), its license reads GPL-3.0-or-later everywhere, and the Blender Tier-2 tools are
+  documented as approval-only (no path allowlist is enforced). The LTX graph's pack nodes are named
+  (`MultimodalGuider`, `GuiderParameters`, `LTXVImgToVideoConditionOnly`; sampling is core), FreeCAD's bundled
+  Python is 3.11, and the Blackwell guide's Triton line installs 3.6.x for torch 2.10.
+
 ## [0.6.2] - 2026-10-25
 
 The print release: AI 3D models (TRELLIS.2, Pixal3D) come out as one solid, printable STL in millimetres, and every

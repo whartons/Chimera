@@ -75,7 +75,7 @@ chimera/
 ```
 
 ## Module conventions
-Every `modules/<name>/` folder contains at least:
+Each **generative module** (`image`, `video`, `audio`, `threed`) contains at least:
 - `README.md` — what it does, which models, VRAM needs, license notes.
 - one or more sanitized, importable ComfyUI workflow templates (the canonical copies
   live in `workflows/templates/`; a module may carry several, e.g. image has Qwen-Image-2.1
@@ -83,8 +83,13 @@ Every `modules/<name>/` folder contains at least:
 - `models.md` — model name + Hugging Face / Civitai URL + license + where the file goes
   in `ComfyUI/models/...`. Never hardcode local absolute paths in tracked files.
 
+The **DCC bridges** (`blender`, `cad`) have no ComfyUI graph and no model weights: each carries a
+`README.md` + a `requirements.md` (the app, the pinned MCP server + addon, the headless runner's needs), and
+their job templates are `.py` files under `workflows/templates/blender/` and `workflows/templates/freecad/`.
+`agent` carries a `README.md` (the MCP bridge + security model) + `self-correction.md` (the loop).
+
 ## When asked to add a module or workflow
-1. Create `modules/<name>/` with the three files above.
+1. Create `modules/<name>/` with the files above (a generative module's three).
 2. Add a sanitized template to `workflows/templates/`.
 3. Update `docs/CATALOG.md` with the model(s) and their license.
 4. Put any private/branded variant in `workflows/personal/` (gitignored) — never
@@ -151,7 +156,8 @@ stale doc is a bug.
   `modules/agent/self-correction.md`.
 - **Dependency, model, or node-pack pin** → `docs/STACK.md` **and** `docs/CATALOG.md` (plus the pin +
   `git checkout <sha>` in that module's `models.md`, **and** the `GIT_PACKS`/`GITEA_PACKS`/`NPM_PACKS` tables
-  in `scripts/update_report.py`, plus `.mcp.json` for an MCP server). Pin third-party packs by commit, never `@latest`; updating is gated by
+  plus `PACK_VERSIONS` / `GIT_HOLDS` in `scripts/update_report.py`, plus `.mcp.json` and the bridge's
+  `requirements.md` for an MCP server). Pin third-party packs by commit, never `@latest`; updating is gated by
   the [`docs/UPDATING.md`](docs/UPDATING.md) runbook (re-audit first).
 - **Host-app reference version** (ComfyUI, Ollama, FreeCAD, Blender, Node.js, Python) → `docs/STACK.md` §7 **and**
   `HOST_APPS` / `COMFY_REF` in `scripts/update_report.py` (a test checks they match).

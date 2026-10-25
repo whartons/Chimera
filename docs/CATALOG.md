@@ -9,8 +9,8 @@ column stays as neutral reference for anyone who forks; flags (✅ commercial-OK
 > categories) with one-click reference workflows for most of these. Use those as
 > your starting point, then move customized copies into `workflows/personal/`.
 
-> **Mid-2026 freshness note:** Z-Image, LTX-2.3, ACE-Step 1.5 XL, TRELLIS.2, and
-> HunyuanVideo-Foley are all post-Jan-2026 releases. Verify ComfyUI node/version
+> **Freshness note:** Z-Image, LTX-2.3, ACE-Step 1.5 XL, TRELLIS.2, and
+> HunyuanVideo-Foley are all recent (late-2025 / 2026) releases. Verify ComfyUI node/version
 > compatibility (smoke-test) before pinning any of them. Speed and quality claims
 > for these models are largely vendor-stated or single-source — treat as directional
 > until independently confirmed. Third-party node packs must be security-scanned
@@ -48,7 +48,7 @@ module dispatches to Z-Image templates when the active model name starts with
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
 | `z_image_turbo_nvfp4.safetensors` | `Comfy-Org/z_image_turbo` | `diffusion_models/` | ~4.5 GB | ✅ Apache-2.0 |
-| `z_image_bf16.safetensors` | `Comfy-Org/z_image_turbo` | `diffusion_models/` | ~12.3 GB | ✅ Apache-2.0 |
+| `z_image_bf16.safetensors` *(base)* | `Comfy-Org/z_image` (`split_files/diffusion_models/`) | `diffusion_models/` | ~12.3 GB | ✅ Apache-2.0 |
 | `qwen_3_4b.safetensors` *(shared)* | `Comfy-Org/z_image_turbo` | `text_encoders/` | ~8 GB | ✅ Apache-2.0 |
 | `ae.safetensors` *(shared)* | `Comfy-Org/z_image_turbo` | `vae/` | ~0.3 GB | ✅ Apache-2.0 |
 
@@ -70,9 +70,9 @@ through the FLUX.2 templates instead.
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | License |
 |------|-----------------|----------------------------------|---------|
-| `flux2_dev_fp8mixed.safetensors` | `Comfy-Org/FLUX.2` | `diffusion_models/` | ❓ non-commercial — verify |
-| `mistral_3_small_flux2_bf16.safetensors` | `Comfy-Org/FLUX.2` text encoders | `text_encoders/` | ✅ Mistral / Apache-2.0 |
-| `flux2-vae.safetensors` | `Comfy-Org/FLUX.2` repo | `vae/` | ❓ verify |
+| `flux2_dev_fp8mixed.safetensors` | `Comfy-Org/flux2-dev` | `diffusion_models/` | ❓ non-commercial — verify |
+| `mistral_3_small_flux2_bf16.safetensors` | `Comfy-Org/flux2-dev` text encoders | `text_encoders/` | ✅ Mistral / Apache-2.0 |
+| `flux2-vae.safetensors` | `Comfy-Org/flux2-dev` repo | `vae/` | ❓ verify |
 
 > **FLUX.2 caveat:** community reports of "waxy faces" and the full fp16 model
 > saturates a 32 GB card. Use Z-Image for portraits; reserve FLUX.2 for
@@ -144,9 +144,10 @@ audio.
 **Synced-audio option (`--model ltx23`): LTX-2.3 22B**
 
 Node pack: `https://github.com/Lightricks/ComfyUI-LTXVideo` — **pinned at audited
-commit `15d09ab`** (re-scan before advancing the pin). Provides MultimodalGuider,
-normalizing sampler, 2-stage spatial upscaler nodes, and IC-LoRA support — install
-via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
+commit `15d09ab`** (re-scan before advancing the pin). Chimera's graph uses three of its nodes
+(`MultimodalGuider`, `GuiderParameters`, `LTXVImgToVideoConditionOnly`); its sampler, Gemma loader and
+latent upsampler are core — install via ComfyUI-Manager, then `git checkout 15d09ab`, before using the
+models below.
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
 |------|-----------------|----------------------------------|------|---------|
@@ -154,7 +155,7 @@ via ComfyUI-Manager, then `git checkout 15d09ab`, before using the models below.
 | `ltx-2.3-22b-distilled-1.1.safetensors` | `Lightricks/LTX-2.3` | `checkpoints/` | ~46 GB | open weights |
 | `ltx-2.3-22b-distilled-lora-384-1.1.safetensors` | `Lightricks/LTX-2.3` | `loras/` | ~7.6 GB | open weights |
 | `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `Lightricks/LTX-2.3` | `latent_upscale_models/` | ~1 GB | open weights |
-| `gemma_3_12B_it_fp4_mixed.safetensors` *(LTX-2.3 text encoder)* | fetched with the LTX-2.3 setup / the `ComfyUI-LTXVideo` pack | `text_encoders/` | ~7 GB | ❓ verify |
+| `gemma_3_12B_it_fp4_mixed.safetensors` *(LTX-2.3 text encoder)* | `Comfy-Org/ltx-2` (`split_files/text_encoders/`) | `text_encoders/` | ~8.8 GB | ❓ verify |
 
 - **Dev nvfp4** (`ltx-2.3-22b-dev-nvfp4`) — quantized for 32 GB cards; the
   primary LTX-2.3 path (`--model ltx23`).

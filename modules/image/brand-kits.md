@@ -53,9 +53,11 @@ toggle and lands in a separate V2 plan — adding it doesn't disturb V1.
 - **Load** (in V1): set `lora.file` in `brand.yaml` and the workflow filler injects a
   `LoraLoaderModelOnly` node and re-points the sampler at it. No file → no node.
 - **Train** (scaffold): `train_brand_lora.py` scans `training/` (image + matching `.txt`
-  caption), generates a backend config, and — with `--run` — invokes a pluggable backend.
-  Defaults to `--dry-run` so the plumbing is verifiable now; real FLUX.2 LoRA training is
-  bleeding-edge, so you attach a backend (e.g. ai-toolkit) when it's ready.
+  caption, read as UTF-8, falling back to the Windows code page cp1252), generates a backend config, and —
+  with `--run` — invokes a pluggable backend. The config's `base_model` is the brand's `defaults.model`
+  (the tracked example config names `qwen_image_2.1_int8_convrot.safetensors`), so the LoRA targets the
+  model the brand renders with. Defaults to `--dry-run` so the plumbing is verifiable now; LoRA training
+  for these models is still bleeding-edge, so you attach a backend (e.g. ai-toolkit) when it's ready.
 
 ## Modes → templates
 
@@ -81,6 +83,9 @@ re-render at the product photo's size. **FLUX.2** (`flux2*`) uses `brand-txt2img
 The logo overlay uses `LoadImage`'s mask output as the composite alpha and computes
 x/y from `logo.position` + `logo.margin` against the canvas, so the logo stays
 pixel-exact (generative models can't reliably redraw a logo; compositing keeps it true).
+`logo.position` (and `watermark.position`) is one of `top-left`, `top-right`, `bottom-left`,
+`bottom-right` or `center`, read without regard to case or separator (`Top-Left` and `top left` are
+`top-left`); anything else is a manifest error.
 
 ## Per-brand outputs
 
@@ -90,6 +95,11 @@ lets `SaveImage` write there, then **relocates** the finished file into
 outputs by media type: `images/ video/ audio/ 3d/`). That keeps
 every brand's renders adjacent to its source art while `brands/**/outputs/` stays
 gitignored. Pass `--comfy-output-dir` so the orchestrator knows where to pick the file up.
+
+A taken name is replaced only by an identical re-render: the same graph structure and settings, the same
+prompt and negative, and the same input files (`sidecar.render_identity`). Any other render with that seed
+takes the next free name, `<brand>_<mode>_<seed>_2`, `_3`, …, with its sidecar under the same stem, so the
+earlier render and its sidecar stay. A replay never replaces a file (`_replay`, `_replay2`, …).
 
 ## Testing
 

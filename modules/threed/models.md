@@ -97,13 +97,16 @@ untrusted `.ipadpt` files. Re-scan before advancing the pin.
 
 ## Caveats
 
-- **Shape only (no PBR texture):** the native pipeline produces geometry
+- **TRELLIS.2 and Pixal3D are textured:** their graph bakes PBR textures into the GLB itself, and they need
+  the split files in [the first table](#trellis2-default-and-pixal3d--textured-comfyui--040) (one model file
+  plus the shared VAEs, encoder and background remover), not a single checkpoint.
+- **Hunyuan3D 2.1 is shape only (no PBR texture):** its native pipeline produces geometry
   (POSITION + indices) with no materials, textures, or vertex colors. The output
   GLB is a valid glTF-v2 file but will appear as an untextured grey mesh in most
-  viewers. Downstream texturing (Blender, Substance Painter, etc.) works normally
-  on the exported geometry. See the README for the PBR future-enhancement note.
-- **Single file, no splits:** unlike the ACE-Step audio stack, this is a
+  viewers. Color it with `generate.py finalize-texture` ([above](#optional-auto-repaint-bake-models-hunyuan3d-path))
+  or downstream (Blender, Substance Painter, etc.).
+- **Hunyuan3D 2.1 is a single file, no splits:** unlike the ACE-Step audio stack, it is a
   monolithic checkpoint — one file covers the full pipeline.
-- **`checkpoints/` destination:** `ImageOnlyCheckpointLoader` targets
+- **Hunyuan3D 2.1's `checkpoints/` destination:** `ImageOnlyCheckpointLoader` targets
   `models/checkpoints/`, the standard ComfyUI checkpoint folder. Do not place it
   in `diffusion_models/` or `unet/`.

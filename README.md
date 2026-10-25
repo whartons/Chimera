@@ -53,9 +53,10 @@ with a Z-Image or FLUX.2 file for its concept image (or `--from-image`). See
 ```bash
 git clone https://github.com/whartons/Chimera && cd Chimera
 pip install -e ".[dev]"     # the `chimera` CLI + test/lint tooling (python scripts/generate.py also works)
+pip install -e ".[images]"  # Pillow: needed by the mesh3d/cad loops' contact sheet (and non-PNG logo sizing)
 pip install -e ".[print]"   # optional: 3D printing (`render --mode finish --solid` + the STL print check)
 chimera doctor              # preflight: ComfyUI reachable? node types + each modality's default models? GPU memory?
-chimera free                # clear GPU memory: unload Ollama's models, then ComfyUI's
+chimera free                # clear GPU memory: unload Ollama's models (waiting until it lets go), then ComfyUI's
 ```
 
 **Generate — no brand, no setup** (output → `outputs/<media>/`):
@@ -66,8 +67,12 @@ chimera image --subject "a chrome emblem" --upscale      # + 4× SeedVR2 upscale
 chimera video --from-image start.png --subject "rolls forward, dust"   # Wan 2.2 image→video (--camera static|pan-left|…; --model ltx23 for synced audio)
 chimera audio --mode music --subject "logo sting"        # text→stinger (Stable Audio 3; --model acestep --lyrics "…" sings)
 chimera audio --mode sfx --subject "a sword unsheathing"  # text→sound effect
-chimera 3d    --from-image rover.png --format stl         # image→mesh (glb|stl|obj)
+chimera 3d    --from-image rover.png --format stl         # image→mesh (glb|stl|obj; the STL is Z-up, as slicers expect)
 ```
+
+Outputs are named `<mode>_<seed>` (`<brand>_<mode>_<seed>` with a brand). A different render with a seed
+already used keeps both: the new one takes `<name>_2`, then `_3`, …; only an identical re-render (same
+prompt, settings and input files) replaces its own file. A replay never replaces one (it takes `<name>_replay`).
 
 ## 🎛️ Run it your way
 
@@ -79,6 +84,10 @@ chimera image --brand <brand> --mode txt2img --subject "an armored rover" --wate
 chimera image --brand <brand> --mode product --subject "the rover on a desert test range" --asset rover.png   # the real product, placed into a new scene
 chimera audio --brand <brand> --mode foley --from-video clip.mp4 --subject "tires on gravel"
 ```
+
+With neither `--watermark` nor `--no-watermark`, the brand's `watermark.enabled_default` decides;
+`--no-watermark` leaves the logo off one render of a brand that stamps by default. A render with nothing to
+stamp (`image --mode logo`, a mesh, a music or sfx track) prints a note instead of ignoring `--watermark`.
 
 **Headless Blender + FreeCAD** (needs Blender ≥ 5.1 / FreeCAD ≥ 1.1.4 on PATH; no ComfyUI, except
 `finalize-texture --auto-repaint`, which paints its views through ComfyUI + the IPAdapter node pack):
@@ -168,8 +177,10 @@ in [`docs/STACK.md`](docs/STACK.md).
 
 Every output ships a `<output>.json` sidecar recording the resolved seed, model, prompt/negative, and inputs
 (input files by name or relative path, never an absolute one) — plus a `provenance` block (ComfyUI version, pipeline git commit,
-graph structure and settings fingerprints) so an asset traces back to exactly what produced it. Re-run any
-render:
+graph structure and settings fingerprints, and `input_hashes`: a short sha256 of each file the render read,
+such as the `--asset`, `--from-image` or `--from-video` file and the watermark logo) so an asset traces back to
+exactly what produced it. The commit gets `-dirty` when a tracked file has uncommitted changes; untracked
+files (new renders, say) don't count. Re-run any render:
 
 ```bash
 chimera replay brands/<brand>/outputs/images/<name>.json                  # [--seed N] to vary
@@ -178,12 +189,15 @@ chimera replay brands/<brand>/outputs/images/<name>.json --model <file>   # run 
 
 Replay pins the model the render used, so changing a brand's pinned model or a Chimera default never
 silently changes an old replay. It rebuilds the render (keeping the recorded watermark decision), compares
-the model, prompt, negative, structure and settings with the sidecar, and if the brand or a template changed
-since, stops and lists the differences before it unloads anything from the GPU (`--accept-drift` renders
-anyway; the new sidecar records what was actually used). With `--comfy-output-dir` the result lands in the
+the model, prompt, negative, structure and settings with the sidecar, and the content of each input file with
+its recorded hash. If the brand, a template or an input file changed since (a same-named photo from another
+folder, a logo replaced in place), it stops and lists the differences before it unloads anything from the GPU
+(`--accept-drift` renders anyway; the new sidecar records what was actually used). An input that ComfyUI
+stored under a copy name (`photo (1).png`, since uploads never overwrite) is not drift. Sidecars from before
+the hashes replay as before. With `--comfy-output-dir` the result lands in the
 outputs folder for its media type under the render's standard name, or `<name>_replay` (then `_replay2`, …)
 when that name is taken, never over a file. `--model`
-naming a different model compares only the prompt, and a switch to another model family starts from that
+naming a different model compares only the prompt (and the input files), and a switch to another model family starts from that
 family's defaults (a Wan ↔ LTX clip takes the new family's length, fps and audio). Sidecars from before
 v0.6.0 have no settings fingerprint, so replay says it can check only the model, prompts and structure; an
 ACE-Step one reports that the music graph's sampler shift moved from 1.73 to 3. A damaged or hand-edited
@@ -217,7 +231,7 @@ commands above:
 same clip [with foley sound](brands/example-brand/outputs/video/example-brand_foley_42.mp4), a
 [music stinger](brands/example-brand/outputs/audio/example-brand_music_42.mp3) (Stable Audio 3), and a
 [textured 3D mesh](brands/example-brand/outputs/3d/example-brand_image_42.glb) (TRELLIS.2, then slimmed from
-77 MB to 9.6 MB with `chimera render --mode finish --target-tris 70000 --formats glb`, which keeps its
+77 MB to 9.6 MB with `chimera render --from <mesh>.glb --mode finish --target-tris 70000 --formats glb`, which keeps its
 textures; its sidecar describes the TRELLIS.2 render). All of it was regenerated on the v0.6.0 defaults. The
 **same brand brain drives a whole fleet** (in [`outputs/branded/`](brands/example-brand/outputs/branded/)):
 
@@ -274,8 +288,9 @@ high: on a smaller card, take the route in the last column (the agent loop picks
 | 3D | TRELLIS.2 (int8) | ~8 GB of weights, 12–15 GB at its busiest: a 16–24 GB card is enough | `--model hunyuan21` (shape only, ~8–10 GB peak) with a lower `--octree`, or ComfyUI's offloading |
 | agent loop | Qwen 3.8 27B for every role (32 GB+ cards) | 16.5 GB as the judge (a q4_0 cache at a 32k context) | automatic: a Qwen3-VL 8B judge on 12–24 GB (6.6 GB at 32k; Ollama gives it up to its full 256k, 16 GB, when the card has room), 4B under 12 GB (4.4 GB at 32k); sizes with `OLLAMA_KV_CACHE_TYPE=q4_0`, see [SETUP](docs/SETUP.md#local-models-for-the-self-correction-loops); CAD code-gen stays the 27B, partly on the CPU (`--llm-tier` to choose) |
 
-A lighter quantized file of the same model can be named with `--model <file>` or pinned in a brand; GGUF files
-need the `ComfyUI-GGUF` pack's loader nodes (see each module's `models.md`). NVFP4's speed-up needs an RTX
+A lighter quantized file of the same model (fp8, int8 or NVFP4) can be named with `--model <file>` or pinned in a
+brand. GGUF quants need the `ComfyUI-GGUF` pack's own loader nodes, which Chimera's graphs don't use, so they suit
+your own workflows (see each module's `models.md`). NVFP4's speed-up needs an RTX
 50-series card on cu130; on CUDA 12.x it upcasts and runs slower
 ([setup notes](docs/SETUP.md#performance-tuning-rtx-50-series--blackwell)). `chimera doctor` shows how much of
 your card is free and which agent tier it gets.

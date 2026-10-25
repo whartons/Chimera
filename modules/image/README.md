@@ -86,9 +86,14 @@ sidecar doesn't record it.
 ### Watermark
 
 - `--watermark` composites the brand logo over the decoded image for `txt2img`,
-  `product`, and `relight` modes.
-- `logo` mode self-watermarks (the logo composite is the output itself) — passing
-  `--watermark` there is a no-op.
+  `product`, and `relight` modes. With neither `--watermark` nor `--no-watermark`, the brand's
+  `watermark.enabled_default` decides; `--no-watermark` leaves the logo off one render of a brand that
+  stamps by default. The sidecar records the choice, and a replay keeps it.
+- `logo` mode self-watermarks (the logo composite is the output itself), so `--watermark` there changes
+  nothing and prints a note saying so (a brand's own default stays quiet).
+- The logo is placed on the canvas ComfyUI renders. A phone photo stored sideways with an EXIF rotation
+  (`--asset` in `product` or `relight` mode) is sized upright, the way ComfyUI's `LoadImage` loads it, so the
+  corner logo lands on the frame, with or without Pillow.
 
 ### Upscale (`--upscale`)
 
@@ -128,7 +133,12 @@ else to the FLUX.2 templates; it reads the file name, so a model in a subfolder 
 sorted correctly. To re-run an old render on a new model, use `chimera replay <sidecar> --model <file>`: only
 the prompt is compared with the record (the negative and settings change with the model by design), a
 Z-Image `--variant` is dropped when the new model isn't Z-Image, and the result never replaces a file (it
-takes `<name>_replay` when the original is still there).
+takes `<name>_replay` when the original is still there). Replay also checks that the `--asset` and the
+watermark logo still hold what the render read (the sidecar's `input_hashes`) and stops if one changed.
+
+**Output names:** a render is named `<brand>_<mode>_<seed>` (brandless: `<mode>_<seed>`). A different render
+with a seed already used (another subject, setting or `--asset`) keeps the earlier one and takes `<name>_2`,
+then `_3`, …, with its sidecar beside it; only an identical re-render replaces its own file.
 
 **License note for forks:** Qwen-Image-2.1 ships under the Qwen research license (see
 [`models.md`](models.md)). If you need different terms, pin `z_image_turbo_nvfp4.safetensors`
@@ -288,7 +298,7 @@ JIT). Keep the model resident for fast iteration.
 | Qwen-Image-2.1 (int8) | ~16 GB of weights (6.8 GB model + 8.7 GB Qwen3-VL-8B encoder + VAE); smaller cards rely on ComfyUI's offloading |
 | Z-Image turbo (nvfp4) | ~8–12 GB |
 | Z-Image base (bf16) | ~12–16 GB |
-| FLUX.2 fp8 | ~16–24 GB |
-| FLUX.2 nvfp4 | ~12–16 GB (cu130 only) |
+| FLUX.2 fp8 | ~16–24 GB observed peak, with ComfyUI's offloading (the file is 35.5 GB, plus the 35.6 GB Mistral encoder, which ComfyUI streams from disk) |
+| FLUX.2 nvfp4 | ~12–16 GB observed peak, with offloading (the file is 22.8 GB; cu130 only) |
 
 See [`models.md`](models.md) for download details and quantized alternatives.
