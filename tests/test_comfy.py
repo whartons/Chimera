@@ -60,6 +60,22 @@ def test_upload_image_posts_multipart_and_returns_name(monkeypatch, tmp_path):
     assert b'filename="primary.png"' in captured["data"]
     assert b"DATA" in captured["data"]  # the file bytes are in the body
 
+@pytest.mark.parametrize("method", ["upload_image", "upload_video"])
+def test_uploads_never_replace_a_same_named_input(monkeypatch, tmp_path, method):
+    # overwrite=true let a second run replace logos/primary.png (or product.png) in ComfyUI's input/ before the
+    # first run's queued LoadImage read it (2026-10-25 review). Without it ComfyUI keeps an identical file and
+    # stores different content as "primary (1).png", and its reply names the file to load.
+    f = tmp_path / "primary.png"; f.write_bytes(b"NEW")
+    sent = {}
+
+    def fake_urlopen(req, timeout=0):
+        sent["body"] = req.data
+        return FakeResp(json.dumps({"name": "primary (1).png", "subfolder": "", "type": "input"}).encode())
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", fake_urlopen)
+    assert getattr(comfy.ComfyClient(), method)(f) == "primary (1).png"
+    assert b'name="overwrite"\r\n\r\nfalse\r\n' in sent["body"]
+
+
 def test_upload_image_prefixes_subfolder(monkeypatch, tmp_path):
     img = tmp_path / "p.png"; img.write_bytes(b"X")
     def fake_urlopen(req, timeout=0):

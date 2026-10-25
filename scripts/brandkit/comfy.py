@@ -15,9 +15,15 @@ class ComfyClient:
         with urllib.request.urlopen(self.base + path, timeout=self.timeout) as r:
             return json.loads(r.read())
 
-    def _upload(self, file_path, subfolder="", overwrite=True) -> str:
+    def _upload(self, file_path, subfolder="", overwrite=False) -> str:
         """POST a local file into ComfyUI's input/ dir via /upload/image (stores any file
-        type). Returns the name to reference in a Load* node (subfolder-prefixed if any)."""
+        type). Returns the name to reference in a Load* node (subfolder-prefixed if any).
+
+        overwrite stays off: LoadImage reads its file when the job runs, so with it on a second run (another
+        terminal, an agent firing several jobs) replaced the first run's same-named input (logos/primary.png,
+        product.png) before that job read it (2026-10-25 review). Off, ComfyUI keeps a file whose content is
+        identical and stores different content under a free name ("primary (1).png"); its reply names the
+        file either way, which is what this returns and every caller puts in the graph."""
         file_path = Path(file_path)
         boundary = "----brandkitFormBoundary7s8d9f"
         crlf = b"\r\n"
@@ -42,11 +48,11 @@ class ComfyClient:
         name = res["name"]
         return f"{res['subfolder']}/{name}" if res.get("subfolder") else name
 
-    def upload_image(self, file_path, subfolder="", overwrite=True) -> str:
+    def upload_image(self, file_path, subfolder="", overwrite=False) -> str:
         """Upload a local image into ComfyUI's input dir so LoadImage can resolve it."""
         return self._upload(file_path, subfolder=subfolder, overwrite=overwrite)
 
-    def upload_video(self, file_path, subfolder="", overwrite=True) -> str:
+    def upload_video(self, file_path, subfolder="", overwrite=False) -> str:
         """Upload a local video into ComfyUI's input dir so LoadVideo can resolve it."""
         return self._upload(file_path, subfolder=subfolder, overwrite=overwrite)
 
