@@ -68,6 +68,23 @@ def test_new_brand_rejects_unsafe_names(tmp_path, bad):
         new_brand(tmp_path, bad)
 
 
+@pytest.mark.parametrize("bad", ['my"brand', "what?", "a|b", "a<b>"])
+def test_new_brand_refuses_a_name_it_cannot_create(tmp_path, bad):
+    # copytree raised an uncaught WinError 123 on Windows; on POSIX a '"' broke the name: line of brand.yaml
+    _template(tmp_path)
+    with pytest.raises(ValueError):
+        new_brand(tmp_path, bad)
+    assert sorted(p.name for p in (tmp_path / "brands").iterdir()) == ["_template"]
+
+
+@pytest.mark.parametrize("name", ["it's #1", "東京-brand", "a & b {x}", "50% off"])
+def test_new_brand_writes_the_name_as_yaml_reads_it(tmp_path, name):
+    from scripts.brandkit.manifest import load_manifest
+    _template(tmp_path)
+    dest = new_brand(tmp_path, name)
+    assert load_manifest(dest / "brand.yaml").name == name
+
+
 def test_new_brand_missing_template_raises(tmp_path):
     # no _template created
     with pytest.raises(FileNotFoundError):

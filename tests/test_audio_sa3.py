@@ -99,5 +99,6 @@ def test_sa3_and_foley_reject_what_they_cannot_render():
     with _pytest.raises(ValueError, match="makes music"):
         A.check_options(m, "foley", model="acestep")
     A.check_options(m, "sfx", duration=1.0)
-    A.check_options(m, "music", model="acestep", duration=0.5)    # ACE-Step is not SA3
+    with _pytest.raises(ValueError, match="ACE-Step renders 1"):   # not SA3's error: ACE-Step's own latent
+        A.check_options(m, "music", model="acestep", duration=0.5)  # (EmptyAceStep1.5LatentAudio) starts at 1 s too
     A.check_options(m, "foley", model="hunyuanvideo_foley_fp8_e4m3fn.safetensors")

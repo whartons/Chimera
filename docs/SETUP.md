@@ -17,13 +17,24 @@ pass `--model` to use the earlier models (Z-Image / FLUX.2, LTX-2.3, ACE-Step, H
 `--from-image`). On 0.40, LTX-2.3 needs the bundled LTXVideo patch (see
 [`../modules/video/README.md`](../modules/video/README.md)).
 
+**Uploads don't overwrite.** Chimera uploads its inputs (logos, product shots, start frames, foley clips) into
+ComfyUI's `input/` folder. A file whose content is already there under that name is reused; different content
+under a taken name is stored as `name (1).png`, `name (2).png`, …, so two runs at once can't replace each
+other's inputs. Those copies pile up in `input/`; clear them out now and then.
+
 ## This repo
 ```bash
 git clone <your-fork-url> chimera
 cd chimera
+pip install -e ".[dev]"     # the `chimera` CLI + test/lint tooling
+pip install -e ".[images]"  # Pillow: needed by the mesh3d / cad loops, which judge a contact sheet built with it
 cp .env.example .env        # fill in any API keys (gitignored)
 mkdir -p workflows/personal outputs
 ```
+
+The other extras are optional: `[video]` (PyAV, the foley clip probe) and `[print]` (3D printing). Without
+`[images]`, `auto_generate.py --pipeline mesh3d|cad` stops at once and names the install; the image loop and
+the CLI run without it.
 
 Chimera doesn't load `.env` itself: export the variables you need in your shell before you run the CLI or
 the agent loop.
@@ -140,9 +151,10 @@ The Python MCP servers launch via Astral's `uv`. Install once:
    `dbbf836a`) as a Blender extension and enable it. The socket **auto-starts on enable**
    (`127.0.0.1:9876`).
 3. The server is launched by Claude via `.mcp.json`
-   (`uvx --from "git+…@<sha>#subdirectory=mcp" blender-mcp` — the server package is in the repo's
-   `mcp/` subdir) — **never** the bare `uvx blender-mcp` (a different PyPI package) and **never**
-   pass `-t http`.
+   (`uvx --with "mcp[cli]~=1.12" --from "git+…@<sha>#subdirectory=mcp" blender-mcp` — the server package
+   is in the repo's `mcp/` subdir, and `--with` holds the MCP SDK at 1.x: upstream doesn't bound it, and
+   without it `uvx` resolves SDK 2.x and the server dies on import) — **never** the bare `uvx blender-mcp`
+   (a different PyPI package) and **never** pass `-t http`.
 4. In Claude Code: `/mcp` → approve **blender** (project-scoped servers need one-time approval).
 
 ### FreeCAD

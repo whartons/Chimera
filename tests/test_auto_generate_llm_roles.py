@@ -270,8 +270,10 @@ def test_the_loop_unloads_other_ollama_models_before_its_first_render(monkeypatc
                                   release=lambda: None, make_room=None)
     monkeypatch.delenv("CHIMERA_KEEP_LLM_LOADED", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: True)
     monkeypatch.setattr(AG.gpu, "unload_others",
                         lambda root, keep: unloaded.append((root, set(keep))) or [("other-tool:latest", 18 * 2**30)])
+    monkeypatch.setattr(AG.gpu, "loaded_models", lambda root, **k: [])
     AG._clear_other_ollama_models([None, judge, None])
     assert unloaded == [("http://127.0.0.1:11434", {"qwen3-vl:8b-instruct"})]
     assert "unloaded other-tool:latest (18.0 GB)" in capsys.readouterr().err
@@ -326,9 +328,10 @@ def test_the_image_loop_names_a_repeated_seeds_renders_apart(monkeypatch, tmp_pa
 def test_the_loop_will_not_start_beside_a_model_ollama_will_not_unload(monkeypatch):
     import types
     judge = types.SimpleNamespace(base_url="http://127.0.0.1:11434/v1", ollama_name="qwen3-vl:8b-instruct")
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: True)
     monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: [])
     monkeypatch.setattr(AG.gpu, "loaded_models",
-                        lambda root: [("other-tool:latest", 18 * 2**30), ("qwen3-vl:8b-instruct", 6 * 2**30)])
+                        lambda root, **k: [("other-tool:latest", 18 * 2**30), ("qwen3-vl:8b-instruct", 6 * 2**30)])
     with pytest.raises(SystemExit, match="other-tool:latest"):
         AG._clear_other_ollama_models([judge])
 
@@ -338,8 +341,9 @@ def test_an_image_run_on_a_non_local_comfyui_only_warns_about_a_model_that_will_
     # refused because another app's busy Ollama model wouldn't unload, though nothing rendered on this machine
     import types
     judge = types.SimpleNamespace(base_url="https://api.openai.com/v1", ollama_name="gpt-4o:latest")
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: True)
     monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: [])
-    monkeypatch.setattr(AG.gpu, "loaded_models", lambda root: [("other-tool:latest", 18 * 2**30)])
+    monkeypatch.setattr(AG.gpu, "loaded_models", lambda root, **k: [("other-tool:latest", 18 * 2**30)])
     AG._clear_other_ollama_models([judge], strict=False)
     assert "going on" in capsys.readouterr().err
 
@@ -390,8 +394,9 @@ def test_main_passes_fresh_seeds_for_every_iteration(monkeypatch):
 
 def test_a_hosted_judge_still_clears_the_local_default_ollama(monkeypatch):
     unloaded = []
+    monkeypatch.setattr(AG.gpu, "is_ollama", lambda root, **k: True)
     monkeypatch.setattr(AG.gpu, "unload_others", lambda root, keep: unloaded.append((root, set(keep))) or [])
-    monkeypatch.setattr(AG.gpu, "loaded_models", lambda root: [])
+    monkeypatch.setattr(AG.gpu, "loaded_models", lambda root, **k: [])
     AG._clear_other_ollama_models([types.SimpleNamespace(base_url="https://api.openai.com/v1",
                                                          ollama_name="gpt-4o:latest")])
     assert unloaded == [("http://127.0.0.1:11434", set())]
@@ -471,6 +476,42 @@ def test_a_missing_rewriter_model_only_warns(monkeypatch, capsys):
     with pytest.raises(_Stop):
         AG.main()
     assert "ollama pull other" in capsys.readouterr().err
+
+
+def _ollama_answers_only_its_version(how):
+    """A gpu._call for a local Ollama that answers /api/version and fails every other call with how()."""
+    def call(url, body=None, timeout=5, _opener=None):
+        if url.endswith("/api/version"):
+            return {"version": "0.40.5"}
+        raise how()
+    return call
+
+
+def test_a_render_waits_when_a_local_ollama_does_not_say_what_it_holds(monkeypatch):
+    # _release_all read a timed-out /api/ps as "nothing resident", and the render started beside the judge
+    import urllib.error
+    monkeypatch.setattr(AG.gpu, "_call", _ollama_answers_only_its_version(
+        lambda: urllib.error.URLError(TimeoutError("timed out"))))
+    rendered = []
+    gen = AG._hand_gpu_back(lambda *a: rendered.append(a) or "img",
+                            [LLM.LLMClient(base_url="http://127.0.0.1:11434/v1", model="judge:8b")])
+    with pytest.raises(RuntimeError, match="still loaded in Ollama"):
+        gen("p", "n", 1)
+    assert rendered == []
+
+
+def test_the_first_render_waits_when_ollama_does_not_say_what_it_holds(monkeypatch, capsys):
+    # the before-the-first-render check read a timed-out /api/ps as "nothing else loaded"
+    import errno, urllib.error
+    monkeypatch.setattr(AG.gpu, "_call", _ollama_answers_only_its_version(
+        lambda: urllib.error.URLError(TimeoutError("timed out"))))
+    with pytest.raises(SystemExit, match="didn't answer"):
+        AG._clear_other_ollama_models([None])
+    AG._clear_other_ollama_models([None], strict=False)               # an image run on a non-local ComfyUI: warns
+    assert "didn't answer" in capsys.readouterr().err
+    monkeypatch.setattr(AG.gpu, "_call", _ollama_answers_only_its_version(
+        lambda: urllib.error.URLError(ConnectionRefusedError(errno.ECONNREFUSED, "refused"))))
+    AG._clear_other_ollama_models([None])                             # stopped since: nothing loaded
 
 
 @pytest.mark.preflight

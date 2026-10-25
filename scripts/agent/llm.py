@@ -21,10 +21,10 @@ Config (env, with CLI overrides; no hardcoded vendor default):
                         fix for hybrid-thinking models served thinking-ON (e.g. Qwen3.x on Ollama >= 0.40).
 """
 from __future__ import annotations
-import os, sys, json, base64, urllib.parse, urllib.request, urllib.error
+import os, re, sys, json, base64, urllib.parse, urllib.request, urllib.error
 from pathlib import Path
 
-from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict
+from scripts.agent.judge import Judge, Verdict, parse_verdict, consensus_verdict, strip_thinking
 from scripts.agent.expander import PromptExpander, TemplatedExpander
 from scripts.brandkit import gpu
 
@@ -42,11 +42,12 @@ class LLMConfigError(RuntimeError):
 # modules/agent/self-correction.md.
 # The large tier starts at 32 GB cards (they report about 31.8 GiB): beside ComfyUI's image model a 24 GB card has
 # no room for the 27B judge (about 22 GB with its context cache), so ComfyUI would have to empty itself before every
-# judgment, and with the desktop's own few GB in use the room never came (2026-10 review).
+# judgment, and with the desktop's own few GB in use the room never came (2026-10 review). The medium tier starts at
+# 12 GB cards (about 11.99 GiB): at 11 an 11 GB card (11.00 GiB) got it, under 12 GB is the small tier (2026-10-25).
 LOCAL_TIERS = {
     "large": {"min_gb": 28, "judge": ("qwen3.8:27b", "none"), "codegen": ("qwen3.8:27b", "none"),
               "rewriter": ("qwen3.8:27b", "none")},
-    "medium": {"min_gb": 11, "judge": ("qwen3-vl:8b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
+    "medium": {"min_gb": 11.5, "judge": ("qwen3-vl:8b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
                "rewriter": ("qwen3-vl:8b-instruct", None)},
     "small": {"min_gb": 0, "judge": ("qwen3-vl:4b-instruct", None), "codegen": ("qwen3.8:27b", "none"),
               "rewriter": ("qwen3-vl:4b-instruct", None)},
@@ -142,6 +143,18 @@ class _ThinkingExhausted(LLMError):
 _UNLOAD_WAIT = 10.0   # seconds release() waits for Ollama to let go of a model before a ComfyUI render
 
 
+def _text(content):
+    """A reply's `content` as text: a string, or a list of parts (some OpenAI-compatible servers send those), whose
+    text parts are joined and whose others (a 'thinking' part, an image) dropped. .strip() on a list raised
+    AttributeError past the LLMError handling (2026-10-25 review); any other type is a shape error (TypeError)."""
+    if content is None or isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(p if isinstance(p, str) else p.get("text") or "" for p in content
+                       if isinstance(p, str) or (isinstance(p, dict) and p.get("type", "text") in ("text", "output_text")))
+    raise TypeError(f"content is a {type(content).__name__}")
+
+
 class LLMClient:
     """OpenAI-compatible chat client over stdlib HTTP. `_opener` is the test seam (urlopen)."""
 
@@ -153,7 +166,7 @@ class LLMClient:
         self.timeout = timeout
         effort = (reasoning_effort or os.environ.get("CHIMERA_LLM_REASONING_EFFORT") or "").strip().lower()
         self.reasoning_effort = effort or None
-        self._ollama = None   # is base_url a local Ollama? probed once, by release()
+        self._ollama = None   # is base_url a local Ollama? probed until it says yes (_ollama_root)
         if not self.base_url:
             raise LLMConfigError(
                 "set CHIMERA_LLM_BASE_URL (e.g. https://api.openai.com/v1, https://api.anthropic.com/v1, "
@@ -168,26 +181,31 @@ class LLMClient:
         self.make_room = None
         self._planned = None   # the full-context bytes the room check planned for, checked after the load
 
-    def chat(self, messages, *, max_tokens=2048, temperature=0.4, _opener=urllib.request.urlopen) -> str:
+    def chat(self, messages, *, max_tokens=2048, temperature=0.4, reject_truncated=False,
+             _opener=urllib.request.urlopen) -> str:
+        """The reply's text. `reject_truncated` (the judge): a reply cut off at max_tokens raises LLMError instead of
+        coming back as a fragment, and one cut off while thinking gets the thinking-off retry."""
         self._ensure_room(_opener)
-        content = self._chat(messages, max_tokens, temperature, _opener)
+        content = self._chat(messages, max_tokens, temperature, reject_truncated, _opener)
         self._check_planned(_opener)
         return content
 
-    def _chat(self, messages, max_tokens, temperature, _opener) -> str:
+    def _chat(self, messages, max_tokens, temperature, reject_truncated, _opener) -> str:
         try:
-            return self._chat_once(messages, max_tokens, temperature, self.reasoning_effort, _opener)
+            return self._chat_once(messages, max_tokens, temperature, self.reasoning_effort, _opener,
+                                   reject_truncated=reject_truncated)
         except _ThinkingExhausted as first:
             if self.reasoning_effort is not None:   # an explicit setting is respected, never overridden
                 raise
             try:   # hybrid-thinking model served thinking-ON: one retry with thinking switched off
-                content = self._chat_once(messages, max_tokens, temperature, "none", _opener)
+                content = self._chat_once(messages, max_tokens, temperature, "none", _opener,
+                                          reject_truncated=reject_truncated)
             except LLMError:   # the provider rejects the knob, or it didn't help: report the real cause
                 raise LLMError(f"{first} (a retry with reasoning_effort='none' also failed)") from None
             self.reasoning_effort = "none"   # sticky: later calls skip the wasted thinking pass
             return content
 
-    def _chat_once(self, messages, max_tokens, temperature, reasoning_effort, _opener) -> str:
+    def _chat_once(self, messages, max_tokens, temperature, reasoning_effort, _opener, *, reject_truncated=False) -> str:
         body = {"model": self.model, "messages": messages,
                 "max_tokens": max_tokens, "temperature": temperature}
         if reasoning_effort:
@@ -211,16 +229,26 @@ class LLMClient:
         try:
             ch = resp["choices"][0]
             msg = ch["message"]
-            content = msg.get("content")
-        except (KeyError, IndexError, TypeError) as e:
+            content = _text(msg.get("content"))
+        except (KeyError, IndexError, TypeError, AttributeError) as e:   # message: null used to escape as AttributeError
             raise LLMError(f"unexpected LLM response shape: {str(resp)[:300]}") from e
+        fr = ch.get("finish_reason")
+        if reject_truncated and content and fr == "length":
+            # a judge reply cut off at max_tokens is a fragment: "...So overall this should PASS. Let me double check"
+            # parsed as a PASS on servers that inline <think> (2026-10-25 review)
+            if msg.get("reasoning") or msg.get("reasoning_content") or not strip_thinking(content).strip():
+                raise _ThinkingExhausted(
+                    f"LLM at {self.base_url} was cut off at max_tokens while thinking (finish_reason=length): use a "
+                    "non-thinking '-instruct' model, turn thinking off with CHIMERA_<ROLE>_REASONING_EFFORT=none, or "
+                    "raise max_tokens.")
+            raise LLMError(f"LLM at {self.base_url} was cut off at max_tokens (finish_reason=length), so its reply is "
+                           "a fragment and isn't judged; raise max_tokens or use a model that answers shorter.")
         if not (content and content.strip()):
             # A "thinking" model (e.g. the Ollama qwen3-vl:8b tag, vs qwen3-vl:8b-instruct) can spend
             # the WHOLE max_tokens budget on its separate `reasoning` field and return empty `content`
             # (finish_reason='length'). Surface that loudly: an empty string flowing downstream is a
             # silent failure — the judge would score a perfect render 0.0 with no clue why.
             rlen = len(msg.get("reasoning") or msg.get("reasoning_content") or "")
-            fr = ch.get("finish_reason")
             if rlen or fr == "length":
                 sent = f", reasoning_effort={reasoning_effort}" if reasoning_effort else ""
                 raise _ThinkingExhausted(
@@ -232,12 +260,15 @@ class LLMClient:
         return content
 
     def _ollama_root(self, _opener):
-        """The Ollama root when base_url is an Ollama server, else None. A remote endpoint is probed once; a
-        local one until it answers, since one failed probe (Ollama restarting or starting late) used to turn
-        the GPU checks off for the whole run."""
+        """The Ollama root when base_url is a LOCAL Ollama server (only those share this GPU), else None. Probed
+        until it answers, since one failed probe (Ollama restarting or starting late) used to turn the GPU checks
+        off for the whole run. Raises gpu.ProbeError when it can't tell: a local server that took the connection
+        but didn't answer is maybe an Ollama holding memory, where a refused connection is one that isn't running."""
+        if not gpu.is_local(self.base_url):
+            return None
         root = gpu.ollama_root(self.base_url)
-        if self._ollama is None or (self._ollama is False and gpu.is_local(self.base_url)):
-            self._ollama = gpu.is_ollama(root, _opener=_opener)
+        if not self._ollama:
+            self._ollama = gpu.is_ollama(root, _opener=_opener, strict=True)
         return root if self._ollama else None
 
     def _ollama_name(self):
@@ -252,16 +283,22 @@ class LLMClient:
         """Before a request that will load this model into a LOCAL Ollama, pass its memory need to make_room
         (set by the agent loops), so ComfyUI hands the GPU over first. No-op when unset, for hosted or remote
         endpoints, or when the model is already resident. Raises LLMError when the room never came: Ollama
-        would load onto the full card regardless (it can't see ComfyUI's memory), and that froze a PC."""
+        would load onto the full card regardless (it can't see ComfyUI's memory), and that froze a PC. Also when
+        a local Ollama doesn't answer (a timeout, not a refused connection): what it holds is unknown, and a
+        timed-out probe used to read as "not running" or "nothing loaded" (2026-10-25 review)."""
         if self.make_room is None or not gpu.is_local(self.base_url):
             return
-        root = self._ollama_root(_opener)
-        if root is None:
-            return
-        loaded = gpu.loaded_models(root, _opener=_opener)
-        if any(gpu.same_model(n, self._ollama_name()) for n, _ in loaded):
-            return
-        need = gpu.vram_need_range(root, self._ollama_name(), _opener=_opener)
+        try:
+            root = self._ollama_root(_opener)
+            if root is None:
+                return   # not Ollama, or not running: the request fails without loading anything
+            loaded = gpu.loaded_models(root, _opener=_opener, strict=True)
+            if any(gpu.same_model(n, self._ollama_name()) for n, _ in loaded):
+                return
+            need = gpu.vram_need_range(root, self._ollama_name(), _opener=_opener, strict=True)
+        except gpu.ProbeError as e:
+            raise LLMError(f"not loading {self.model}: {e}, so the GPU check can't tell what Ollama holds. Retry once "
+                           "it answers (restart Ollama if it's stuck).") from None
         if not need:
             return   # Ollama doesn't have the model, so the request fails without loading anything
         floor, full = need
@@ -291,19 +328,27 @@ class LLMClient:
                   "environment variables, say), so the check sizes models right", file=sys.stderr)
 
     def resident(self, _opener=urllib.request.urlopen) -> bool:
-        """True when this client's model is loaded in a local Ollama."""
-        root = self._ollama_root(_opener) if gpu.is_local(self.base_url) else None
-        return root is not None and gpu.is_resident(root, self._ollama_name(), _opener=_opener)
+        """True when this client's model is loaded in a local Ollama, or may be: one that doesn't answer (a
+        timeout, not a refused connection) can't say it let go, so the loops don't render beside it."""
+        try:
+            root = self._ollama_root(_opener)
+            return root is not None and gpu.is_resident(root, self._ollama_name(), _opener=_opener, strict=True)
+        except gpu.ProbeError:
+            return True
 
     def release(self, _opener=urllib.request.urlopen) -> bool:
         """Hand the GPU back: if base_url is a local Ollama and this client's model is resident, unload
         it now (keep_alive 0) instead of letting it sit for Ollama's ~5-minute keep-alive, and wait until
         Ollama no longer lists it. The loops call this before each ComfyUI render. Only a RESIDENT model is
-        unloaded (Ollama may load a missing one to unload it). No-op for hosted APIs or with
-        CHIMERA_KEEP_LLM_LOADED=1; never raises. True when it unloaded the model."""
+        unloaded (Ollama may load a missing one to unload it). No-op for hosted and remote endpoints (another
+        machine's Ollama doesn't share this GPU) or with CHIMERA_KEEP_LLM_LOADED=1; never raises. True when it
+        unloaded the model."""
         if gpu.keep_llms_loaded():
             return False
-        root = self._ollama_root(_opener)
+        try:
+            root = self._ollama_root(_opener)
+        except gpu.ProbeError:
+            return False   # can't tell; resident() then says it may be loaded, and the render waits
         if root is None or not gpu.is_resident(root, self._ollama_name(), _opener=_opener):
             return False
         return gpu.unload(root, self._ollama_name(), wait=_UNLOAD_WAIT, _opener=_opener)
@@ -367,7 +412,8 @@ class LLMJudge(Judge):
 
     def judge(self, image_path, rubric) -> Verdict:
         prompt = rubric.as_prompt()
-        texts = [self.client.vision(prompt, image_path, temperature=self.temperature)
+        # a reply cut off at max_tokens fails the iteration rather than pass on a fragment
+        texts = [self.client.vision(prompt, image_path, temperature=self.temperature, reject_truncated=True)
                  for _ in range(self.passes)]
         return parse_verdict(texts[0]) if self.passes == 1 else consensus_verdict(texts)
 
@@ -391,14 +437,16 @@ _CAD_SYSTEM = (
 )
 
 
+_FENCE_TAG = re.compile(r"[\w+.#-]*[ \t]*\n")   # a fence's language tag ('python', 'py', 'Python3') to its newline
+
+
 def _extract_code(text: str) -> str:
     """Pull the python from a ```python ...``` block; fall back to the raw text if unfenced."""
     if "```" in text:
         block = text.split("```", 2)
         if len(block) >= 2:
-            body = block[1]
-            if body.lower().startswith("python"):
-                body = body[len("python"):]
+            # any tag, not just 'python': a ```py fence left "py" as the script's first line (2026-10-25 review)
+            body = _FENCE_TAG.sub("", block[1], count=1) if _FENCE_TAG.match(block[1]) else block[1]
             return body.strip("\n")
     return text.strip()
 

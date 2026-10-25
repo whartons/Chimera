@@ -19,8 +19,18 @@ def scan_dataset(training_dir) -> list[tuple[Path, str]]:
     pairs = []
     for img in imgs:
         cap = img.with_suffix(".txt")
-        pairs.append((img, cap.read_text(encoding="utf-8").strip() if cap.exists() else ""))
+        pairs.append((img, _caption(cap) if cap.exists() else ""))
     return pairs
+
+
+def _caption(path) -> str:
+    """A caption file's text: UTF-8 (a BOM is dropped), else the Windows code page Notepad saves as "ANSI",
+    whose undefined bytes become U+FFFD. A cp1252 caption raised an uncaught UnicodeDecodeError (2026-10-25)."""
+    data = Path(path).read_bytes()
+    try:
+        return data.decode("utf-8-sig").strip()
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace").strip()
 
 
 def build_config(brand: str, manifest, steps: int, backend: str) -> dict:

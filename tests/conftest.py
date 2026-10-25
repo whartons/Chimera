@@ -7,18 +7,25 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "pillow_check: runs auto_generate's real Pillow check for the contact-sheet "
+                                       "loops (conftest stubs it for every other test)")
+
+
 @pytest.fixture(autouse=True)
 def _no_live_ollama(monkeypatch):
     """Tests never reach a real Ollama. The loops' default judge is a local Ollama client, so a run's
     end-of-run release() probed 127.0.0.1:11434 for real: about 2 s per test on Windows with Ollama down,
     and with it up a test could unload a real model. A gpu call on the real opener now fails fast as
-    "not running"; tests that pass a fake opener are unaffected."""
+    "not running" (a refused connection: a timeout reads as an Ollama that may hold memory); tests that pass a
+    fake opener are unaffected."""
+    import errno
     from scripts.brandkit import gpu
     real = gpu._call
 
     def guarded(url, body=None, timeout=5, _opener=urllib.request.urlopen):
         if _opener is urllib.request.urlopen:
-            raise urllib.error.URLError("tests don't reach a live Ollama")
+            raise urllib.error.URLError(ConnectionRefusedError(errno.ECONNREFUSED, "tests don't reach a live Ollama"))
         return real(url, body, timeout, _opener)
     monkeypatch.setattr(gpu, "_call", guarded)
 
@@ -78,6 +85,17 @@ def _no_endpoint_preflight(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _pillow_for_the_sheet_loops(request, monkeypatch):
+    """auto_generate refuses --pipeline mesh3d|cad without Pillow (their judged contact sheet needs it), and CI's
+    Windows leg has none; the tests that run those loops' main() fake the sheet. Tests of the check itself are
+    marked `pillow_check`."""
+    if request.node.get_closest_marker("pillow_check"):
+        return
+    from scripts.agent import auto_generate
+    monkeypatch.setattr(auto_generate, "_pillow_missing", lambda: False)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_nvidia_smi(monkeypatch):
     """The local-model tier reads the GPU size; tests never run the real nvidia-smi (CI has none, and a dev
     box's card would make results machine-dependent). Tests that need a size patch it in."""
@@ -93,8 +111,8 @@ def _no_live_llm(monkeypatch):
     from scripts.agent import llm
     real = llm.LLMClient._chat_once
 
-    def guarded(self, messages, max_tokens, temperature, reasoning_effort, _opener):
+    def guarded(self, messages, max_tokens, temperature, reasoning_effort, _opener, **kw):
         if _opener is urllib.request.urlopen:
             raise llm.LLMError("tests don't reach a live LLM")
-        return real(self, messages, max_tokens, temperature, reasoning_effort, _opener)
+        return real(self, messages, max_tokens, temperature, reasoning_effort, _opener, **kw)
     monkeypatch.setattr(llm.LLMClient, "_chat_once", guarded)

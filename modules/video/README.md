@@ -41,7 +41,7 @@ python scripts/generate.py video \
   [--camera static|pan-left|pan-right|pan-up|pan-down|zoom-in|zoom-out|rotate-cw|rotate-ccw] \
   [--quality fast|full] \
   [--width 768 --height 512] [--length 81] [--fps 16] \
-  [--watermark] \
+  [--watermark | --no-watermark] \
   --comfy-output-dir "<ComfyUI output dir>"
 ```
 
@@ -70,7 +70,7 @@ python scripts/generate.py video --model ltx23 \
   --brand example-brand \
   --subject "<cinematic action + the sounds you want>" \
   --from-image rover.png \
-  [--watermark] \
+  [--watermark | --no-watermark] \
   [--length 97] \
   [--fps 25] \
   [--no-audio] \
@@ -81,14 +81,18 @@ python scripts/generate.py video --model ltx23 \
   `references/`, then `outputs/images/` folder (e.g. `rover.png`, not `products/rover.png`), so a brand's
   own render can be the start frame. Without `--brand` it is a path to the file.
 - Output routes to `brands/<brand>/outputs/video/<brand>_i2v_<seed>.mp4` with a
-  reproducibility `.json` sidecar alongside it. If the file already exists it is
-  overwritten (idempotent re-render); a `chimera replay` takes the next free name (`<name>_replay`, …) instead.
+  reproducibility `.json` sidecar alongside it. An identical re-render (same prompt, settings and start
+  frame) replaces its own file; a different render with the same seed keeps the earlier one and takes
+  `<name>_2`, then `_3`, …; a `chimera replay` takes `<name>_replay` (then `_replay2`, …) instead.
 - `--length` snaps down to the 8k+1 frame counts LTX renders (`--length 100` renders 97), with a note.
+- `--width` / `--height` snap down to multiples of 32 (64 at least), the sizes LTX renders (`--height 720`
+  renders 704), so the sidecar and the watermark placement match the clip. Like Wan's, the snap is silent.
 - `--quality` and `--camera` are Wan settings: with `--model ltx23` either one is an error.
 - `--no-audio` skips the audio-generation path; all other flags remain the same.
 - `--watermark` composites the brand logo over the final decoded video frames
   entirely in-graph, after the VAE decode — the synced audio track is never
-  touched.
+  touched. With neither `--watermark` nor `--no-watermark`, the brand's `watermark.enabled_default`
+  decides; `--no-watermark` leaves the logo off one clip of a brand that stamps by default.
 
 The filler reads the active brand's `brand.yaml` `video:` block for defaults:
 
@@ -120,9 +124,9 @@ negative list. Core ComfyUI nodes only — no node pack.
 
 ### One-pass audio-video
 
-LTX-2.3 natively generates **both modalities at once** using the
-`LTXAVTextEncoderLoader` (Gemma-3 12B) and `MultimodalGuider` nodes from the
-`ComfyUI-LTXVideo` pack. The guider applies **separate CFG scales** to the two
+LTX-2.3 natively generates **both modalities at once**: the core `LTXAVTextEncoderLoader` (Gemma-3 12B)
+encodes the prompt, and the `ComfyUI-LTXVideo` pack's `MultimodalGuider` guides the two latents. The
+guider applies **separate CFG scales** to the two
 modalities (VIDEO `3.0` / AUDIO `7.0` in the template) so video sharpness can
 be tuned independently without desyncing the audio. The output is a single MP4
 container with an embedded 48 kHz PCM audio stream.
@@ -178,10 +182,9 @@ before queueing, so resident image or audio models go first. Per-modality `--tim
 
 ## Local-only & security
 
-The workflow uses **`LTXAVTextEncoderLoader`** (the in-graph Gemma loader from
-the `ComfyUI-LTXVideo` pack). It does **not** use the pack's cloud
-`GemmaAPITextEncode` node, which sends text to an external endpoint. Never swap
-in that node.
+The workflow uses **`LTXAVTextEncoderLoader`** (ComfyUI core's local, in-graph Gemma loader). It does
+**not** use the `ComfyUI-LTXVideo` pack's cloud `GemmaAPITextEncode` node, which sends text to an external
+endpoint. Never swap in that node.
 
 The `ComfyUI-LTXVideo` pack also ships a prompt-enhancer node that sets
 `trust_remote_code=True` when loading an enhancer model — **that node is not
@@ -227,9 +230,11 @@ this fix as [#580](https://github.com/Lightricks/ComfyUI-LTXVideo/pull/580); rem
   (Gemma-3 12B, local) — not a CLIP loader.
 - Audio generation requires the **`MultimodalGuider`** node; the standard
   `KSampler` path cannot drive the audio branch.
-- Use the pack's **normalizing sampler** (`LTXVNormalisedScheduler` /
-  `LTXVSampler`) — standard Euler/DPM++ schedulers do not handle the
-  LTX-2.3 latent space correctly.
+- Sampling is core: **`SamplerCustomAdvanced`** with `KSamplerSelect` (euler) and a fixed
+  8-step **`ManualSigmas`** schedule (with the distilled LoRA), guided by the pack's `MultimodalGuider`.
+- From the pack the graph uses only three nodes: **`MultimodalGuider`**, its two **`GuiderParameters`**
+  (one per modality) and **`LTXVImgToVideoConditionOnly`** (the start frame). The rest, the Gemma loader
+  and the `--upscale` latent upsampler included, are ComfyUI core.
 - **LTX-2 LoRAs are incompatible.** LoRAs trained on LTX-2 (19B) will not
   work with LTX-2.3 (22B). Source or retrain LTX-2.3-native LoRAs.
 

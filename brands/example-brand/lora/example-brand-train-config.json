@@ -1,7 +1,7 @@
 {
   "backend": "ai-toolkit",
   "brand": "example-brand",
-  "base_model": "flux2_dev_fp8mixed.safetensors",
+  "base_model": "qwen_image_2.1_int8_convrot.safetensors",
   "dataset_dir": "brands/example-brand/training",
   "output_dir": "brands/example-brand/lora",
   "output_name": "example-brand-v1",

@@ -1,8 +1,9 @@
 """Route a finished render to the per-brand outputs/ folder, organized by media type."""
 from __future__ import annotations
-import itertools, json, shutil, time, uuid
+import itertools, json, os, shutil, time, unicodedata, uuid
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from .nodes import find_node_by_title, NodeNotFound
+from .sidecar import render_identity
 
 # Outputs are grouped by what the file IS (extension-driven), so a foley clip (a video) lands
 # with the videos and a music stinger with the audio — see media_subdir().
@@ -29,13 +30,50 @@ def media_subdir(suffix: str) -> str:
     return ""
 
 
-def _unused_stem(out_dir: Path, stem: str) -> str:
-    """The first of stem, stem_replay, stem_replay2, ... that no file in out_dir uses (render, sidecar or
-    checks file). The sidecar counts: a 3D render converted to STL leaves no GLB under its stem. Compared
-    without case, as Windows names are: a differently-cased brand replaced the render it reproduced."""
-    names = [p.name.casefold() for p in out_dir.iterdir()]
-    cands = itertools.chain((stem, f"{stem}_replay"), (f"{stem}_replay{n}" for n in itertools.count(2)))
-    return next(c for c in cands if not any(n.startswith(c.casefold() + ".") for n in names))
+def _unused_stem(out_dir, stem: str, tag="replay", reuse=None) -> str:
+    """The first of stem, stem_replay, stem_replay2, ... (with tag "": stem, stem_2, stem_3, ...) that no file
+    in out_dir uses (render, sidecar or checks file), or that `reuse(name)` accepts although it is taken.
+    out_dir may be several folders (one job's files), and the name must be free in each. The sidecar counts:
+    a 3D render converted to STL leaves no GLB under its stem. Compared without case, as Windows names are: a
+    differently-cased brand replaced the render it reproduced."""
+    dirs = [Path(out_dir)] if isinstance(out_dir, (str, os.PathLike)) else [Path(d) for d in out_dir]
+    names = [p.name.casefold() for d in dirs if d.is_dir() for p in d.iterdir()]
+    cands = itertools.chain((stem,), (f"{stem}_{tag}",) if tag else (),
+                            (f"{stem}_{tag}{n}" for n in itertools.count(2)))
+    return next(c for c in cands
+                if not any(n.startswith(c.casefold() + ".") for n in names) or (reuse is not None and reuse(c)))
+
+
+def _same_render(sidecar: Path, identity) -> bool:
+    """Whether the sidecar on disk records the render `identity` describes (sidecar.render_identity)."""
+    if identity is None:
+        return False
+    try:
+        return render_identity(json.loads(sidecar.read_text(encoding="utf-8-sig"))) == identity
+    except (OSError, ValueError):   # gone, unreadable or not JSON: not provably the same render
+        return False
+
+
+def _output_stem(brand, mode, seed) -> str:
+    stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"
+    if not plain_name(stem) or (brand and not brand_name_ok(brand)):
+        # mode and brand can come from a shared sidecar: never let them name a folder (2026-10 review)
+        raise NoOutputError(f"refusing to name an output {stem!r}: brand and mode must be plain names")
+    return stem
+
+
+def _output_dir(repo_root, brand, suffix) -> Path:
+    base = brand_output_dir(repo_root, brand) if brand else Path(repo_root) / "outputs"
+    sub = media_subdir(suffix)
+    return base / sub if sub else base
+
+
+def job_stem(repo_root, brand, srcs, mode: str, seed) -> str:
+    """One name for a job that routes several files (a FreeCAD STEP + STL, a Blender PNG + GLB): the first of
+    <stem>, <stem>_2, ... that is free in every folder they route to. Pass it to route_output(stem=...) for
+    each file: routed one by one, the second file found the first one's name taken (2026-10-25 review)."""
+    stem = _output_stem(brand, mode, seed)
+    return _unused_stem({_output_dir(repo_root, brand, Path(s).suffix) for s in srcs}, stem, tag="")
 
 
 def plain_name(value) -> bool:
@@ -47,19 +85,32 @@ def plain_name(value) -> bool:
             and v.strip() == v and not v.endswith(".") and not any(ord(ch) < 32 for ch in v))
 
 
+_NOT_IN_A_FOLDER_NAME = set('<>:"/\\|?*')   # what Windows refuses in a file or folder name
+
+
 def brand_name_ok(name) -> bool:
-    """A brand folder name new-brand creates and replay accepts: one plain name, not hidden."""
-    return plain_name(name) and not str(name).startswith(".")
+    """A brand folder name new-brand creates and replay accepts: one plain name, not hidden, nothing Windows
+    refuses in a folder name and no control character. `new-brand 'what?'` passed, then copytree raised
+    WinError 123; a '"' broke brand.yaml's name: line on POSIX (2026-10-25 review)."""
+    v = str(name)
+    return (plain_name(v) and not v.startswith(".") and not _NOT_IN_A_FOLDER_NAME.intersection(v)
+            and not any(unicodedata.category(ch) == "Cc" for ch in v))
 
 
 def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4, *,
-                 keep_existing=False, producer="ComfyUI") -> Path:
+                 keep_existing=False, identity=None, stem=None, producer="ComfyUI") -> Path:
     """Relocate a finished render into its outputs folder, grouped by media type. With a brand it
     goes to brands/<brand>/outputs/<media>/<brand>_<mode>_<seed>; brandless (brand falsy) it goes to
-    the global outputs/<media>/<mode>_<seed> — both gitignored. Idempotent + lock-retry.
+    the global outputs/<media>/<mode>_<seed> — both gitignored. Lock-retry.
+    A name that is taken is replaced only by the same render: `identity` (sidecar.render_identity of the new
+    render's sidecar) equal to what the earlier render's sidecar records, a true re-render. Anything else (another
+    prompt, setting or input file with the same seed, or a caller that passes no identity) takes the next free
+    name, `<stem>_2`, `<stem>_3`, ...: 'a red cat' then 'a blue dog' with --seed 7 left only the dog, and its
+    sidecar (2026-10-25 review). A render identical to one of those numbered ones replaces it.
     `keep_existing` (replay) never replaces a file: a replay keeps the recorded seed, so it used to
     overwrite the very render and sidecar it reproduced, which is permanent for gitignored brand
     outputs. It takes the next free name instead (`<stem>_replay`, `<stem>_replay2`, ...).
+    `stem` routes to exactly that name, for a job whose files share one (job_stem picked it free).
     `producer` names the app that reported the file, for the error when it isn't there."""
     src = Path(src)
     if not src.is_file():
@@ -67,22 +118,22 @@ def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay
             raise NoOutputError(f"{producer} listed {src.name} as an output, but the file isn't there")
         raise NoOutputError(f"ComfyUI reported {src.name}, but it isn't in its output folder (is --comfy-output-dir "
                             "ComfyUI's output folder?)")
-    stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"
-    if not plain_name(stem) or (brand and not brand_name_ok(brand)):
-        # mode and brand can come from a shared sidecar: never let them name a folder (2026-10 review)
-        raise NoOutputError(f"refusing to name an output {stem!r}: brand and mode must be plain names")
-    base = brand_output_dir(repo_root, brand) if brand else Path(repo_root) / "outputs"
-    sub = media_subdir(src.suffix)
-    out_dir = base / sub if sub else base
+    default = _output_stem(brand, mode, seed)   # refuses a brand or mode that isn't a plain name, either way
+    named = stem is not None   # the caller picked the name for the whole job: route to it as it is
+    if named and not plain_name(stem):
+        raise NoOutputError(f"refusing to name an output {stem!r}: it must be a plain name")
+    stem = stem if named else default
+    out_dir = _output_dir(repo_root, brand, src.suffix)
     out_dir.mkdir(parents=True, exist_ok=True)
     if keep_existing:
         stem = _unused_stem(out_dir, stem)
+    elif not named:
+        stem = _unused_stem(out_dir, stem, tag="", reuse=lambda c: _same_render(out_dir / f"{c}.json", identity))
     dest = out_dir / f"{stem}{src.suffix}"
     last = None
     for _ in range(max(1, _retries)):
         try:
-            # idempotent: re-rendering the same brand/mode/seed overwrites cleanly
-            # (shutil.move raises on Windows if the destination already exists).
+            # the same render's file is replaced (shutil.move raises on Windows if the destination exists)
             if dest.exists():
                 dest.unlink()
             shutil.move(str(src), str(dest))

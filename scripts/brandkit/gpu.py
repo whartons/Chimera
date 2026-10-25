@@ -6,7 +6,9 @@ Ollama keeps a model resident for ~5 minutes after its last request. On a 32 GB 
 inside its own /free and hang (the 2026-10-14 smoke). The reverse happens too: ComfyUI keeps its
 models resident after a render, so an Ollama model loading next has no room (make_room). These
 helpers unload either side on demand and report who holds the GPU. Stdlib only; every call is
-best-effort and never raises, because a stopped Ollama (or ComfyUI) is a normal state."""
+best-effort and never raises, because a stopped Ollama (or ComfyUI) is a normal state. The exception is a
+`strict` probe, which raises ProbeError when an app is there but doesn't answer: the guards can't read that
+as "nothing loaded"."""
 from __future__ import annotations
 import json
 import os
@@ -14,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -147,19 +150,46 @@ def _call(url, body=None, timeout=5, _opener=urllib.request.urlopen):
     return json.loads(raw) if raw else {}
 
 
-def is_ollama(root, _opener=urllib.request.urlopen):
-    """True when `root` answers Ollama's /api/version (so hosted APIs are never sent Ollama calls)."""
+class ProbeError(RuntimeError):
+    """A strict probe's app is there but didn't answer (a timeout, a reset, a garbled reply), so what it holds is
+    unknown. A stopped app (connection refused) is never one."""
+
+
+def _refused(exc):
+    """True when a request failed because nothing listens at the address: the app isn't running, a normal state.
+    Every failure used to read that way, so a busy or wedged app (a timeout, a reset) counted as holding nothing,
+    and a model loaded or a render started beside memory nobody had checked (2026-10-25 review)."""
+    return isinstance(getattr(exc, "reason", exc), ConnectionRefusedError)
+
+
+def _probe_failed(url, exc, strict):
+    """For a failed GET of `url`: raise ProbeError when `strict` and the app may be there (not refused, and not a
+    404, which says the server has no such API: it isn't Ollama). Otherwise the caller reads it as absent."""
+    absent = _refused(exc) or (isinstance(exc, urllib.error.HTTPError) and exc.code == 404)
+    if strict and not absent:
+        raise ProbeError(f"{url} didn't answer ({getattr(exc, 'reason', exc)})") from exc
+
+
+def is_ollama(root, _opener=urllib.request.urlopen, *, strict=False):
+    """True when `root` answers Ollama's /api/version (so hosted APIs are never sent Ollama calls). False when
+    nothing listens there or another server answers; `strict` raises ProbeError when the connection times out or
+    drops instead (an Ollama too busy or wedged to say, or a reply that never came)."""
     try:
         return "version" in _call(root + "/api/version", timeout=3, _opener=_opener)
-    except Exception:
+    except Exception as e:
+        # an answer of any kind (an HTTP error, a page that isn't JSON) is a server that isn't Ollama
+        if isinstance(e, OSError) and not isinstance(e, urllib.error.HTTPError):
+            _probe_failed(root + "/api/version", e, strict)
         return False
 
 
-def loaded_models(root, _opener=urllib.request.urlopen):
-    """[(name, vram_bytes)] currently resident in Ollama; [] when it isn't running."""
+def loaded_models(root, _opener=urllib.request.urlopen, *, strict=False):
+    """[(name, vram_bytes)] currently resident in Ollama; [] when it isn't running. `strict` raises ProbeError when
+    Ollama doesn't answer (a timeout, a reset, a garbled reply): then nobody knows what it holds."""
     try:
         models = _call(root + "/api/ps", _opener=_opener).get("models") or []
-    except Exception:
+    except Exception as e:
+        _probe_failed(root + "/api/ps", e, strict)
         return []
     out = []
     for m in models:
@@ -169,9 +199,9 @@ def loaded_models(root, _opener=urllib.request.urlopen):
     return out
 
 
-def is_resident(root, model, _opener=urllib.request.urlopen):
-    """True when Ollama at `root` lists `model` as loaded."""
-    return any(same_model(n, model) for n, _ in loaded_models(root, _opener=_opener))
+def is_resident(root, model, _opener=urllib.request.urlopen, *, strict=False):
+    """True when Ollama at `root` lists `model` as loaded (see loaded_models for `strict`)."""
+    return any(same_model(n, model) for n, _ in loaded_models(root, _opener=_opener, strict=strict))
 
 
 def unload(root, model, *, wait=0.0, poll=0.25, _opener=urllib.request.urlopen, _sleep=time.sleep,
@@ -183,8 +213,14 @@ def unload(root, model, *, wait=0.0, poll=0.25, _opener=urllib.request.urlopen, 
         _call(root + "/api/generate", {"model": model, "keep_alive": 0}, timeout=60, _opener=_opener)
     except Exception:
         return False
+
+    def listed():
+        try:
+            return is_resident(root, model, _opener=_opener, strict=True)
+        except ProbeError:
+            return True   # a timed-out /api/ps read as "gone", and the render started beside it (2026-10-25)
     deadline = _clock() + wait
-    while wait > 0 and is_resident(root, model, _opener=_opener):
+    while wait > 0 and listed():
         if _clock() >= deadline:
             return False
         _sleep(poll)
@@ -240,14 +276,16 @@ def _kv_cache_bytes(show, unpinned_ctx=None):
     return int(per_token * ctx * per_elem * slots)
 
 
-def vram_need_range(root, model, _opener=urllib.request.urlopen):
+def vram_need_range(root, model, _opener=urllib.request.urlopen, *, strict=False):
     """(floor, full) bytes of GPU memory `model` takes once loaded in Ollama: its weights plus its context cache
     (from /api/show) plus compute buffers, `full` at the context Ollama may give it (see _kv_cache_bytes) and
     `floor` at a 32k context when nothing pins one (the same figure when something does). Falls back to the
-    file size x 1.2 + 2 GB for both when the cache can't be sized; None when Ollama doesn't list the model."""
+    file size x 1.2 + 2 GB for both when the cache can't be sized; None when Ollama doesn't list the model, or
+    isn't running. `strict` raises ProbeError when /api/tags doesn't answer (see loaded_models)."""
     try:
         models = _call(root + "/api/tags", _opener=_opener).get("models") or []
-    except Exception:
+    except Exception as e:
+        _probe_failed(root + "/api/tags", e, strict)
         return None
     size = next((int(m["size"]) for m in models
                  if same_model(m.get("name") or m.get("model"), model) and m.get("size")), None)
@@ -275,9 +313,9 @@ def make_room(comfy_client, need_bytes, *, floor_bytes=None, wait=30.0, poll=1.0
               _clock=time.monotonic):
     """Before a local Ollama model loads: when ComfyUI reports less than `need_bytes` of the card free
     (outside its own cache), ask it to unload its models (POST /free) and wait, up to `wait` seconds, for
-    the memory to come back. True once there is room; False if it never came, or if ComfyUI stopped
-    answering after showing a full card (the check must not fail open); None when it can't tell: ComfyUI
-    isn't reachable, or its device isn't a CUDA GPU (see _cuda_device).
+    the memory to come back. True once there is room; False if it never came, or if ComfyUI is there but
+    doesn't answer (the check must not fail open); None when there's nothing to check: ComfyUI isn't running
+    (connection refused), or its device isn't a CUDA GPU (see _cuda_device).
 
     Ollama can't do this itself on Windows: it doesn't see ComfyUI's allocations (it reported 30 GB free
     while ComfyUI held 15), so it loads onto a full card, and the driver pages GPU memory to system RAM.
@@ -285,8 +323,9 @@ def make_room(comfy_client, need_bytes, *, floor_bytes=None, wait=30.0, poll=1.0
     past its 180 s timeout, nvidia-smi hung, and the PC froze. ComfyUI does see its own holdings.
 
     A model bigger than the card needs ComfyUI emptied rather than trimmed, so it always asks ComfyUI to
-    unload, and the target is capped at the card minus 3 GB for the desktop. Past that, Ollama's own fitting
-    puts the overflow on the CPU, which is safe once nothing it can't see holds the card.
+    unload, the target is capped at the card minus 3 GB for the desktop, and the room counts only once ComfyUI
+    holds under 1 GB. Past that, Ollama's own fitting puts the overflow on the CPU, which is safe once nothing it
+    can't see holds the card.
 
     `floor_bytes` is the model's need at the smallest context Ollama would give it (32k when nothing pins one,
     vram_need_range): Ollama sizes an unpinned context to the room it sees, so once ComfyUI has emptied (it
@@ -301,8 +340,13 @@ def make_room(comfy_client, need_bytes, *, floor_bytes=None, wait=30.0, poll=1.0
         return free, dev["vram_total"], dev.get("torch_vram_total")   # the last: ComfyUI's own reservation
     try:
         seen = card()
-    except Exception:
-        return None
+    except Exception as e:
+        if _refused(e):
+            return None
+        # a wedged ComfyUI (a timeout, a reset) used to read as "not running", and the model loaded beside it
+        print(f"[gpu] ComfyUI didn't answer ({getattr(e, 'reason', e)}), so it may still hold the card: not loading "
+              "the local LLM beside it", file=sys.stderr)
+        return False
     if seen is None:
         return None
     free, total, _ = seen
@@ -323,7 +367,10 @@ def make_room(comfy_client, need_bytes, *, floor_bytes=None, wait=30.0, poll=1.0
         try:
             free, _, held = card()
             emptied = held is not None and held < _GB
-            if free >= target or (floor_bytes is not None and emptied and free >= floor_bytes):
+            # capped, free memory alone isn't room: 29.5 of 32 GB free "fit" a 35 GB model while ComfyUI still held
+            # 2 GB that Ollama can't see (2026-10-25 review)
+            if (free >= target and (emptied or not capped)) or (floor_bytes is not None and emptied
+                                                                 and free >= floor_bytes):
                 return True
         except Exception:
             pass   # a busy or wedged ComfyUI: keep waiting until the deadline, then refuse
@@ -341,15 +388,18 @@ def unload_others(root, keep=(), *, wait=10.0, _opener=urllib.request.urlopen, _
             and unload(root, name, wait=wait, _opener=_opener, _sleep=_sleep, _clock=_clock)]
 
 
-def unload_all(root, _opener=urllib.request.urlopen):
-    """Unload every resident Ollama model; return the [(name, vram_bytes)] that were unloaded."""
+def unload_all(root, _opener=urllib.request.urlopen, *, wait=10.0):
+    """Unload every resident Ollama model, each waited out like LLMClient.release; return the [(name, vram_bytes)]
+    that were unloaded. Not waiting, free_all asked ComfyUI to free while Ollama's runner still held the memory
+    (2026-10-25 review)."""
     return [(name, vram) for name, vram in loaded_models(root, _opener=_opener)
-            if unload(root, name, _opener=_opener)]
+            if unload(root, name, wait=wait, _opener=_opener)]
 
 
 def free_all(comfy_client, ollama_url=None, _opener=urllib.request.urlopen):
-    """`chimera free`: unload Ollama's models FIRST, then ask ComfyUI to unload its models and free
-    VRAM. (Reversed, ComfyUI 0.40 can run out of CUDA memory inside /free while Ollama holds the GPU.)
+    """`chimera free`: unload Ollama's models FIRST, waiting until it has let them go, then ask ComfyUI to unload
+    its models and free VRAM. (Reversed, ComfyUI 0.40 can run out of CUDA memory inside /free while Ollama holds
+    the GPU.)
     Returns {"ollama": [(name, vram_bytes)] or None if not running, "comfy": "freed"|"not running"}."""
     root = ollama_root(ollama_url)
     report = {"ollama": unload_all(root, _opener=_opener) if is_ollama(root, _opener=_opener) else None}

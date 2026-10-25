@@ -88,6 +88,17 @@ def _backend_error(backend):
     return None
 
 
+def _pillow_missing():
+    """True when Pillow can't be imported. The mesh3d and cad loops judge a contact sheet that montage builds
+    with Pillow every iteration; without it each iteration failed inside the loop ("iteration failed"), so on a
+    `.[dev]`-only install those loops could never pass and nothing said why (2026-10-25 review)."""
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        return True
+    return False
+
+
 def _resolve_manifest(repo_root, brand):
     """With --brand, load brands/<brand>/brand.yaml (branded self-correction). Brandless (brand
     None/'') -> the neutral default_manifest(): build_rubric collapses to subject + quality, so the
@@ -158,8 +169,9 @@ def _clear_other_ollama_models(llms, strict=True):
     """Before the first render, unload local Ollama models this run didn't load (another tool's, or an
     earlier run's): ComfyUI can't see their memory, so a render beside them can overcommit the card the way
     the judge did on 2026-10-15. Checks the run's own local endpoints and the default Ollama; honours
-    CHIMERA_KEEP_LLM_LOADED=1. A model that won't unload stops the run unless `strict` is off (an image run on
-    a ComfyUI at a non-loopback address, which the GPU checks don't cover): then it only warns."""
+    CHIMERA_KEEP_LLM_LOADED=1. A model that won't unload, or an Ollama that doesn't answer (a timeout, not a
+    refused connection), stops the run unless `strict` is off (an image run on a ComfyUI at a non-loopback
+    address, which the GPU checks don't cover): then it only warns."""
     if gpu.keep_llms_loaded():
         return
     live = [llm for llm in llms if llm is not None and gpu.is_local(getattr(llm, "base_url", ""))]
@@ -168,10 +180,22 @@ def _clear_other_ollama_models(llms, strict=True):
         if not gpu.is_local(root):
             continue
         keep = {llm.ollama_name for llm in live if gpu.ollama_root(llm.base_url) == root}
-        for name, vram in gpu.unload_others(root, keep):
-            print(f"[gpu] unloaded {name} ({vram / 2**30:.1f} GB) from Ollama before rendering: ComfyUI can't "
-                  "see that memory, so rendering beside it could overcommit the card", file=sys.stderr)
-        stuck = [n for n, _ in gpu.loaded_models(root) if not any(gpu.same_model(n, k) for k in keep)]
+        try:
+            if not gpu.is_ollama(root, strict=True):
+                continue   # not running, or another local server (LM Studio, vLLM): nothing of Ollama's to unload
+            for name, vram in gpu.unload_others(root, keep):
+                print(f"[gpu] unloaded {name} ({vram / 2**30:.1f} GB) from Ollama before rendering: ComfyUI can't "
+                      "see that memory, so rendering beside it could overcommit the card", file=sys.stderr)
+            stuck = [n for n, _ in gpu.loaded_models(root, strict=True) if not any(gpu.same_model(n, k) for k in keep)]
+        except gpu.ProbeError as e:
+            # a timed-out /api/ps read as "nothing else loaded" (2026-10-25 review)
+            if not strict:
+                print(f"[gpu] warning: {e}, so whatever Ollama holds is unknown; going on, since the GPU checks only "
+                      "cover a ComfyUI given as localhost or 127.0.0.1", file=sys.stderr)
+                continue
+            sys.exit(f"[gpu] {e}, so whatever Ollama holds is unknown and rendering beside it could overcommit the "
+                     "card (ComfyUI can't see that memory): restart Ollama, or run `python scripts/generate.py free`, "
+                     "then retry")
         if stuck and not strict:
             print(f"[gpu] warning: Ollama still holds {', '.join(stuck)}; going on, since the GPU checks only cover a "
                   "ComfyUI given as localhost or 127.0.0.1 (if this ComfyUI is on this machine, use that address)",
@@ -229,8 +253,9 @@ def _hand_gpu_back(generate, clients):
     def wrapped(*args, **kwargs):
         stuck = _release_all(live)
         if stuck:
-            raise RuntimeError(f"{', '.join(stuck)} is still loaded in Ollama, so not rendering beside it "
-                               "(ComfyUI can't see that memory); `python scripts/generate.py free` unloads it")
+            raise RuntimeError(f"{', '.join(stuck)} is still loaded in Ollama (or Ollama isn't answering to say), so "
+                               "not rendering beside it (ComfyUI can't see that memory); `python scripts/generate.py "
+                               "free` unloads it")
         return generate(*args, **kwargs)
     return wrapped
 
@@ -363,6 +388,9 @@ def main():
     if not args.comfy_output_dir and not (args.pipeline == "cad" and args.backend == "api"):
         ap.error("--comfy-output-dir is required (ComfyUI render and/or the Qwen judge write there); "
                  "omit it only for `--pipeline cad --backend api`")
+    if args.pipeline in ("mesh3d", "cad") and _pillow_missing():
+        ap.error(f"--pipeline {args.pipeline} judges a contact sheet built with Pillow, which isn't installed: "
+                 'pip install -e ".[images]"')
 
     if args.max_iters is None:
         args.max_iters = 3 if args.pipeline in ("mesh3d", "cad") else 4
@@ -447,9 +475,10 @@ def main():
         return LocalVLMJudge(client, repo_root, args.comfy_output_dir)
 
     if args.pipeline == "cad":
-        from scripts.agent.cad_generate import make_cad_generate
+        from scripts.agent.cad_generate import CadFeedbackExpander, make_cad_generate
         from scripts.agent.llm import LLMCadGenerator
         rubric = build_rubric(m, args.subject, modality="3d")   # clean-solid form rubric (BREP is manifold)
+        expander = CadFeedbackExpander(expander)   # code-gen gets the judge's avoid terms and reasons too
         # the judge and rewriter go before each iteration's renders too (code-gen releases itself before
         # Blender): a resident judge sat beside the next Blender render and a --backend local judge graph. One
         # on code-gen's own model is left to code-gen, which loads it next and releases it before Blender.
@@ -481,8 +510,9 @@ def main():
             # not failed: finalize never costs the run its already-good shape)
             stuck = _release_all([c for c in (judge_llm, rewriter_llm) if c is not None])
             if stuck:
-                print(f"[finalize] skipped: {', '.join(stuck)} is still loaded in Ollama and ComfyUI can't see that "
-                      "memory. `python scripts/generate.py free` unloads it; then texture the winner with "
+                print(f"[finalize] skipped: {', '.join(stuck)} is still loaded in Ollama (or Ollama isn't answering "
+                      "to say) and ComfyUI can't see that memory. `python scripts/generate.py free` unloads it; then "
+                      "texture the winner with "
                       "`python scripts/generate.py finalize-texture --auto-repaint`", file=sys.stderr)
             else:
                 finalize_winner(result, args, repo_root=repo_root, manifest=m,

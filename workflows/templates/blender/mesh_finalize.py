@@ -20,7 +20,7 @@ bpy.ops.object.select_all(action='DESELECT')
 obj.select_set(True)
 bpy.context.view_layer.objects.active = obj
 bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
-C.frame_object(scn, obj)        # studio camera + lights for the verification render
+C.frame_object(scn, obj, turntable=True)   # studio camera + lights; the orbit stills spin it
 
 C.bake_multiview(obj, scn, [str(v) for v in p["view_images"]],
                  azimuths=[float(a) for a in p["azimuths"]],

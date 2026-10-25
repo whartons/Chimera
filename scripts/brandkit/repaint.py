@@ -16,6 +16,9 @@ DEFAULT_IPADAPTER = "ip-adapter-plus_sdxl_vit-h.safetensors"
 DEFAULT_CLIPVISION = "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
 DEFAULT_DEPTH_CN = "controlnet-depth-sdxl-1.0.safetensors"
 DEFAULT_NEG = "blurry, low quality, deformed, extra limbs, duplicated parts, watermark, text, background clutter"
+# SDXL's native size: the depth maps and the repaints stay here whatever the bake's atlas is. --texture-res 4096
+# made SDXL generate at 4096^2, which duplicates the subject or runs out of memory (2026-10-25)
+REPAINT_RES = 1024
 
 
 def build(*, depth_image, concept_image, positive, negative=DEFAULT_NEG, seed,
@@ -106,7 +109,7 @@ def _mask_background(view_path, depth_path, out_path, *, thresh=12, fill=(128, 1
 
 
 def generate_views(client, *, mesh, concept_path, subject, azimuths, comfy_output_dir, out_dir,
-                   render_views_template, blender_runner, seed, res=1024, elevation=15.0,
+                   render_views_template, blender_runner, seed, res=REPAINT_RES, elevation=15.0,
                    cn_strength=0.7, ip_weight=0.8, blender_bin=None, blender_timeout=600,
                    comfy_timeout=1200, negative=DEFAULT_NEG):
     """Generate N corrected views for `mesh` to feed bake_multiview: render per-view depth maps

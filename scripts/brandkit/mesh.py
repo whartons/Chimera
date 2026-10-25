@@ -130,4 +130,9 @@ def convert(glb_path, fmt):
         raise ValueError(f"unsupported 3d format {fmt!r} (expected glb|stl|obj)")
     verts, faces = read_glb_mesh(glb_path)
     dest = glb_path.with_suffix("." + fmt)
-    return write_stl(verts, faces, dest) if fmt == "stl" else write_obj(verts, faces, dest)
+    if fmt == "obj":   # OBJ is Y-up by convention, like glTF: the coordinates carry over as they are
+        return write_obj(verts, faces, dest)
+    # STL is Z-up in every slicer, and glTF is Y-up, so the STL lay on its back (render --mode finish, which goes
+    # through Blender, stood up; 2026-10-25 review). (x, y, z) -> (x, -z, y) is a +90 degree turn about X, not a
+    # mirror, so the winding and the normals write_stl derives from it still point outward.
+    return write_stl([(x, -z, y) for x, y, z in verts], faces, dest)

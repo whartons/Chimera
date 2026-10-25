@@ -130,3 +130,79 @@ def test_music_sidecars_record_the_lyrics_and_replay_sends_them_back():
     s = {"schema": 2, "modality": "audio", "mode": "music", "brand": None, "seed": 3,
          "model": "acestep_v1.5_xl_turbo_bf16.safetensors", "inputs": {"subject": "anthem", "lyrics": "[verse]\nla"}}
     assert args_from_sidecar(s).lyrics == "[verse]\nla"
+
+
+
+# --- ComfyUI's ACE-Step and foley bounds are checked before anything uploads (2026-10-25 review) ------------
+# Bounds from ComfyUI 0.41.1's /object_info: TextEncodeAceStepAudio1.5 keyscale (a 34-value combo) and bpm
+# 10-300, EmptyAceStep1.5LatentAudio seconds 1-1000, HunyuanFoleySampler duration 1-60 and frame_rate 1-120.
+import pytest  # noqa: E402
+from scripts.brandkit.audio import check_options  # noqa: E402
+
+
+def _ace_keyscale(**kw):
+    wf = build(ROOT, load_manifest(FIX), positive="x", negative="", seed=1, mode="music", model="acestep", **kw)
+    return find_node_by_title(wf, "brand:tags")[1]["inputs"]["keyscale"]
+
+
+@pytest.mark.parametrize("given, sent", [("F# Minor", "F# minor"), ("f#minor", "F# minor"),
+                                         ("  bb   MAJOR ", "Bb major"), ("Db minor", "Db minor")])
+def test_ace_step_gets_its_own_spelling_of_the_key(given, sent):
+    # the encoder's keyscale is a combo: "F# Minor" was sent as typed and ComfyUI answered HTTP 400
+    assert _ace_keyscale(keyscale=given) == sent
+
+
+def test_an_unknown_key_is_refused_with_the_valid_ones():
+    m = load_manifest(FIX)
+    with pytest.raises(ValueError, match=r"--keyscale 'H minor'.*C major.*B minor"):
+        check_options(m, "music", model="acestep", keyscale="H minor")
+    m.audio.music_keyscale = "F# dorian"   # the brand's default is checked too
+    with pytest.raises(ValueError, match="music_keyscale 'F# dorian'"):
+        check_options(m, "music", model="acestep")
+
+
+def test_stable_audio_3_keeps_any_key_text():
+    # SA3 has no key input: the text only joins the prompt, so anything goes
+    m = load_manifest(FIX)
+    check_options(m, "music", keyscale="F# dorian")
+    wf = build(ROOT, m, positive="anthem", negative="", seed=1, mode="music", keyscale="F# dorian")
+    assert "in F# dorian" in find_node_by_title(wf, "brand:prompt")[1]["inputs"]["value"]
+
+
+def test_ace_step_bpm_must_be_10_to_300():
+    m = load_manifest(FIX)
+    for bad in (9, 301):
+        with pytest.raises(ValueError, match="10 to 300"):
+            check_options(m, "music", model="acestep", bpm=bad)
+    check_options(m, "music", model="acestep", bpm=10)
+    check_options(m, "music", model="acestep", bpm=300)
+    m.audio.music_bpm = 400
+    with pytest.raises(ValueError, match="music_bpm 400"):
+        check_options(m, "music", model="acestep")
+
+
+def test_ace_step_renders_1_to_1000_seconds():
+    m = load_manifest(FIX)
+    for bad in (0.5, 1001.0):
+        with pytest.raises(ValueError, match="ACE-Step renders 1 to 1000 s"):
+            check_options(m, "music", model="acestep", duration=bad)
+    check_options(m, "music", model="acestep", duration=1.0)
+
+
+def test_stable_audio_3_renders_at_most_1000_seconds_and_checks_the_brand_length_too():
+    m = load_manifest(FIX)
+    with pytest.raises(ValueError, match="at most 1000 s"):
+        check_options(m, "sfx", duration=1001.0)
+    m.audio.music_duration = 0.5   # a brand.yaml default, not a flag: ComfyUI refused it all the same
+    with pytest.raises(ValueError, match="brand audio.music_duration 0.5"):
+        check_options(m, "music")
+
+
+def test_foley_renders_1_to_60_seconds_at_up_to_120_fps():
+    m = load_manifest(FIX)
+    for bad in (0.5, 75.0):
+        with pytest.raises(ValueError, match="1 to 60 s"):
+            check_options(m, "foley", duration=bad)
+    with pytest.raises(ValueError, match="1 to 120 fps"):
+        check_options(m, "foley", duration=5.0, frame_rate=240.0)
+    check_options(m, "foley", duration=60.0, frame_rate=120.0)

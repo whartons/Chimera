@@ -18,7 +18,7 @@ from . import freecad as freecad_runner
 from .comfy import ComfyClient
 from .dcc import job_outputs
 from .manifest import ManifestError, default_manifest, load_manifest
-from .outputs import NoOutputError, route_output, write_sidecar
+from .outputs import NoOutputError, job_stem, route_output, write_sidecar
 from .provenance import git_provenance
 from .sidecar import build_cad_meta, build_render_meta
 
@@ -26,6 +26,8 @@ RENDER_TIMEOUT = 1800
 _TEMPLATE_FOR_MODE = {"mesh": "mesh_render.py", "comfy-scene": "comfy_to_scene.py",
                       "finish": "mesh_finish.py"}
 _RAW_MM_TEMPLATE = "mesh_raw_mm.py"     # --solid step 1: the mesh as a raw STL in millimetres
+SPECK_FRAC = 0.01                       # --solid drops pieces under 1 % of the largest one's faces as specks
+_PIECE_KEYS = ("pieces_kept", "pieces_dropped", "faces_dropped")
 
 FINALIZE_TIMEOUT = finalize_core.FINALIZE_TIMEOUT
 _FINALIZE_TEMPLATE = finalize_core.FINALIZE_TEMPLATE
@@ -73,7 +75,7 @@ def _render_params(args, asset, tmp, seed):
         p.update(mesh=str(asset), target_tris=args.target_tris, watertight=bool(args.watertight),
                  solid=bool(getattr(args, "solid", False)), scale_mm=args.scale_mm, color=args.color,
                  formats=_finish_formats(args), stl_scale=_stl_scale(asset, args.scale_mm),
-                 render_still=bool(args.render_still))
+                 render_still=bool(args.render_still), speck_frac=SPECK_FRAC)
         if args.color == "project":
             p["asset"] = str(args.project_image)
     return p
@@ -118,7 +120,8 @@ def _print_tools():
 
 def _check_stls(paths, tools):
     """Print-check every STL output (size in mm, closed, pieces, SOLID vs HOLLOW). Returns {name: report};
-    skips with a note when the [print] extra isn't installed."""
+    skips with a note when the [print] extra isn't installed. A check that fails is reported, never raised: it runs
+    after routing, so an exception left the outputs without a sidecar (2026-10-25)."""
     stls = [p for p in paths if p.suffix.lower() == ".stl"]
     if not stls:
         return {}
@@ -130,8 +133,13 @@ def _check_stls(paths, tools):
         return {}
     reports = {}
     for p in stls:
-        reports[p.name] = pc.check_file(p)
-        print(pc.format_report(reports[p.name], p.name))
+        try:
+            report = pc.check_file(p)
+            print(pc.format_report(report, p.name))
+        except Exception as e:   # noqa: BLE001 - a report about the file, not a reason to lose it
+            print(f"warning: print check of {p.name} failed ({e})", file=sys.stderr)
+            report = {"error": str(e)}
+        reports[p.name] = report
     return reports
 
 
@@ -139,6 +147,12 @@ def run_render(args, repo_root, ap):
     brand_dir = (repo_root / "brands" / args.brand) if args.brand else None
     if args.mode == "finish" and args.color == "project" and not args.project_image:
         ap.error("--color project needs --project-image <file>")
+    if args.mode == "finish" and args.color == "project":
+        # Blender runs in its own working directory, so a relative path couldn't be read there (2026-10-25)
+        image = Path(args.project_image).expanduser()
+        if not image.is_file():
+            ap.error(f"--project-image not found: {args.project_image}")
+        args.project_image = str(image.resolve())
     if args.mode == "finish" and args.color == "keep" and args.watertight:
         ap.error("--color keep can't be combined with --watertight: the voxel remesh drops the UVs the textures need")
     solid = args.mode == "finish" and bool(getattr(args, "solid", False))
@@ -188,7 +202,14 @@ def run_render(args, repo_root, ap):
                                         blender_bin=args.blender_bin, timeout=args.timeout or RENDER_TIMEOUT)
             print("solidify: rebuilding the mesh as one solid (CPU, a few minutes for a large print)...")
             mesh_in = tmp / "solid_mm.stl"
-            solid_info = tools[0].solidify_file(raw, mesh_in)
+            # its ValueError (an open or empty mesh) and MemoryError reached the user as tracebacks (2026-10-25)
+            try:
+                solid_info = tools[0].solidify_file(raw, mesh_in)
+            except MemoryError:
+                print("render failed: solidify ran out of memory (it needs about 2.5 GB free); close other "
+                      "programs and retry", file=sys.stderr); sys.exit(1)
+            except ValueError as e:
+                print(f"render failed: solidify: {e}", file=sys.stderr); sys.exit(1)
             print(f"solidify: closing radius {solid_info['close_mm']} mm, {solid_info['volume_cm3']} cm3 solid")
         manifest = blender_runner.run_template(
             template, _render_params(args, mesh_in, tmp, seed),
@@ -196,7 +217,10 @@ def run_render(args, repo_root, ap):
         outs = manifest.get("outputs", [])
         if not outs:
             print("render produced no outputs", file=sys.stderr); sys.exit(1)
-        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, producer="Blender") for o in outs]
+        # one name for the job's files (still, GLB, STL), free in every folder: a same-seed job keeps both
+        stem = job_stem(repo_root, args.brand, outs, args.mode, seed)
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, stem=stem, producer="Blender")
+                  for o in outs]
     except (blender_runner.BlenderJobError, NoOutputError) as e:
         print(f"render failed: {e}", file=sys.stderr); sys.exit(1)
     finally:
@@ -208,7 +232,12 @@ def run_render(args, repo_root, ap):
                              timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
                              pipeline_git_sha=git_provenance(repo_root))
     if solid_info:
-        meta["solidify"] = solid_info
+        # what the finish kept: dropping every piece but the largest without a word lost a separate plaque
+        pieces = {k: manifest[k] for k in _PIECE_KEYS if k in manifest}
+        if pieces:
+            print(f"finish: kept {pieces.get('pieces_kept', '?')} piece(s), dropped "
+                  f"{pieces.get('pieces_dropped', 0)} speck(s) of {pieces.get('faces_dropped', 0)} faces")
+        meta["solidify"] = {**solid_info, **pieces}
     checks = _check_stls(routed, tools)
     if checks:
         meta["print_check"] = checks
@@ -323,7 +352,10 @@ def run_cad(args, repo_root, ap):
         outs = job_outputs(manifest, tmp, freecad_runner.FreeCADJobError)   # a script prints its own manifest
         if not outs:
             print("cad produced no outputs", file=sys.stderr); sys.exit(1)
-        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, producer="FreeCAD") for o in outs]
+        # one name for the job's STEP/STL/OBJ, free in every folder: a same-seed job keeps both (2026-10-25)
+        stem = job_stem(repo_root, args.brand, outs, args.mode, seed)
+        routed = [route_output(repo_root, args.brand, Path(o), args.mode, seed, stem=stem, producer="FreeCAD")
+                  for o in outs]
     except (freecad_runner.FreeCADJobError, NoOutputError) as e:
         print(f"cad failed: {e}", file=sys.stderr); sys.exit(1)
     finally:
@@ -407,7 +439,7 @@ def _auto_repaint_views(args, mesh, seed, brand_dir, repo_root, ap):
         return finalize_core.repaint_views(
             client, mesh=mesh, concept=concept, subject=args.subject, azimuths=azimuths,
             comfy_output_dir=args.comfy_output_dir, repo_root=repo_root,
-            blender_runner=blender_runner.run_template, seed=seed, res=args.texture_res,
+            blender_runner=blender_runner.run_template, seed=seed, res=finalize_core.REPAINT_RES,
             elevation=args.elevation, cn_strength=args.cn_strength, ip_weight=args.ip_weight,
             blender_bin=args.blender_bin)
     except finalize_core.FinalizeError as e:

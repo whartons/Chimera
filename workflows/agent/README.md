@@ -70,7 +70,8 @@ headless backend:
    `TemplatedExpander().expand(subject, manifest, prior_issues=consensus_issues)`.
 6. **Regenerate the failures** with the refined prompt + fresh seeds and repeat from
    step 3 until a candidate reaches consensus PASS or you hit the **iteration cap**
-   (4 is a sane default). On exhaustion, return the best-scoring candidate seen.
+   (4 is a sane default). On exhaustion, return the best-scoring candidate seen, ranking any candidate a
+   geometry check failed (a 3D or CAD part, see below) below every clean one, whatever its score.
 
 ### Illustrative Workflow sketch
 
@@ -95,15 +96,16 @@ for it in range(MAX_ITERS):              # cap, e.g. 4
         batch_verdicts += verdicts
         passes   = sum(v.passed for v in verdicts)
         score    = mean(v.score for v in verdicts)
-        if best is None or score > best.score:
-            best = Candidate(img, score)
+        rank     = (not geometry_failed(img), score)   # a geometry-failed part ranks last (3D/CAD only)
+        if best is None or rank > best.rank:
+            best = Candidate(img, rank)
         if passes > M / 2:               # majority PASS -> consensus accept
             return img
 
     # no consensus winner this round: refine from what any judge flagged
     prior_issues = consensus_issues(batch_verdicts)   # de-duplicated union of every judge's NOT-MET
 
-return best.img                          # cap reached: best-scoring candidate
+return best.img                          # cap reached: best-ranked candidate (clean first, then score)
 ```
 
 `assistant_vision_judge` is the assistant looking at the image and producing a
@@ -144,11 +146,14 @@ expander, and loop are unchanged.
    **pre-judged NOT-MET lines** in each pass. Parse with `parse_verdict()`.
 4. **Consensus + refine** as before — `consensus_verdict(texts)`, then `TemplatedExpander().expand(...)`
    folds the unmet issues into the next **concept** prompt (the lever on an image-conditioned mesh).
-   Re-generate with a fresh seed (which also rerolls the mesh lift) and repeat to the cap.
+   Re-generate with a fresh seed (which also rerolls the mesh lift) and repeat to the cap. At the cap, a
+   candidate a structural issue failed ranks last, below every clean one, however well the judges scored
+   its look.
 
 The autonomous equivalent wraps its judge (by default the GPU tier's local Ollama judge; `--backend local` for the
 optional ComfyUI node) in `GeometryAwareJudge`, so the same checks-file merge happens with no assistant in
-the loop — `auto_generate.py --pipeline mesh3d`.
+the loop — `auto_generate.py --pipeline mesh3d` (it marks such a verdict `geometry_failed`, which the
+best-of ranking reads).
 
 ## When to use this
 

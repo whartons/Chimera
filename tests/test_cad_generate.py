@@ -315,3 +315,77 @@ def test_a_blender_failure_is_not_reported_to_code_gen_as_a_script_failure(tmp_p
     with pytest.raises(RuntimeError):
         g("P1", "", 4)
     assert "The previous script failed: FreeCAD: Part.OCCError" in gen.calls[-1][1]
+
+
+# --- 2026-10-25 review ------------------------------------------------------------------------------------
+def _routed(root, brand, src, mode, seed, **kw):
+    d = Path(root) / "out" / f"{mode}_{seed}{Path(src).suffix}"
+    d.parent.mkdir(parents=True, exist_ok=True); d.write_text("x"); return d
+
+
+def test_the_judges_avoid_terms_and_reasons_reach_code_gen_through_the_real_loop(tmp_path, monkeypatch):
+    # the templated expander puts 'avoid X' only into the negative, and the NOT-MET reason only when no FIX parsed,
+    # so this judge reached code-gen as "Correct the previous attempt. a wall hook"
+    from scripts.agent.expander import TemplatedExpander
+    from scripts.agent.judge import Verdict, parse_verdict
+    from scripts.agent.loop import run_loop
+    from scripts.brandkit.manifest import default_manifest
+    gen = _Gen("box = 1")
+    fc, bl = _ok_runners(tmp_path)
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+    monkeypatch.setattr(CG, "route_output", _routed)
+    verdicts = iter([parse_verdict("1. NOT-MET - hook arm 2 mm thick, fragile. FIX: avoid thin hook arm\n"
+                                   "Overall: FAIL\nscore: 0.4"), Verdict(True, 0.9, [])])
+
+    class _Judge:
+        def judge(self, image, rubric):
+            return next(verdicts)
+    res = run_loop(expander=CG.CadFeedbackExpander(TemplatedExpander()), judge=_Judge(), manifest=default_manifest(),
+                   subject="a wall hook", max_iters=2, seeds=[1, 2],
+                   generate=CG.make_cad_generate(_args(subject="a wall hook"), tmp_path, gen, freecad_runner=fc,
+                                                 blender_runner=bl))
+    assert res.passed and gen.calls[0] == ("a wall hook", None)
+    fb = gen.calls[1][1]
+    assert "Avoid: thin hook arm" in fb and "hook arm 2 mm thick, fragile" in fb
+
+
+def test_cad_feedback_does_not_repeat_issues_the_expander_already_surfaced():
+    # with no structured FIX the templated expander already appends the raw issues ("Fix: ...")
+    from scripts.agent.expander import TemplatedExpander
+    from scripts.brandkit.manifest import default_manifest
+    issue = "1. NOT-MET - the hook has no screw hole"
+    pos, neg = CG.CadFeedbackExpander(TemplatedExpander()).expand("a wall hook", default_manifest(), [issue])
+    assert pos.count(issue) == 1 and "Avoid" not in pos
+    assert CG.CadFeedbackExpander(TemplatedExpander()).expand("a wall hook", default_manifest()) == \
+        TemplatedExpander().expand("a wall hook", default_manifest())          # the first pass is untouched
+
+
+def test_a_script_error_survives_a_code_gen_failure(tmp_path, monkeypatch):
+    # the error was popped before code-gen ran: when code-gen then failed (an LLMError), the FreeCAD traceback was
+    # gone by the next iteration
+    from scripts.agent.llm import LLMError
+    fc, bl = _ok_runners(tmp_path)
+    monkeypatch.setattr(CG.montage, "contact_sheet", lambda paths, out, **k: Path(out).write_text("s") or Path(out))
+    monkeypatch.setattr(CG, "route_output", _routed)
+
+    class _Flaky(_Gen):
+        def generate_script(self, brief, fix_feedback=None):
+            if len(self.calls) == 1:
+                self.calls.append((brief, fix_feedback))
+                raise LLMError("LLM request failed: timed out")
+            return super().generate_script(brief, fix_feedback)
+    gen = _Flaky("box = 1")
+    runs = []
+
+    def flaky_fc(*a, **k):
+        runs.append(1)
+        if len(runs) == 1:
+            raise RuntimeError("FreeCAD: Part.OCCError: Shape is null")
+        return fc(*a, **k)
+    g = CG.make_cad_generate(_args(), tmp_path, gen, freecad_runner=flaky_fc, blender_runner=bl)
+    with pytest.raises(RuntimeError, match="Shape is null"):
+        g("P0", "", 1)
+    with pytest.raises(LLMError):
+        g("P1", "", 2)
+    g("P2", "", 3)
+    assert "The previous script failed: FreeCAD: Part.OCCError: Shape is null" in gen.calls[2][1]

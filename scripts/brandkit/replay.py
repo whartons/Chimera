@@ -52,7 +52,9 @@ def _check_inputs(data, inp):
             raise ValueError(f"inputs.{k} {inp[k]!r} isn't text")
     if data.get("model") is not None and not isinstance(data["model"], str):
         raise ValueError(f"model {data['model']!r} isn't a file name")
-    if data["modality"] != "3d" and not (inp.get("subject") or "").strip():
+    # an empty subject is a render (`audio --subject ""`: the brand's music_tags carry the brief); only a
+    # missing one isn't (2026-10-25 review)
+    if data["modality"] != "3d" and inp.get("subject") is None:
         raise ValueError("the sidecar records no inputs.subject")
     fmt = inp.get("format") or data.get("format")
     if fmt is not None and str(fmt).lower() not in ("glb", "stl", "obj"):
@@ -249,14 +251,33 @@ def replay_notes(expect):
             "a setting such as steps or size may differ from the original"]
 
 
-def replay_drift(expect, *, model, wf, modality, mode, model_override=None):
+def _input_drift(expect, input_hashes):
+    """Lines for each recorded input file whose content differs from the file the replay found under the same
+    name. Sidecars from before the hashes (or a file the replay can't read) are not compared."""
+    then = (expect.get("provenance") or {}).get("input_hashes")
+    if not isinstance(then, dict) or not input_hashes:
+        return []
+    inputs = expect.get("inputs") if isinstance(expect.get("inputs"), dict) else {}
+    out = []
+    for k, was in sorted(then.items()):
+        now = input_hashes.get(k)
+        if isinstance(was, str) and now and now != was:
+            what = "the watermark logo" if k == "watermark_logo" else f"inputs.{k} {inputs.get(k) or '?'}"
+            out.append(f"{what} isn't the file the render used (its content is different: a same-named file "
+                       "elsewhere, or one replaced since)")
+    return out
+
+
+def replay_drift(expect, *, model, wf, modality, mode, model_override=None, input_hashes=None):
     """What a replay would render differently from the recorded one (pure). `expect` is the sidecar,
     `model`/`wf` the replay's resolved model and built graph. Returns human-readable lines; [] means
     the replay reproduces the record. With a model override (replay --model, a deliberate re-run on
     a newer model) the model, graph structure, settings and negative change by design (each family
     builds its own negative: Z-Image none, LTX and Wan their own lists), so only the prompt text is
     compared; an override naming the recorded model is no override. Older sidecars without a
-    provenance block get the model + prompt checks only."""
+    provenance block get the model + prompt checks only. `input_hashes` are the content hashes of the
+    files the replay found ({"asset": hash, ...}); a recorded file whose content differs is drift, with
+    or without a model override (the source photo isn't part of the model)."""
     out = []
     recorded = expect.get("model")
     overridden = model_override is not None and model != recorded
@@ -284,4 +305,4 @@ def replay_drift(expect, *, model, wf, modality, mode, model_override=None):
             # the one known change older sidecars can't show: every ACE-Step render before v0.6.0 used 1.73
             out.append("ACE-Step's sampling shift is now 3 (Comfy's own ACE-Step 1.5 setting); renders before "
                        "v0.6.0 used 1.73, so this take would come out different")
-    return out
+    return out + _input_drift(expect, input_hashes)

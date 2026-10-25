@@ -302,7 +302,8 @@ def test_prepare_3d_maps(tmp_path):
     (brand_dir / "products" / "r.png").write_bytes(b"x")
     args = _args_ns(modality="3d", mode="image", from_image="r.png", model="m3d.safetensors", octree=128, brand="b")
     fkw = generate._prepare_3d(args, M, brand_dir, _FakeUploadClient(), _StubAp())
-    assert fkw == {"mode": "image", "from_image": "up:r.png", "octree": 128, "model": "m3d.safetensors"}
+    assert fkw == {"mode": "image", "from_image": "up:r.png", "octree": 128, "model": "m3d.safetensors",
+                   "_files": {"from_image": brand_dir / "products" / "r.png"}}   # run() hashes them for the sidecar
 
 
 def test_prepare_3d_missing_image_errors(tmp_path):
@@ -344,6 +345,32 @@ def test_git_provenance_git_absent(monkeypatch):
         raise FileNotFoundError("git not on PATH")
     monkeypatch.setattr(subprocess, "run", boom)
     assert generate.git_provenance("anyroot") is None
+
+
+def test_git_provenance_ignores_untracked_files(monkeypatch):
+    # the example brand's new renders are untracked files in the checkout, so every later render read -dirty
+    import subprocess
+
+    def git(cmd, **k):
+        if "rev-parse" in cmd:
+            out = "abc1234\n"
+        else:   # what git status --porcelain prints for a new render, unless told to leave untracked files out
+            out = "" if "--untracked-files=no" in cmd else "?? brands/example-brand/outputs/images/x.png\n"
+        return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+    monkeypatch.setattr(subprocess, "run", git)
+    assert generate.git_provenance("anyroot") == "abc1234"
+
+
+def test_git_provenance_keeps_the_commit_when_status_is_slow(monkeypatch):
+    # a git status slower than its timeout threw away the commit it had already read
+    import subprocess
+
+    def git(cmd, **k):
+        if "rev-parse" in cmd:
+            return types.SimpleNamespace(returncode=0, stdout="abc1234\n", stderr="")
+        raise subprocess.TimeoutExpired(cmd, k.get("timeout"))
+    monkeypatch.setattr(subprocess, "run", git)
+    assert generate.git_provenance("anyroot") == "abc1234"
 
 
 # ----------------------------------------------------------------- brand-optional (_resolve_asset)
@@ -740,3 +767,91 @@ def test_clip_timing_reads_a_clip_sidecar_saved_with_a_bom(tmp_path, monkeypatch
     clip.with_suffix(".json").write_text(json.dumps({"inputs": {"fps": 16, "length": 81, "width": 768,
                                                                 "height": 512}}), encoding="utf-8-sig")
     assert generate._clip_timing(clip) == (16.0, 81 / 16, 768, 512)
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def _exif_app1(orientation, order="II"):
+    """An APP1 Exif segment holding one IFD0 entry: Orientation (0x0112, a SHORT)."""
+    e = "<" if order == "II" else ">"
+    tiff = (order.encode() + struct.pack(e + "HI", 42, 8) + struct.pack(e + "H", 1)
+            + struct.pack(e + "HHIHH", 0x0112, 3, 1, orientation, 0) + struct.pack(e + "I", 0))
+    payload = b"Exif\x00\x00" + tiff
+    return b"\xff\xe1" + struct.pack(">H", 2 + len(payload)) + payload
+
+
+@pytest.mark.parametrize("orientation, size", [(1, (4032, 3024)), (3, (4032, 3024)), (5, (3024, 4032)),
+                                               (6, (3024, 4032)), (8, (3024, 4032))])
+@pytest.mark.parametrize("order", ["II", "MM"])
+def test_image_size_of_a_rotated_phone_jpeg_is_its_upright_size_without_pillow(tmp_path, monkeypatch,
+                                                                              orientation, size, order):
+    # ComfyUI's LoadImage applies the EXIF rotation: a phone photo stored 4032x3024 with orientation 6 is a
+    # 3024x4032 image there, so a bottom-right watermark placed for 4032 wide landed off the frame
+    _no_pillow(monkeypatch)
+    jpg = _jpeg(4032, 3024)
+    p = tmp_path / "phone.jpg"; p.write_bytes(jpg[:2] + _exif_app1(orientation, order) + jpg[2:])
+    assert _image_size(p) == size
+
+
+def test_image_size_reads_past_a_damaged_app1_length_without_pillow(tmp_path, monkeypatch):
+    # a length below 2 must not swallow the rest of the file (the frame header after it still counts)
+    _no_pillow(monkeypatch)
+    jpg = _jpeg(320, 200)
+    p = tmp_path / "a.jpg"; p.write_bytes(jpg[:2] + b"\xff\xe1\x00\x01" + jpg[2:])
+    assert _image_size(p) == (320, 200)
+
+
+def test_image_size_of_a_rotated_jpeg_with_pillow_is_what_loadimage_sees(tmp_path):
+    Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageOps
+    p = tmp_path / "phone.jpg"
+    exif = Image.Exif(); exif[0x0112] = 6
+    Image.new("RGB", (64, 48)).save(p, exif=exif)
+    with Image.open(p) as im:
+        upright = ImageOps.exif_transpose(im).size      # what ComfyUI's LoadImage loads
+    assert upright == (48, 64)
+    assert _image_size(p) == upright
+    assert generate._header_size(p) == upright           # and the no-Pillow read agrees
+
+
+def test_every_input_file_is_handed_to_run_for_the_sidecar_hashes(tmp_path, monkeypatch):
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (25.0, 4.0, 640, 360))
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    img = brand_dir / "products" / "r.png"; img.write_bytes(_png_header(64, 64))
+    clip = brand_dir / "products" / "c.mp4"; clip.write_bytes(b"v")
+    c, ap = _FakeUploadClient(), _StubAp()
+    assert generate._prepare_video(_args_ns(modality="video", from_image="r.png", brand="b"), M, brand_dir, c,
+                                   ap)["_files"] == {"from_image": img}
+    assert generate._prepare_audio(_args_ns(modality="audio", mode="foley", from_video="c.mp4", brand="b"), M,
+                                   brand_dir, c, ap)["_files"] == {"from_video": clip}
+    for mode in ("product", "relight"):
+        assert generate._prepare_image(_args_ns(modality="image", mode=mode, asset="r.png", brand="b"), M,
+                                       brand_dir, c, ap)["_files"] == {"asset": img}
+
+
+def _fake_av(monkeypatch, *, frames, stream_duration, container_duration):
+    from fractions import Fraction
+    import sys as _sys
+    vs = types.SimpleNamespace(average_rate=Fraction(30), frames=frames, duration=stream_duration,
+                               time_base=Fraction(1, 1000), codec_context=types.SimpleNamespace(width=640, height=360))
+    c = types.SimpleNamespace(streams=types.SimpleNamespace(video=[vs]), duration=container_duration,
+                              close=lambda: None)
+    monkeypatch.setitem(_sys.modules, "av", types.SimpleNamespace(open=lambda p: c, time_base=1_000_000))
+
+
+@pytest.mark.parametrize("stream_duration, container_duration", [(7200, None), (None, 7_200_000), (7200, 9_000_000)])
+def test_probe_video_reads_the_duration_of_a_clip_without_a_frame_count(monkeypatch, stream_duration,
+                                                                         container_duration):
+    # PyAV reports frames == 0 for WebM and MKV, so foley fell back to 5 s whatever the clip's real length
+    _fake_av(monkeypatch, frames=0, stream_duration=stream_duration, container_duration=container_duration)
+    fr, dur, w, h = _probe_video("clip.webm")
+    assert (fr, w, h) == (30.0, 640, 360) and dur == pytest.approx(7.2)
+
+
+def test_probe_video_still_prefers_the_frame_count(monkeypatch):
+    _fake_av(monkeypatch, frames=216, stream_duration=None, container_duration=9_000_000)
+    assert _probe_video("clip.mp4")[1] == pytest.approx(7.2)
+
+
+def test_probe_video_of_a_clip_with_no_length_at_all_is_unknown(monkeypatch):
+    _fake_av(monkeypatch, frames=0, stream_duration=None, container_duration=None)
+    assert _probe_video("clip.webm")[1] is None

@@ -195,3 +195,24 @@ def test_video_upscale_model_default_none_and_loaded():
             encoding="utf-8")
         mv = _load(p)
     assert mv.video.upscale_model == "ltx-2-spatial-upscaler-x2-1.0.safetensors"
+
+
+
+# --- LTX renders multiples of 32, so the graph, the sidecar and the watermark say so (2026-10-25 review) ------
+def test_ltx_sizes_snap_down_to_multiples_of_32():
+    # EmptyLTXVLatentVideo floors to //32: 1280x720 rendered 1280x704 while the sidecar and the watermark said 720
+    from scripts.brandkit.video import resolved_settings
+    from scripts.brandkit.watermark import logo_geometry
+    m = load_manifest(FIX)
+    wf = build(ROOT, m, positive="x", negative="", seed=1, watermark=True, from_image="r.png", length=97, fps=25,
+               audio=True, width=1280, height=720, watermark_logo="primary.png", logo_px=(100, 100))
+    for title in ("brand:video_latent", "brand:resize"):
+        node = find_node_by_title(wf, title)[1]["inputs"]
+        assert (node["width"], node["height"]) == (1280, 704)
+    r = resolved_settings(m, model=LTX23_MODEL, width=1280, height=720)   # what the sidecar records
+    assert (r["width"], r["height"]) == (1280, 704)
+    comp = find_node_by_title(wf, "brand:watermark_composite")[1]["inputs"]
+    x, y, _ = logo_geometry((1280, 704), logo_px=(100, 100), scale=m.watermark.scale, margin=m.watermark.margin,
+                            position=m.watermark.position)
+    assert (comp["x"], comp["y"]) == (x, y)
+    assert resolved_settings(m, model=LTX23_MODEL, width=40, height=100)["width"] == 64   # the node's minimum

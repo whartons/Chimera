@@ -668,3 +668,235 @@ def test_main_escapes_what_the_console_cannot_encode(monkeypatch):
         generate.main()
     out.flush()
     assert b"\\u2192" in out.buffer.getvalue()
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def test_new_brand_reports_a_folder_the_os_will_not_create_in_one_line(monkeypatch, capsys):
+    # WinError 123 from copytree came out as a traceback
+    import scripts.brandkit.scaffold as scaffold
+
+    def refuse(root, name):
+        raise OSError(22, "The filename, directory name, or volume label syntax is incorrect", f"brands/{name}")
+    monkeypatch.setattr(scaffold, "new_brand", refuse)
+    with pytest.raises(SystemExit) as e:
+        _main(monkeypatch, "new-brand", "CON")
+    assert e.value.code == 2 and "can't create brands/CON" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv", [["--from-video", "clip.mp4"], ["--mode", "sfx", "--from-video", "clip.mp4"],
+                                  ["--fps", "30"], ["--mode", "sfx", "--fps", "30"]])
+def test_foley_flags_without_foley_are_errors(monkeypatch, capsys, argv):
+    # `audio --from-video clip.mp4` without --mode foley rendered music from the foley text, without a word
+    monkeypatch.setattr(generate, "_run_comfy", lambda *a: pytest.fail("must not render"))
+    with pytest.raises(SystemExit) as e:
+        _main(monkeypatch, "audio", "--subject", "footsteps", *argv)
+    assert e.value.code == 2 and "--mode foley" in capsys.readouterr().err
+
+
+def test_foley_takes_its_own_flags(monkeypatch):
+    seen = []
+    monkeypatch.setattr(generate, "_run_comfy", lambda args, root, ap: seen.append((args.from_video, args.fps)))
+    _main(monkeypatch, "audio", "--mode", "foley", "--subject", "steps", "--from-video", "clip.mp4", "--fps", "30")
+    assert seen == [("clip.mp4", 30.0)]
+
+
+def _watermark_brand(repo, enabled_default):
+    bdir = repo / "brands" / "b"
+    (bdir / "logos").mkdir(exist_ok=True)
+    (bdir / "logos" / "primary.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
+                                                  + (64).to_bytes(4, "big") * 2 + b"\x08\x06\x00\x00\x00")
+    (bdir / "brand.yaml").write_text(
+        'name: "B"\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\nlogo: { default: "logos/primary.png" }\n'
+        f"watermark: {{ enabled_default: {'true' if enabled_default else 'false'} }}\n", encoding="utf-8")
+
+
+def _stamped(wf):
+    return any("watermark" in n.get("_meta", {}).get("title", "") for n in wf.values())
+
+
+@pytest.mark.parametrize("flag, enabled_default, stamped", [
+    (None, True, True), (False, True, False), (True, False, True), (None, False, False)])
+def test_no_watermark_turns_a_brands_default_off_for_one_render(monkeypatch, tmp_path, flag, enabled_default,
+                                                                 stamped):
+    # a brand with watermark.enabled_default: true had no way to render one image without the logo
+    repo = _tmp_repo(tmp_path)
+    _watermark_brand(repo, enabled_default)
+    fake = FakeComfy()
+    monkeypatch.setattr(generate, "ComfyClient", lambda url: fake)
+    generate.run(_img_args(seed=3, watermark=flag), repo, _StubAp())
+    assert _stamped(fake.wf) is stamped
+
+
+def test_the_sidecar_records_the_watermark_the_render_used(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    _watermark_brand(repo, True)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    for flag, seed in ((None, 1), (False, 2)):
+        (comfyout / "out.png").write_bytes(b"PNG")
+        generate.run(_img_args(seed=seed, watermark=flag, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    out = repo / "brands" / "b" / "outputs" / "images"
+    assert json.loads((out / "b_txt2img_1.json").read_text(encoding="utf-8"))["watermark"] is True
+    assert json.loads((out / "b_txt2img_2.json").read_text(encoding="utf-8"))["watermark"] is False
+
+
+@pytest.mark.parametrize("sub", ["image", "video", "audio", "3d"])
+def test_every_subcommand_with_watermark_takes_no_watermark(monkeypatch, sub):
+    extra = {"image": ["--subject", "x"], "video": ["--subject", "x", "--from-image", "r.png"],
+             "audio": ["--subject", "x"], "3d": ["--from-image", "r.png"]}[sub]
+    seen = []
+    monkeypatch.setattr(generate, "_run_comfy", lambda args, root, ap: seen.append(args.watermark))
+    for flag in ([], ["--watermark"], ["--no-watermark"]):
+        _main(monkeypatch, sub, *extra, *flag)
+    assert seen == [None, True, False]          # None: the brand's watermark.enabled_default decides
+
+
+@pytest.mark.parametrize("over", [dict(modality="3d", mode="image", from_image="rover.png", format="glb"),
+                                  dict(modality="audio", mode="music", subject="a sting")])
+def test_watermark_says_when_the_render_has_no_frame_to_stamp(monkeypatch, tmp_path, capsys, over):
+    # --watermark on a 3D mesh or a music track was dropped without a word
+    repo = _repo_3d(tmp_path)
+    _watermark_brand(repo, False)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    generate.run(_img_args(seed=4, watermark=True, **over), repo, _StubAp())
+    err = capsys.readouterr().err
+    assert "--watermark" in err and "ignored" in err
+
+
+def _replay_args(meta):
+    rargs = generate._args_from_sidecar(meta)
+    rargs.expect, rargs.accept_drift, rargs.model_override = meta, False, None
+    return rargs
+
+
+def test_a_replay_says_when_an_input_file_changed_since_the_render(monkeypatch, tmp_path, capsys):
+    # sidecars kept only the input's file name, so replay used whatever file had it and reported no drift
+    import hashlib
+    repo = _repo_3d(tmp_path)                        # every template; brands/b/products/rover.png holds b"x"
+    _watermark_brand(repo, False)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (comfyout / "out.png").write_bytes(b"PNG")
+    generate.run(_img_args(mode="product", asset="rover.png", seed=6, watermark=True,
+                           comfy_output_dir=str(comfyout)), repo, _StubAp())
+    meta = json.loads((repo / "brands" / "b" / "outputs" / "images" / "b_product_6.json").read_text(encoding="utf-8"))
+    logo = repo / "brands" / "b" / "logos" / "primary.png"
+    assert meta["provenance"]["input_hashes"] == {
+        "asset": hashlib.sha256(b"x").hexdigest()[:16],
+        "watermark_logo": hashlib.sha256(logo.read_bytes()).hexdigest()[:16]}
+    generate.run(_replay_args(meta), repo, _StubAp())                       # the same files: it renders
+    (repo / "brands" / "b" / "products" / "rover.png").write_bytes(b"another rover")
+    with pytest.raises(SystemExit) as e:
+        generate.run(_replay_args(meta), repo, _StubAp())
+    assert e.value.code == 1
+    err = capsys.readouterr().err
+    assert "rover.png" in err and "content" in err and "--accept-drift" in err
+    rargs = _replay_args(meta)
+    rargs.accept_drift = True
+    generate.run(rargs, repo, _StubAp())                                    # drift, not a refusal
+
+
+def test_a_brand_default_watermark_on_music_says_nothing(monkeypatch, tmp_path, capsys):
+    repo = _repo_3d(tmp_path)
+    _watermark_brand(repo, True)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    generate.run(_img_args(seed=4, watermark=None, modality="audio", mode="music", subject="a sting"), repo, _StubAp())
+    assert "--watermark" not in capsys.readouterr().err
+
+
+
+# --- 2026-10-25 review: values ComfyUI refuses stop the CLI before it frees the GPU or uploads -------------
+class _ApError(Exception):
+    pass
+
+
+class _RaisingAp:
+    def error(self, msg):
+        raise _ApError(msg)
+
+
+class _NothingSent(FakeComfy):
+    def free(self, **k):
+        pytest.fail("nothing may be freed")
+
+    def upload_video(self, p):
+        pytest.fail("nothing may be uploaded")
+
+    def queue_prompt(self, wf):
+        pytest.fail("nothing may be queued")
+
+
+def test_a_foley_clip_longer_than_hunyuan_renders_stops_before_the_upload(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    clip = repo / "brands" / "b" / "references" / "long.mp4"
+    clip.parent.mkdir(parents=True); clip.write_bytes(b"v")
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (30.0, 75.0, 640, 360))
+    monkeypatch.setattr(generate, "ComfyClient", _NothingSent)
+    with pytest.raises(_ApError, match="1 to 60 s"):
+        generate.run(_img_args(modality="audio", mode="foley", subject="rain", from_video="long.mp4", seed=3,
+                               free_before=True), repo, _RaisingAp())
+
+
+def test_a_key_ace_step_does_not_know_stops_before_the_gpu_is_freed(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    shutil.copy(ROOT / "workflows" / "templates" / "brand-audio-music.json",
+                repo / "workflows" / "templates" / "brand-audio-music.json")
+    monkeypatch.setattr(generate, "ComfyClient", _NothingSent)
+    with pytest.raises(_ApError, match="--keyscale 'H minor'"):
+        generate.run(_img_args(modality="audio", mode="music", subject="anthem", model="acestep", keyscale="H minor",
+                               seed=3, free_before=True), repo, _RaisingAp())
+
+
+
+# --- 2026-10-25 review: a same-seed render replaces only an identical one -----------------------------------
+def _render_image(monkeypatch, repo, tmp_path, subject, data, **over):
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir(exist_ok=True)
+    (comfyout / "out.png").write_bytes(data)
+    generate.run(_img_args(seed=7, subject=subject, comfy_output_dir=str(comfyout), **over), repo, _StubAp())
+
+
+def test_a_different_prompt_with_the_same_seed_keeps_both_renders(monkeypatch, tmp_path):
+    # 'a red cat' then 'a blue dog' with --seed 7 left only the dog, and the cat's sidecar was gone too
+    repo = _tmp_repo(tmp_path)
+    _render_image(monkeypatch, repo, tmp_path, "a red cat", b"CAT")
+    _render_image(monkeypatch, repo, tmp_path, "a blue dog", b"DOG")
+    out = repo / "brands" / "b" / "outputs" / "images"
+    assert (out / "b_txt2img_7.png").read_bytes() == b"CAT" and (out / "b_txt2img_7_2.png").read_bytes() == b"DOG"
+    # each sidecar sits beside the image it describes
+    assert "a red cat" in json.loads((out / "b_txt2img_7.json").read_text(encoding="utf-8"))["prompt"]
+    assert "a blue dog" in json.loads((out / "b_txt2img_7_2.json").read_text(encoding="utf-8"))["prompt"]
+
+
+def test_an_identical_rerender_replaces_the_earlier_one(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    _render_image(monkeypatch, repo, tmp_path, "a red cat", b"CAT1")
+    _render_image(monkeypatch, repo, tmp_path, "a red cat", b"CAT2")
+    out = repo / "brands" / "b" / "outputs" / "images"
+    assert sorted(p.name for p in out.iterdir()) == ["b_txt2img_7.json", "b_txt2img_7.png"]
+    assert (out / "b_txt2img_7.png").read_bytes() == b"CAT2"
+
+
+def test_an_identical_3d_rerender_in_another_format_drops_the_stale_one(monkeypatch, tmp_path):
+    # the GLB and sidecar were replaced but the earlier --format stl's STL stayed, which the sidecar no longer
+    # described
+    import scripts.brandkit.mesh as mesh
+    repo = _repo_3d(tmp_path)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+
+    def fake_convert(p, fmt):
+        out = Path(p).with_suffix("." + fmt)
+        out.write_bytes(fmt.encode())
+        return out
+    monkeypatch.setattr(mesh, "convert", fake_convert)
+    comfyout = tmp_path / "comfyout"
+    comfyout.mkdir()
+    for fmt in ("stl", "obj"):
+        (comfyout / "out.glb").write_bytes(b"glb")
+        args = _3d_args(seed=5, comfy_output_dir=str(comfyout))
+        args.format = fmt
+        generate.run(args, repo, _StubAp())
+    d = repo / "brands" / "b" / "outputs" / "3d"
+    assert sorted(p.name for p in d.iterdir()) == ["b_image_5.glb", "b_image_5.json", "b_image_5.obj"]
+    assert json.loads((d / "b_image_5.json").read_text(encoding="utf-8"))["format"] == "obj"

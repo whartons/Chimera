@@ -25,7 +25,9 @@ quality. All Apache-2.0, from `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` (the text e
 LTX-2.3 22B is a **multimodal checkpoint** that generates video and synchronized
 48 kHz audio in a single pass. It requires the
 [`ComfyUI-LTXVideo`](https://github.com/Lightricks/ComfyUI-LTXVideo) custom-node
-pack for its `MultimodalGuider`, normalizing sampler, and spatial-upscaler nodes.
+pack for three nodes: `MultimodalGuider`, `GuiderParameters` and `LTXVImgToVideoConditionOnly`. Sampling
+is core (`SamplerCustomAdvanced` + euler + a fixed `ManualSigmas` schedule), as are the Gemma loader and the
+`--upscale` latent upsampler.
 
 Download the files below from Hugging Face and drop each into the matching
 `ComfyUI/models/...` folder. Filenames must match the ones in
@@ -39,7 +41,7 @@ what you downloaded).
 | `ltx-2.3-22b-dev-nvfp4.safetensors` | `Lightricks/LTX-2.3-nvfp4` | `checkpoints/` | ~21.7 GB | open weights |
 | `ltx-2.3-22b-distilled-lora-384-1.1.safetensors` | `Lightricks/LTX-2.3` | `loras/` | ~7.6 GB | open weights |
 | `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` | `Lightricks/LTX-2.3` | `latent_upscale_models/` | ~1 GB | open weights |
-| `gemma_3_12B_it_fp4_mixed.safetensors` *(LTX-2.3 text encoder)* | fetched with the LTX-2.3 setup / the `ComfyUI-LTXVideo` pack | `text_encoders/` | ~7 GB | ❓ verify |
+| `gemma_3_12B_it_fp4_mixed.safetensors` *(LTX-2.3 text encoder)* | `Comfy-Org/ltx-2` (`split_files/text_encoders/`) | `text_encoders/` | ~8.8 GB | ❓ verify |
 
 ### What each file does
 

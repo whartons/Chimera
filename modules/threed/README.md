@@ -52,17 +52,22 @@ python scripts/generate.py 3d \
   dependency-free glTF→STL/OBJ writer). STL and OBJ carry geometry only; the GLB keeps TRELLIS.2 and
   Pixal3D's PBR textures, and it stays beside a converted STL/OBJ. Use `glb` for viewing/sharing, `stl` for
   3D printing, `obj` for CAD/Blender. Conversion reads one-part GLBs (ComfyUI's output); for a GLB in
-  several parts use `generate.py render --mode finish --formats stl`. The converted STL keeps the model's
+  several parts use `generate.py render --mode finish --formats stl`. The STL is turned **Z-up**, as slicers
+  expect (glTF is Y-up; the turn is +90° about X, no mirror, so the facets still face out); the OBJ stays
+  Y-up, its own convention. The converted STL keeps the model's
   own units (about one unit tall, so a slicer reads ~1 mm) and a TRELLIS.2 / Pixal3D mesh is a hollow
   sheet: **to print, use `render --mode finish --solid --scale-mm <size>`** (see below). (STL/OBJ of a dense mesh are large —
   generate them on demand rather than committing them.)
 - There is **no `--subject`** — this modality is image-conditioned, not
   text-conditioned. The geometry is driven entirely by the input image.
-- `--watermark` is silently ignored — there is no 2D canvas to composite onto.
+- `--watermark` is ignored with a one-line note — there is no 2D canvas to composite onto.
 - `--free-before` defaults ON for this modality, clearing resident image or
   video models before the 3D job starts.
 
-Output routes to `brands/<brand>/outputs/3d/<brand>_image_<seed>.glb`.
+Output routes to `brands/<brand>/outputs/3d/<brand>_image_<seed>.glb`. A different render with a seed
+already used (another image or model) keeps the earlier one and takes `<brand>_image_<seed>_2`, then `_3`, …;
+an identical re-render replaces its own files, and drops an `.stl` or `.obj` an earlier `--format` left under
+that name (the new sidecar no longer describes it).
 
 ## How it works — TRELLIS.2 / Pixal3D (default)
 
@@ -80,8 +85,8 @@ folds that switch before queueing, so ComfyUI validates (and you need the files 
 4. **Mesh clean-up:** `VaeDecodeShapeTrellis` → `RemeshMesh` (UDF, 768) → `DecimateMesh` (~700 K faces) →
    `MeshSmoothNormals` → `UnwrapMesh` (UV atlas).
 5. **PBR bake (pure PyTorch, no compiled rasterizer):** `BakeTextureFromVoxel` (base color +
-   metallic + roughness, 4096 px), `BakeNormalMapFromMesh` and `BakeAmbientOcclusion` from the
-   high-poly mesh, then `ApplyTextureToMesh` → **`Save3DAdvanced`** writes a GLB with the textures
+   metallic + roughness, 4096 px), `BakeNormalMapFromMesh` (2048 px) and `BakeAmbientOcclusion` (1024 px)
+   from the high-poly mesh, then `ApplyTextureToMesh` → **`Save3DAdvanced`** writes a GLB with the textures
    embedded.
 
 ## How it works — Hunyuan3D 2.1 (`--model hunyuan21`)
@@ -195,7 +200,9 @@ chimera render --mode finish --from trophy.glb --solid --scale-mm 228.6 --format
 ```
 
 `--solid` (`scripts/brandkit/solidify.py`):
-1. **Find the outside.** Voxelize every triangle (0.3 mm at 230 mm; coarser for bigger prints), close
+1. **Find the outside.** Voxelize every triangle at 1/762 of the longest side (0.3 mm at 230 mm, 0.05 mm at
+   the finest), coarser only when the grid would pass 120 M voxels (a chunky 230 mm print gets about 0.5 mm),
+   so a small print's gaps and radii shrink with it instead of webbing shut. Close
    gaps by a radius *r*, flood-fill everything the outside can't reach. A leak into the body cavity has
    no open edges (TRELLIS closes thin parts), but it leaves the solid hollow, so sealing it shows up as a
    jump in volume. *r* is the radius right after the last big jump (1.6 mm on one trophy, 2.0 mm on two
@@ -207,9 +214,17 @@ chimera render --mode finish --from trophy.glb --solid --scale-mm 228.6 --format
    Every per-voxel inside/outside rule tried instead left visible artefacts (contour rings, specks,
    serrated seams).
 
-Then the finish keeps the largest piece, repairs decimation pinches and writes STL in mm. Every STL
-`--mode finish` writes is print-checked (size in mm, closed, pieces, volume, SOLID vs HOLLOW). Measured
-on the 5090 box (CPU only): about 3 minutes and a few GB of RAM for a 230 mm figure; a fresh TRELLIS.2
+Then the finish drops specks (pieces under 1% of the largest one's faces; a real second body, such as a
+separate plaque, stays, and the console says what it kept and dropped), repairs decimation pinches and
+writes STL in mm. A mesh with no inside (an open, single-sided surface like a flat sheet) stops with "no
+closed volume to fill". Every STL
+`--mode finish` writes is print-checked (size in mm, closed, pieces, volume, SOLID vs HOLLOW). The HOLLOW
+test (`scripts/brandkit/printcheck.py`) counts only cavities sealed off from the outside: an empty gap
+inside the model counts when under 5% of directions from its middle reach the outside. So an open cup, a
+vase or a tube's bore reads SOLID, while a leaky TRELLIS.2 sheet stays HOLLOW (a small leak doesn't open its
+cavity). Measured
+on the 5090 box (CPU only): 1–3 minutes and up to about 2 GB of RAM whatever the print's size (a
+120 mm figure about 2 minutes; a dense 230 mm sheet at the voxel cap 2.1 GB); a fresh TRELLIS.2
 model of a 200 mm trophy went from HOLLOW (44 cm³ in 30 pieces) to one 481 cm³ SOLID. **Judge the
 result** with a low, raking light at full size: a shrunken overview hides surface defects. The source
 image matters too: a plain background, as in a product shot. A busy scene (a castle behind the
@@ -236,7 +251,7 @@ Treat the object as **one watertight solid**, not an assembly:
 ## VRAM
 
 **TRELLIS.2 / Pixal3D:** ~8 GB of weights in total. The model is ~5 GB int8; the rest is the two VAEs,
-DINOv3, BiRefNet and MoGe. A run used about **12–15 GB of the whole card** at its busiest (sampled with
+DINOv3, BiRefNet and, for Pixal3D only, MoGe (TRELLIS.2 never loads it). A run used about **12–15 GB of the whole card** at its busiest (sampled with
 `nvidia-smi` on the RTX 5090, ComfyUI's own cache included), so a 16–24 GB card is enough; ComfyUI
 offloads on smaller ones. `--free-before` (default ON) clears resident image/video models first.
 
@@ -285,7 +300,7 @@ initial model download.
 
 | Model | Per mesh (warm) | Output |
 |-------|-----------------|--------|
-| TRELLIS.2 | ~90–135 s | ~700 K-face textured GLB (3 embedded textures, 4096 px) |
+| TRELLIS.2 | ~90–135 s | ~700 K-face textured GLB (embedded PBR: base color and metallic-roughness 4096 px, normal 2048, AO 1024) |
 | Pixal3D | ~100–115 s | same, matched to the photo's camera |
 | Hunyuan3D 2.1 | ~25–35 s | ~1.1 M-tri shape-only GLB at `octree_resolution 256` |
 

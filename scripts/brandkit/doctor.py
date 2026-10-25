@@ -183,7 +183,9 @@ def run_checks(client, repo_root, brand=None):
                                         "needed only if you use this modality"))
 
     # 5. optional host helpers (used by generate.py; graceful fallbacks exist, so info not fail)
-    for mod, pkg, why in (("PIL", "pillow", "non-PNG logo sizing"),
+    # Pillow also builds the contact sheet the mesh3d and cad loops judge: auto_generate refuses them without it
+    for mod, pkg, why in (("PIL", "pillow",
+                           "non-PNG logo sizing, and the contact sheet the mesh3d and cad loops judge"),
                           ("av", "av", "foley fps/duration auto-probe"),
                           ("skimage", "-e .[print]",   # scikit-image pulls in numpy + scipy, the rest of [print]
                            "3D printing: render --mode finish --solid + the STL print check")):

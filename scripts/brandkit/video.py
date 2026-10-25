@@ -62,6 +62,12 @@ def _snap16(n):
     return max(16, int(n) // 16 * 16)
 
 
+def _snap32(n):
+    """LTX sizes: EmptyLTXVLatentVideo floors to a multiple of 32 (min 64), so 1280x720 rendered 1280x704 while
+    the sidecar and the watermark placement said 720 (2026-10-25 review). Snapped here, like Wan's 16."""
+    return max(64, int(n) // 32 * 32)
+
+
 def _snap_frames(n, k):
     """ComfyUI renders k*m+1 frames (Wan k=4, LTX k=8) and floors any other length, and Wan's Fun Camera
     embedding crashes on one. Snap here so the graph, the sidecar and foley's clip timing agree."""
@@ -76,14 +82,14 @@ def resolved_settings(manifest, *, model=None, camera=None, quality=None, length
                       width=None, height=None, audio=None):
     """Every resolved knob of a render: explicit value, else the family default. Shared by build() and
     the sidecar so a replay reproduces the clip. LTX falls back to the brand video: block (its
-    length/fps/audio were tuned for LTX); Wan to its native 81 frames at 16 fps, sizes snapped to
-    multiples of 16, silent, `fast` quality for plain image-to-video and `full` for camera moves (the
-    4-step Fun Camera kept the camera locked but cut the scene's motion to about a third). Lengths snap
-    down to the frame count the family really renders (LTX 8k+1, Wan 4k+1)."""
+    length/fps/audio were tuned for LTX), sizes snapped to multiples of 32; Wan to its native 81 frames at
+    16 fps, sizes snapped to multiples of 16, silent, `fast` quality for plain image-to-video and `full`
+    for camera moves (the 4-step Fun Camera kept the camera locked but cut the scene's motion to about a
+    third). Lengths snap down to the frame count the family really renders (LTX 8k+1, Wan 4k+1)."""
     v = manifest.video
     mfile = resolved_model(manifest, model, camera)
     if not is_wan(mfile):
-        return {"model": mfile, "width": width or v.width, "height": height or v.height,
+        return {"model": mfile, "width": _snap32(width or v.width), "height": _snap32(height or v.height),
                 "length": _snap_frames(length or v.length, 8), "fps": fps or v.fps,
                 "audio": v.audio if audio is None else audio, "quality": None, "camera": None}
     return {"model": mfile, "width": _snap16(width or v.width), "height": _snap16(height or v.height),

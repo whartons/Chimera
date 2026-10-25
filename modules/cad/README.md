@@ -45,7 +45,7 @@ you choose. For unattended geometry authoring there is a **second, headless path
 ## Activate it
 
 Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on your
-`PATH`; **FreeCAD 1.1.4 or newer** (Python 3.12; older releases have open security advisories).
+`PATH`; **FreeCAD 1.1.4 or newer** (it bundles Python 3.11; older releases have open security advisories).
 
 1. **Install the FreeCAD addon.** Copy the **whole** `addon/FreeCADMCP/` directory from the
    pinned commit `78bf023` into FreeCAD's user `Mod/` directory (`package.xml` is required: the
@@ -112,14 +112,17 @@ python scripts/generate.py cad --mode script --script mug.py --formats step,stl
   PATH, then the default Windows install (`C:\Program Files\FreeCAD *\bin\FreeCADCmd.exe`).
 - Outputs route to `brands/<brand>/outputs/3d/` (or `outputs/3d/` brandless) with a
   `kind:"cad"` reproducibility sidecar (template, resolved dims/formats, params signature,
-  FreeCAD version, pipeline git sha).
+  FreeCAD version, pipeline git sha). All of one job's files (the STEP and the STL, say) share one name,
+  picked free in every folder they go to; a later job with the same seed keeps the earlier one and takes
+  `<name>_2`, then `_3`, ….
 
 ### `--mode script` — generative CAD self-correction
 
 `--mode script --script <file.py>` runs an **agent/user-authored FreeCAD Python script** headless and
 exports what it builds. The script runs with `App`/`FreeCAD`, `Part`, `Mesh`, and an active `doc` in
 scope; it builds geometry as objects in `doc` (or sets `RESULT = [objs]`), and the runner owns
-export/emit. STEP export needs **Part (BREP)** objects — a `Mesh::Feature` exports to `stl`/`obj` only
+export/emit. Without `RESULT` the runner exports only the finished objects, not the inputs of a boolean (a Cut's base
+and tool) or sketches; set `RESULT` to export anything else (a part and its mirrored copy, say). STEP export needs **Part (BREP)** objects — a `Mesh::Feature` exports to `stl`/`obj` only
 (the runner rejects mesh→STEP with a clear message). The sidecar records the script name + a content
 hash, so the `params_signature` varies across in-place revisions.
 
@@ -159,6 +162,13 @@ Codegen quality drives success. The first live run (2026-06) found a 7B *coder* 
 pass where a 7B *vision* model does not; on the 2026-10 six-part test, Qwen 3.8 27B built 5, a 27B coding
 model 4, and a 9B none of the 3 it tried. The loop self-corrects from the FreeCAD error it feeds back, so a
 strong coder recovers in a couple of iterations.
+
+**What code-gen is told when it revises.** After a failed judgement, code-gen gets the subject plus the
+judge's feedback: the expander's FIX directives, an `Avoid: …` line with the judge's "avoid" terms, and a
+`The judge found: …` list of its NOT-MET reasons (so "hook arm 2 mm thick, fragile. FIX: avoid thin hook arm"
+arrives as both). When the previous script failed in FreeCAD, its error follows (`The previous script
+failed: …`), and it stays until code-gen has actually seen it, so a code-gen failure (an LLM error) in
+between doesn't lose it.
 
 > ⚠️ **`--mode script` `exec()`s the script unsandboxed** in the `FreeCADCmd` process (no network,
 > isolated process, but full Python — same trust as running a FreeCAD macro you wrote). **Run only

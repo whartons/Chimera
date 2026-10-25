@@ -6,7 +6,7 @@ the negative), so we read the final text back off the graph by stable node title
 record the modality-relevant CLI inputs so a future `replay` can reproduce the render.
 SCHEMA_VERSION lets replay detect (and refuse/upgrade) older sidecars."""
 from __future__ import annotations
-import hashlib, json
+import hashlib, json, re
 from .nodes import find_node_by_title, NodeNotFound
 
 SCHEMA_VERSION = 2
@@ -94,6 +94,10 @@ def graph_signature(wf):
 # Scalar inputs that legitimately differ between a render and its replay: the seed (`replay --seed`)
 # and the output filename prefix. Everything else is a render setting.
 _VOLATILE_INPUTS = {"seed", "noise_seed", "sampling_mode.seed", "filename_prefix"}
+# ComfyUI's name for an upload whose name was taken by different content ("phone (1).jpg"). Uploads don't
+# overwrite, so a replay's input could come back under such a name and read as "render settings changed"; the
+# file's content is input_hashes' job, so the name counts without the suffix (2026-10-25)
+_UPLOAD_COPY = re.compile(r" \(\d+\)(\.[A-Za-z0-9]+)$")
 
 
 def graph_values(wf, modality=None, mode=None):
@@ -112,7 +116,8 @@ def graph_values(wf, modality=None, mode=None):
     for nid, node in sorted(wf.items()):
         if not isinstance(node, dict):
             continue
-        vals = sorted([k, v] for k, v in node.get("inputs", {}).items()
+        vals = sorted([k, _UPLOAD_COPY.sub(r"\1", v) if isinstance(v, str) else v]
+                      for k, v in node.get("inputs", {}).items()
                       if not _is_link(v) and k not in _VOLATILE_INPUTS and (nid, k) not in skip)
         parts.append([nid, vals])
     if not parts:
@@ -136,15 +141,17 @@ def relevant_inputs(modality, mode, inputs):
 
 
 def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, inputs,
-               timestamp, fmt=None, comfyui_version=None, pipeline_git_sha=None):
+               timestamp, fmt=None, comfyui_version=None, pipeline_git_sha=None, input_hashes=None):
     """Assemble the schema-2 sidecar dict. `model` is the already-resolved model filename
     (the caller resolves Z-Image variants etc.); we do not re-resolve. Top-level prompt/negative
     are kept for backward-compat with schema-1 sidecars; `format` is set only when fmt is given.
 
     A `provenance` block records what produced the render so it traces back exactly: a structural
     `graph_signature` and a settings `graph_values` hash (always; replay compares both to detect
-    drift), plus the ComfyUI engine version and the pipeline's git commit (`-dirty` if the tree had
-    uncommitted changes) when the caller can supply them (both best-effort, omitted when None)."""
+    drift), plus the ComfyUI engine version and the pipeline's git commit (`-dirty` if a tracked file
+    had uncommitted changes) when the caller can supply them (both best-effort, omitted when None), and
+    `input_hashes`, a short content hash of each input file ({"asset" | "from_image" | "from_video" |
+    "watermark_logo": hash}), which replay compares too (omitted when the render read no file)."""
     pos, neg = graph_prompts(wf, modality, mode)
     meta = {
         "schema": SCHEMA_VERSION,
@@ -161,8 +168,24 @@ def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, 
         prov["comfyui_version"] = comfyui_version
     if pipeline_git_sha:
         prov["pipeline_git_sha"] = pipeline_git_sha
+    if input_hashes:
+        prov["input_hashes"] = dict(input_hashes)
     meta["provenance"] = prov
     return meta
+
+
+def render_identity(meta):
+    """What makes two ComfyUI renders the same render, read off a build_meta sidecar: the graph's structure
+    and settings, the prompt text (graph_values leaves it out, so 'a red cat' and 'a blue dog' with one seed
+    share it) and what each input file held. route_output replaces a same-named render only when this matches.
+    None for a sidecar with no graph record (a Blender or FreeCAD job, an agent-run summary, an old schema-1
+    file): that is never the same render."""
+    prov = meta.get("provenance") if isinstance(meta, dict) else None
+    if not isinstance(prov, dict) or not prov.get("graph_values"):
+        return None
+    return {"modality": meta.get("modality"), "graph_signature": prov.get("graph_signature"),
+            "graph_values": prov["graph_values"], "prompt": meta.get("prompt"), "negative": meta.get("negative"),
+            "input_hashes": prov.get("input_hashes") or {}}
 
 
 def _params_sig(params: dict, template: str) -> str:

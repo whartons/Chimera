@@ -72,6 +72,50 @@ def test_finalize_winner_happy_branded(monkeypatch, tmp_path):
     assert meta["params"]["seed"] == 7 and meta["source"] == "agent_7.glb"
 
 
+def test_finalize_winner_repaints_at_sdxl_size_and_bakes_at_the_atlas_size(monkeypatch, tmp_path):
+    # --texture-res 4096 made SDXL repaint at 4096^2 (its native size is 1024^2) (2026-10-25)
+    sheet = _winner(tmp_path)
+    _wire(monkeypatch, tmp_path)
+    seen = {}
+
+    def fake_repaint(client, **kw):
+        seen["repaint_res"] = kw["res"]
+        return [Path(tmp_path / "rp0.png")], list(kw["azimuths"])
+
+    def fake_bl(template, params, **kw):
+        seen["texture_res"] = params["texture_res"]
+        tglb = Path(params["out_dir"]) / "t.glb"; tglb.write_text("g")
+        return {"textured_glb": str(tglb), "outputs": [], "blender_version": "5.1.2"}
+
+    res = LoopResult(best_image=str(sheet), best_verdict=None, passed=True, history=[])
+    FIN.finalize_winner(res, _args(texture_res=4096, finalize_views=1), repo_root=tmp_path,
+                        manifest=default_manifest(), judge=_Judge(Verdict(passed=True, score=0.7, issues=[])),
+                        client=object(), blender_runner=fake_bl, repaint=fake_repaint)
+    assert seen == {"repaint_res": 1024, "texture_res": 4096}
+
+
+def test_generate_views_depth_and_repaint_default_to_sdxl_size(tmp_path, monkeypatch):
+    from scripts.brandkit import repaint
+    seen = {"wf": []}
+
+    class _C:
+        def upload_image(self, p):
+            return Path(p).name
+
+    def runner(tmpl, params, **kw):
+        seen["rv_res"] = params["res"]
+        return {"outputs": [str(tmp_path / "d0.png")]}
+
+    def run_graph(c, wf, out_dir, *, timeout=None):
+        seen["wf"].append((wf["latent"]["inputs"]["width"], wf["latent"]["inputs"]["height"]))
+        return Path(out_dir) / "v0.png"
+    monkeypatch.setattr(repaint, "run_graph_to_file", run_graph)
+    repaint.generate_views(_C(), mesh=str(tmp_path / "m.glb"), concept_path=str(tmp_path / "c.png"), subject="s",
+                           azimuths=[0.0], comfy_output_dir=str(tmp_path), out_dir=tmp_path,
+                           render_views_template="rv.py", blender_runner=runner, seed=1)
+    assert seen["rv_res"] == [repaint.REPAINT_RES] * 2 and seen["wf"] == [(1024, 1024)]
+
+
 def test_finalize_winner_brandless_routes_global_and_omits_brand_in_retry(monkeypatch, tmp_path, capsys):
     sheet = _winner(tmp_path)
     _wire(monkeypatch, tmp_path)

@@ -210,8 +210,41 @@ def test_build_meta_records_graph_values_for_replay_drift_checks():
     assert meta["provenance"]["graph_values"] == graph_values(_values_wf(), "image", "txt2img")
 
 
+def test_graph_values_reads_a_renamed_upload_as_the_same_file():
+    # uploads don't overwrite: ComfyUI stores different content under "phone (1).jpg", which read as "render
+    # settings changed" on replay. The file's content is checked by input_hashes, so the name counts without it
+    from scripts.brandkit.sidecar import graph_values
+
+    def wf(name):
+        return {**_values_wf(), "6": {"_meta": {"title": "brand:asset"}, "inputs": {"image": name}}}
+    assert graph_values(wf("phone (1).jpg"), "image", "relight") == graph_values(wf("phone.jpg"), "image", "relight")
+    assert graph_values(wf("logos/primary (12).png"), "image", "relight") == graph_values(wf("logos/primary.png"),
+                                                                                        "image", "relight")
+    assert graph_values(wf("other.jpg"), "image", "relight") != graph_values(wf("phone.jpg"), "image", "relight")
+
+
 def test_graph_values_skips_entries_that_are_not_nodes():
     # a graph dict can carry non-node metadata; it must not change the settings fingerprint
     from scripts.brandkit.sidecar import graph_values
     wf = _values_wf()
     assert graph_values({**wf, "extra": "not a node"}, "image", "txt2img") == graph_values(wf, "image", "txt2img")
+
+
+# --- 2026-10-25 review: what the input files held ------------------------------------------------------------
+def test_build_meta_records_the_input_files_content_hashes_when_given():
+    meta = build_meta(modality="image", mode="product", brand="b", seed=1, model="m", watermark=True,
+                      comfy_url="http://x", wf=_img_wf(), inputs={"subject": "s", "asset": "rover.png"},
+                      timestamp="t", input_hashes={"asset": "0123456789abcdef", "watermark_logo": "fedcba9876543210"})
+    assert meta["provenance"]["input_hashes"] == {"asset": "0123456789abcdef", "watermark_logo": "fedcba9876543210"}
+    plain = build_meta(modality="image", mode="txt2img", brand="b", seed=1, model="m", watermark=False,
+                       comfy_url="http://x", wf=_img_wf(), inputs={"subject": "s"}, timestamp="t")
+    assert "input_hashes" not in plain["provenance"]       # a txt2img render has no input file
+
+
+def test_file_digest_is_a_short_sha256_of_the_content(tmp_path):
+    import hashlib
+    from scripts.brandkit.provenance import file_digest
+    p = tmp_path / "rover.png"
+    p.write_bytes(b"ROVER" * 100_000)
+    assert file_digest(p) == hashlib.sha256(b"ROVER" * 100_000).hexdigest()[:16]
+    assert file_digest(tmp_path / "missing.png") is None

@@ -168,4 +168,94 @@ def test_a_null_threed_format_means_the_default(tmp_path):
     # `format: null` made every subcommand for the brand fail, image and audio included (2026-10 review)
     p = tmp_path / "brand.yaml"
     p.write_text("name: b\nthreed: { model: null, format: null }\n", encoding="utf-8")
-    assert load_manifest(p).threed.format is None
+    assert load_manifest(p).threed.format == "glb"
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def test_a_null_value_means_the_fields_default(tmp_path):
+    # null was accepted for every text field: a null watermark/logo position crashed in watermark.py after the
+    # logo upload, a null music_tags/foley_negative in prompt.py, and a null defaults.model built FLUX.2 with
+    # unet_name None (HTTP 400 after freeing the GPU)
+    from scripts.brandkit.prompt import build_audio_prompt
+    p = tmp_path / "brand.yaml"
+    p.write_text("name: b\n"
+                 "defaults: { model: null, width: null }\n"
+                 "logo: { position: null }\n"
+                 "watermark: { position: null, opacity: null }\n"
+                 "audio: { music_tags: null, foley_negative: null }\n"
+                 "video: { model: null }\n", encoding="utf-8")
+    m = load_manifest(p)
+    assert m.defaults.model == "qwen_image_2.1_int8_convrot.safetensors" and m.defaults.width == 1024
+    assert m.logo.position == "bottom-right" and m.watermark.position == "bottom-right"
+    assert m.watermark.opacity == 1.0
+    assert m.audio.music_tags == "" and "speech" in m.audio.foley_negative
+    assert m.video.model is None                       # the documented "null = the default" for an optional pin
+    assert build_audio_prompt(m, "a sting", "music") == ("a sting", "")
+    assert build_audio_prompt(m, "steps", "foley")[1] == m.audio.foley_negative
+
+
+def test_a_single_palette_colour_is_one_colour_not_its_characters(tmp_path):
+    # `palette: "#1c1f22"` was split into '#', '1', 'c', ... in the prompt
+    from scripts.brandkit.prompt import build_prompt
+    p = tmp_path / "brand.yaml"
+    p.write_text('name: b\npalette: "#1c1f22"\n', encoding="utf-8")
+    m = load_manifest(p)
+    assert m.palette == ["#1c1f22"]
+    assert build_prompt(m, "a rover")[0] == "a rover, brand palette #1c1f22"
+
+
+@pytest.mark.parametrize("text, field", [
+    ("palette: { a: 1 }\n", "palette"), ("palette: [\"#111111\", null]\n", "palette"),
+    ("style: 3\n", "style"), ("prompt_prefix: [a, b]\n", "prompt_prefix"),
+    ("prompt_suffix: true\n", "prompt_suffix"), ("negative: { a: 1 }\n", "negative")])
+def test_top_level_fields_are_type_checked(tmp_path, text, field):
+    # a mapping style, or a list negative, became its Python repr in the prompt
+    p = tmp_path / "brand.yaml"
+    p.write_text("name: b\n" + text, encoding="utf-8")
+    with pytest.raises(ManifestError, match=field):
+        load_manifest(p)
+
+
+def test_a_null_top_level_field_is_still_empty(tmp_path):
+    p = tmp_path / "brand.yaml"
+    p.write_text("name: b\nstyle: null\npalette: null\nnegative:\n", encoding="utf-8")
+    m = load_manifest(p)
+    assert m.style == "" and m.palette == [] and m.negative == ""
+
+
+def test_an_unknown_top_level_key_warns(tmp_path, capsys):
+    # sub-block typos warned while `prompt_sufix:` or `negatives:` were dropped without a word
+    p = tmp_path / "brand.yaml"
+    p.write_text("name: b\nprompt_sufix: ', studio'\nnegatives: blurry\n", encoding="utf-8")
+    m = load_manifest(p)
+    err = capsys.readouterr().err
+    assert "prompt_sufix" in err and "negatives" in err and m.prompt_suffix == ""
+
+
+def test_the_tracked_brands_load_without_warnings(capsys):
+    root = Path(__file__).resolve().parents[1] / "brands"
+    for name in ("_template", "example-brand"):
+        load_manifest(root / name / "brand.yaml")
+    assert capsys.readouterr().err == ""
+    load_manifest(FIX)
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("written, read", [("Top-Left", "top-left"), (" BOTTOM-RIGHT ", "bottom-right"),
+                                           ("top left", "top-left"), ("Center", "center")])
+def test_a_position_is_read_without_regard_to_case(tmp_path, written, read):
+    # "Top-Left" has no "left" in it, so the logo went to the bottom-right corner
+    p = tmp_path / "brand.yaml"
+    p.write_text(f'name: b\nlogo: {{ position: "{written}" }}\nwatermark: {{ position: "{written}" }}\n',
+                 encoding="utf-8")
+    m = load_manifest(p)
+    assert m.logo.position == read and m.watermark.position == read
+
+
+@pytest.mark.parametrize("block", ["logo", "watermark"])
+def test_an_unknown_position_is_an_error(tmp_path, block):
+    # "top-center" silently went to the top-right corner
+    p = tmp_path / "brand.yaml"
+    p.write_text(f'name: b\n{block}: {{ position: "top-center" }}\n', encoding="utf-8")
+    with pytest.raises(ManifestError, match=rf"{block}\.position.*top-left"):
+        load_manifest(p)

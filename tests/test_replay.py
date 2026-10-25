@@ -495,3 +495,50 @@ def test_cross_family_music_replay_with_no_recorded_prompt_or_an_empty_brief(mon
     assert R.replay_drift(rec, model=SA3, wf={}, modality="audio", mode="music", model_override="sa3") == []
     rec["prompt"] = ""                                                  # an empty brief: SA3's is the BPM alone
     assert R.replay_drift(rec, model=SA3, wf={}, modality="audio", mode="music", model_override="sa3") == []
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+@pytest.mark.parametrize("modality, mode", [("audio", "music"), ("image", "txt2img")])
+def test_a_render_with_an_empty_subject_replays(modality, mode):
+    # `audio --brand B --subject ""` is a valid render (the brand's music_tags carry the brief), and replay refused it
+    a = R.args_from_sidecar(_sc(modality=modality, mode=mode, brand="b", inputs={"subject": ""}))
+    assert a.subject == ""
+
+
+def test_a_sidecar_with_a_null_subject_is_still_refused():
+    with pytest.raises(ValueError, match="records no inputs.subject"):
+        R.args_from_sidecar(_sc(inputs={"subject": None}))
+
+
+def _hashed(**hashes):
+    return {"model": "m", "inputs": {"subject": "x", "asset": "rover.png"},
+            "provenance": {"input_hashes": hashes}}
+
+
+def test_replay_drift_reports_an_input_file_whose_content_changed(monkeypatch):
+    # replay used whatever file had the recorded name (a Downloads photo vs the brand's own products/rover.png,
+    # a logo replaced in place) and reported no drift
+    monkeypatch.setattr(R, "graph_prompts", lambda wf, mo, md: ("", ""))
+    rec = _hashed(asset="0123456789abcdef", watermark_logo="1111111111111111")
+    drift = R.replay_drift(rec, model="m", wf={}, modality="image", mode="product",
+                           input_hashes={"asset": "fedcba9876543210", "watermark_logo": "1111111111111111"})
+    assert len(drift) == 1 and "rover.png" in drift[0] and "content" in drift[0]
+    logo = R.replay_drift(rec, model="m", wf={}, modality="image", mode="product",
+                          input_hashes={"asset": "0123456789abcdef", "watermark_logo": "2222222222222222"})
+    assert len(logo) == 1 and "watermark logo" in logo[0]
+    # a deliberate re-run on another model still uses the same source photo
+    over = R.replay_drift(rec, model="m2", wf={}, modality="image", mode="product", model_override="m2",
+                          input_hashes={"asset": "fedcba9876543210", "watermark_logo": "1111111111111111"})
+    assert len(over) == 1 and "rover.png" in over[0]
+
+
+def test_replay_drift_is_quiet_when_the_inputs_match_or_were_not_recorded(monkeypatch):
+    monkeypatch.setattr(R, "graph_prompts", lambda wf, mo, md: ("", ""))
+    same = {"asset": "0123456789abcdef"}
+    assert R.replay_drift(_hashed(**same), model="m", wf={}, modality="image", mode="product",
+                          input_hashes=same) == []
+    old = {"model": "m", "inputs": {"subject": "x", "asset": "rover.png"}}       # a sidecar from before the hashes
+    assert R.replay_drift(old, model="m", wf={}, modality="image", mode="product", input_hashes=same) == []
+    assert R.replay_drift(_hashed(**same), model="m", wf={}, modality="image", mode="product") == []
+    damaged = {"model": "m", "provenance": {"input_hashes": ["not", "a", "mapping"]}}
+    assert R.replay_drift(damaged, model="m", wf={}, modality="image", mode="product", input_hashes=same) == []
