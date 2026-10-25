@@ -8,7 +8,7 @@ pytest.importorskip("scipy")
 pytest.importorskip("skimage")
 from scripts.brandkit import printcheck as PC  # noqa: E402
 from scripts.brandkit import solidify as S  # noqa: E402
-from tests.meshes import sheet  # noqa: E402
+from tests.meshes import box, sheet  # noqa: E402
 
 
 def test_a_sheet_is_hollow_before_solidify():
@@ -68,3 +68,48 @@ def test_the_closing_radius_is_the_one_right_after_the_last_big_jump(name):
     curve, want = _CURVES[name]
     radii = sorted(curve)
     assert S.pick_close_radius(radii, [curve[r] for r in radii]) == want
+
+
+# --- memory: a compact 228.6 mm print (a bust, a vase) got an 800^3 grid, ~27 GB at ~53 B a voxel (2026-10-25) ---
+
+def test_a_compact_print_gets_a_grid_under_the_cap():
+    for size in ((228.6, 228.6, 228.6), (400.0, 380.0, 300.0)):
+        vox = S.voxel_for_size(size)
+        assert math.prod(S.grid_shape(size, vox)) <= S.MAX_VOXELS
+    assert S.voxel_for_size((100.0, 80.0, 228.6)) == pytest.approx(0.3)      # the proven trophy setting stays
+
+
+def test_solidify_file_coarsens_the_voxel_to_fit_the_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "MAX_VOXELS", 2_000_000)
+    src = PC.write_stl(tmp_path / "raw.stl", box((0, 0, 0), (228.6, 228.6, 228.6)))
+    info = S.solidify_file(src, tmp_path / "solid.stl")
+    assert info["voxel_mm"] > 0.3
+    assert math.prod(S.grid_shape((228.6,) * 3, info["voxel_mm"])) <= 2_000_000
+    assert info["volume_cm3"] == pytest.approx(228.6 ** 3 / 1000, rel=0.03)
+
+
+@pytest.mark.parametrize("r", [1.0, 1.2 / 0.3, 16 / 3, 20 / 3, 8.0, 40 / 3, 2.5])
+def test_the_capped_distance_transform_matches_scipy_at_the_threshold(r):
+    from scipy import ndimage
+    free = np.random.default_rng(int(r * 100)).random((41, 37, 33)) > 0.997
+    d = S._sq_dist(free, r)
+    assert np.array_equal(d <= S._within_sq(r), ndimage.distance_transform_edt(~free) <= r)
+
+
+def test_the_normal_splat_accumulates_in_float32_with_the_trilinear_weights():
+    rng = np.random.default_rng(3)
+    shape = (9, 8, 7)
+    g = rng.random((500, 3)) * (np.array(shape) - 2)
+    wn = rng.normal(size=(500, 3))
+    strides = np.array([shape[1] * shape[2], shape[2], 1])
+    field = [np.zeros(math.prod(shape), np.float32) for _ in range(3)]
+    S._splat(field, g, wn, strides)
+    ref = np.zeros((3, math.prod(shape)))
+    g0 = np.floor(g).astype(int)
+    fr = g - g0
+    for corner in np.ndindex(2, 2, 2):
+        wt = np.prod([fr[:, k] if corner[k] else 1 - fr[:, k] for k in range(3)], axis=0)
+        for c in range(3):
+            np.add.at(ref[c], (g0 + corner) @ strides, wn[:, c] * wt)
+    assert all(f.dtype == np.float32 for f in field)
+    assert np.allclose(np.stack(field), ref, atol=1e-5)
