@@ -63,3 +63,31 @@ def test_run_backend_failure_exits_cleanly(tmp_path, monkeypatch, capsys):
         T.main(["--brand", "b", "--run"], repo_root=repo)
     assert e.value.code == 4
     assert "exited" in capsys.readouterr().err
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def test_an_unknown_brand_is_one_clean_error(tmp_path, capsys):
+    # `--brand typo` came out as a ManifestError traceback
+    repo = _tmp_brand(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        T.main(["--brand", "typo"], repo_root=repo)
+    assert e.value.code == 2 and "brand 'typo'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["../b", ".hidden", "a/b", "what?"])
+def test_a_brand_that_is_not_a_folder_name_is_refused(tmp_path, capsys, bad):
+    # --brand was joined to brands/ unchecked, so '../b' read a brand.yaml (and wrote a config) outside brands/
+    repo = _tmp_brand(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        T.main(["--brand", bad], repo_root=repo)
+    assert e.value.code == 2 and "isn't a brand folder name" in capsys.readouterr().err
+
+
+def test_the_tracked_example_config_is_what_the_dry_run_writes():
+    # it still named flux2_dev_fp8mixed after build_config moved to the brand's defaults.model
+    from pathlib import Path
+    from scripts.brandkit.manifest import load_manifest
+    from scripts.brandkit.training import build_config
+    brand = Path(__file__).resolve().parents[1] / "brands" / "example-brand"
+    tracked = json.loads((brand / "lora" / "example-brand-train-config.json").read_text(encoding="utf-8"))
+    assert tracked == build_config("example-brand", load_manifest(brand / "brand.yaml"), 1000, "ai-toolkit")

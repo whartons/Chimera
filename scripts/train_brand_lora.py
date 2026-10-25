@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Brand LoRA trainer scaffold. Validates a brand's training/ set, generates a backend
-config, and (with --run) invokes a pluggable FLUX LoRA backend. Defaults to --dry-run,
-which writes the config + a captions/dataset report WITHOUT training, so the plumbing is
-verifiable today even where FLUX.2 training tooling isn't ready.
+config for the brand's image model (defaults.model), and (with --run) invokes a pluggable
+LoRA backend. Defaults to --dry-run, which writes the config + a captions/dataset report
+WITHOUT training, so the plumbing is verifiable today even where training tooling isn't ready.
 
 Usage:
   python scripts/train_brand_lora.py --brand example-brand [--steps 1000] \
@@ -11,7 +11,8 @@ Usage:
 import argparse, json, shutil, subprocess, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.brandkit.manifest import load_manifest
+from scripts.brandkit.manifest import ManifestError, load_manifest
+from scripts.brandkit.outputs import brand_name_ok
 from scripts.brandkit.training import scan_dataset, build_config, TrainingError
 
 
@@ -22,10 +23,15 @@ def main(argv=None, repo_root=None):
     ap.add_argument("--backend", default="ai-toolkit")
     ap.add_argument("--run", action="store_true", help="actually invoke the backend (needs it installed)")
     args = ap.parse_args(argv)
+    if not brand_name_ok(args.brand):   # it is joined to brands/: '../x' read and wrote outside it
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.')")
 
     repo_root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[1]
     brand_dir = repo_root / "brands" / args.brand
-    m = load_manifest(brand_dir / "brand.yaml")
+    try:
+        m = load_manifest(brand_dir / "brand.yaml")
+    except ManifestError as e:   # a brand you don't have, or a brand.yaml mistake, was a traceback
+        print(f"ERROR: brand {args.brand!r}: {e}", file=sys.stderr); sys.exit(2)
     try:
         pairs = scan_dataset(brand_dir / "training")
     except TrainingError as e:
@@ -39,8 +45,8 @@ def main(argv=None, repo_root=None):
     print(f"dataset: {len(pairs)} images ({captioned} captioned) -> config {cfg_path}")
 
     if not args.run:
-        print("dry-run: config written, no training performed. Re-run with --run once a "
-              "FLUX LoRA backend is installed.")
+        print(f"dry-run: config written, no training performed. Re-run with --run once a LoRA backend "
+              f"for {cfg['base_model']} is installed.")
         return
 
     # ONLY the requested backend — a config built for backend X fed to tool Y trains garbage,

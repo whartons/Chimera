@@ -668,3 +668,137 @@ def test_main_escapes_what_the_console_cannot_encode(monkeypatch):
         generate.main()
     out.flush()
     assert b"\\u2192" in out.buffer.getvalue()
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def test_new_brand_reports_a_folder_the_os_will_not_create_in_one_line(monkeypatch, capsys):
+    # WinError 123 from copytree came out as a traceback
+    import scripts.brandkit.scaffold as scaffold
+
+    def refuse(root, name):
+        raise OSError(22, "The filename, directory name, or volume label syntax is incorrect", f"brands/{name}")
+    monkeypatch.setattr(scaffold, "new_brand", refuse)
+    with pytest.raises(SystemExit) as e:
+        _main(monkeypatch, "new-brand", "CON")
+    assert e.value.code == 2 and "can't create brands/CON" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv", [["--from-video", "clip.mp4"], ["--mode", "sfx", "--from-video", "clip.mp4"],
+                                  ["--fps", "30"], ["--mode", "sfx", "--fps", "30"]])
+def test_foley_flags_without_foley_are_errors(monkeypatch, capsys, argv):
+    # `audio --from-video clip.mp4` without --mode foley rendered music from the foley text, without a word
+    monkeypatch.setattr(generate, "_run_comfy", lambda *a: pytest.fail("must not render"))
+    with pytest.raises(SystemExit) as e:
+        _main(monkeypatch, "audio", "--subject", "footsteps", *argv)
+    assert e.value.code == 2 and "--mode foley" in capsys.readouterr().err
+
+
+def test_foley_takes_its_own_flags(monkeypatch):
+    seen = []
+    monkeypatch.setattr(generate, "_run_comfy", lambda args, root, ap: seen.append((args.from_video, args.fps)))
+    _main(monkeypatch, "audio", "--mode", "foley", "--subject", "steps", "--from-video", "clip.mp4", "--fps", "30")
+    assert seen == [("clip.mp4", 30.0)]
+
+
+def _watermark_brand(repo, enabled_default):
+    bdir = repo / "brands" / "b"
+    (bdir / "logos").mkdir(exist_ok=True)
+    (bdir / "logos" / "primary.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
+                                                  + (64).to_bytes(4, "big") * 2 + b"\x08\x06\x00\x00\x00")
+    (bdir / "brand.yaml").write_text(
+        'name: "B"\ndefaults: { model: z_image_turbo_nvfp4.safetensors }\nlogo: { default: "logos/primary.png" }\n'
+        f"watermark: {{ enabled_default: {'true' if enabled_default else 'false'} }}\n", encoding="utf-8")
+
+
+def _stamped(wf):
+    return any("watermark" in n.get("_meta", {}).get("title", "") for n in wf.values())
+
+
+@pytest.mark.parametrize("flag, enabled_default, stamped", [
+    (None, True, True), (False, True, False), (True, False, True), (None, False, False)])
+def test_no_watermark_turns_a_brands_default_off_for_one_render(monkeypatch, tmp_path, flag, enabled_default,
+                                                                 stamped):
+    # a brand with watermark.enabled_default: true had no way to render one image without the logo
+    repo = _tmp_repo(tmp_path)
+    _watermark_brand(repo, enabled_default)
+    fake = FakeComfy()
+    monkeypatch.setattr(generate, "ComfyClient", lambda url: fake)
+    generate.run(_img_args(seed=3, watermark=flag), repo, _StubAp())
+    assert _stamped(fake.wf) is stamped
+
+
+def test_the_sidecar_records_the_watermark_the_render_used(monkeypatch, tmp_path):
+    repo = _tmp_repo(tmp_path)
+    _watermark_brand(repo, True)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    for flag, seed in ((None, 1), (False, 2)):
+        (comfyout / "out.png").write_bytes(b"PNG")
+        generate.run(_img_args(seed=seed, watermark=flag, comfy_output_dir=str(comfyout)), repo, _StubAp())
+    out = repo / "brands" / "b" / "outputs" / "images"
+    assert json.loads((out / "b_txt2img_1.json").read_text(encoding="utf-8"))["watermark"] is True
+    assert json.loads((out / "b_txt2img_2.json").read_text(encoding="utf-8"))["watermark"] is False
+
+
+@pytest.mark.parametrize("sub", ["image", "video", "audio", "3d"])
+def test_every_subcommand_with_watermark_takes_no_watermark(monkeypatch, sub):
+    extra = {"image": ["--subject", "x"], "video": ["--subject", "x", "--from-image", "r.png"],
+             "audio": ["--subject", "x"], "3d": ["--from-image", "r.png"]}[sub]
+    seen = []
+    monkeypatch.setattr(generate, "_run_comfy", lambda args, root, ap: seen.append(args.watermark))
+    for flag in ([], ["--watermark"], ["--no-watermark"]):
+        _main(monkeypatch, sub, *extra, *flag)
+    assert seen == [None, True, False]          # None: the brand's watermark.enabled_default decides
+
+
+@pytest.mark.parametrize("over", [dict(modality="3d", mode="image", from_image="rover.png", format="glb"),
+                                  dict(modality="audio", mode="music", subject="a sting")])
+def test_watermark_says_when_the_render_has_no_frame_to_stamp(monkeypatch, tmp_path, capsys, over):
+    # --watermark on a 3D mesh or a music track was dropped without a word
+    repo = _repo_3d(tmp_path)
+    _watermark_brand(repo, False)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    generate.run(_img_args(seed=4, watermark=True, **over), repo, _StubAp())
+    err = capsys.readouterr().err
+    assert "--watermark" in err and "ignored" in err
+
+
+def _replay_args(meta):
+    rargs = generate._args_from_sidecar(meta)
+    rargs.expect, rargs.accept_drift, rargs.model_override = meta, False, None
+    return rargs
+
+
+def test_a_replay_says_when_an_input_file_changed_since_the_render(monkeypatch, tmp_path, capsys):
+    # sidecars kept only the input's file name, so replay used whatever file had it and reported no drift
+    import hashlib
+    repo = _repo_3d(tmp_path)                        # every template; brands/b/products/rover.png holds b"x"
+    _watermark_brand(repo, False)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (comfyout / "out.png").write_bytes(b"PNG")
+    generate.run(_img_args(mode="product", asset="rover.png", seed=6, watermark=True,
+                           comfy_output_dir=str(comfyout)), repo, _StubAp())
+    meta = json.loads((repo / "brands" / "b" / "outputs" / "images" / "b_product_6.json").read_text(encoding="utf-8"))
+    logo = repo / "brands" / "b" / "logos" / "primary.png"
+    assert meta["provenance"]["input_hashes"] == {
+        "asset": hashlib.sha256(b"x").hexdigest()[:16],
+        "watermark_logo": hashlib.sha256(logo.read_bytes()).hexdigest()[:16]}
+    generate.run(_replay_args(meta), repo, _StubAp())                       # the same files: it renders
+    (repo / "brands" / "b" / "products" / "rover.png").write_bytes(b"another rover")
+    with pytest.raises(SystemExit) as e:
+        generate.run(_replay_args(meta), repo, _StubAp())
+    assert e.value.code == 1
+    err = capsys.readouterr().err
+    assert "rover.png" in err and "content" in err and "--accept-drift" in err
+    rargs = _replay_args(meta)
+    rargs.accept_drift = True
+    generate.run(rargs, repo, _StubAp())                                    # drift, not a refusal
+
+
+def test_a_brand_default_watermark_on_music_says_nothing(monkeypatch, tmp_path, capsys):
+    repo = _repo_3d(tmp_path)
+    _watermark_brand(repo, True)
+    monkeypatch.setattr(generate, "ComfyClient", _Comfy3D)
+    generate.run(_img_args(seed=4, watermark=None, modality="audio", mode="music", subject="a sting"), repo, _StubAp())
+    assert "--watermark" not in capsys.readouterr().err

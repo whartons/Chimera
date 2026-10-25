@@ -1,6 +1,6 @@
 """Route a finished render to the per-brand outputs/ folder, organized by media type."""
 from __future__ import annotations
-import itertools, json, shutil, time, uuid
+import itertools, json, shutil, time, unicodedata, uuid
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from .nodes import find_node_by_title, NodeNotFound
 
@@ -47,9 +47,16 @@ def plain_name(value) -> bool:
             and v.strip() == v and not v.endswith(".") and not any(ord(ch) < 32 for ch in v))
 
 
+_NOT_IN_A_FOLDER_NAME = set('<>:"/\\|?*')   # what Windows refuses in a file or folder name
+
+
 def brand_name_ok(name) -> bool:
-    """A brand folder name new-brand creates and replay accepts: one plain name, not hidden."""
-    return plain_name(name) and not str(name).startswith(".")
+    """A brand folder name new-brand creates and replay accepts: one plain name, not hidden, nothing Windows
+    refuses in a folder name and no control character. `new-brand 'what?'` passed, then copytree raised
+    WinError 123; a '"' broke brand.yaml's name: line on POSIX (2026-10-25 review)."""
+    v = str(name)
+    return (plain_name(v) and not v.startswith(".") and not _NOT_IN_A_FOLDER_NAME.intersection(v)
+            and not any(unicodedata.category(ch) == "Cc" for ch in v))
 
 
 def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4, *,

@@ -91,9 +91,11 @@ brands/*
 !brands/_template/**
 !brands/example-brand/
 !brands/example-brand/**
-# Never commit trained model weights or the regenerable trainer config, even for the
-# example brand: large binaries / generated artifacts — reproduce them from training/
-# + brand.yaml. (These override the broad re-include just above.)
+# Never commit trained model weights, even for the example brand: large binaries —
+# reproduce them from training/ + brand.yaml. (These override the broad re-include just
+# above.) The example's trainer config, lora/example-brand-train-config.json, IS tracked
+# as a sample: regenerate it with `python scripts/train_brand_lora.py --brand example-brand`
+# (a dry run); tests/test_train_brand_lora.py checks it matches.
 brands/example-brand/**/*.safetensors
 brands/example-brand/**/*.ckpt
 brands/example-brand/**/*.pt

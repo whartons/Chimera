@@ -36,7 +36,7 @@ from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.outputs import (NoOutputError, brand_name_ok, comfy_output_path, fresh_output_name,
                                       route_output, select_output, write_sidecar)
-from scripts.brandkit.provenance import git_provenance  # re-exported; historical home was here
+from scripts.brandkit.provenance import file_digest, git_provenance  # git_provenance's historical home was here
 from scripts.brandkit.sidecar import build_meta
 
 FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
@@ -65,9 +65,36 @@ from scripts.brandkit.dcc_cli import (  # noqa: E402
 )
 
 
+_ROTATED = (5, 6, 7, 8)   # EXIF orientations that turn the stored image a quarter turn (width <-> height)
+
+
+def _exif_orientation(app1):
+    """The EXIF Orientation (tag 0x0112) in a JPEG APP1 segment's payload; 1 (as stored) when it has none or
+    the block can't be read."""
+    if app1[:6] != b"Exif\x00\x00":
+        return 1
+    tiff = app1[6:]
+    e = {b"II": "<", b"MM": ">"}.get(tiff[:2])
+    if e is None:
+        return 1
+    try:
+        ifd = struct.unpack(e + "I", tiff[4:8])[0]
+        for i in range(struct.unpack(e + "H", tiff[ifd:ifd + 2])[0]):
+            at = ifd + 2 + 12 * i
+            tag, kind = struct.unpack(e + "HH", tiff[at:at + 4])
+            if tag == 0x0112:
+                fmt = {3: "H", 4: "I"}.get(kind)   # a SHORT, as the standard says; a LONG Pillow reads too
+                return struct.unpack(e + fmt, tiff[at + 8:at + 8 + struct.calcsize(fmt)])[0] if fmt else 1
+    except struct.error:   # a truncated EXIF block: the frame size still stands
+        pass
+    return 1
+
+
 def _jpeg_size(f):
-    """(width, height) from a JPEG's frame header (what Pillow reports), or None."""
+    """(width, height) from a JPEG's frame header, swapped when its EXIF orientation turns it a quarter turn:
+    the size ComfyUI's LoadImage loads (it applies the rotation), or None."""
     f.seek(2)
+    orientation = None
     while True:
         b = f.read(1)
         while b and b != b"\xff":
@@ -84,8 +111,17 @@ def _jpeg_size(f):
             return None
         if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):   # a start-of-frame
             data = f.read(5)
-            return (struct.unpack(">H", data[3:5])[0], struct.unpack(">H", data[1:3])[0]) if len(data) == 5 else None
-        f.seek(struct.unpack(">H", seg)[0] - 2, 1)
+            if len(data) < 5:
+                return None
+            w, h = struct.unpack(">H", data[3:5])[0], struct.unpack(">H", data[1:3])[0]
+            return (h, w) if orientation in _ROTATED else (w, h)
+        length = struct.unpack(">H", seg)[0]
+        if marker == 0xE1 and orientation is None:   # APP1: the first Exif block counts, as in Pillow
+            app1 = f.read(max(0, length - 2))   # a damaged length below 2 must not read the whole file
+            if app1[:6] == b"Exif\x00\x00":
+                orientation = _exif_orientation(app1)
+            continue
+        f.seek(length - 2, 1)
 
 
 def _header_size(path):
@@ -115,12 +151,15 @@ def _image_size(path):
     """(width, height) of a logo or source image, or None if it can't be determined. Uses Pillow when
     available (png/jpg/webp/bmp/tiff/gif), else reads the PNG/GIF/WebP/JPEG header itself, so the graph
     (the watermark canvas, the logo size) is the same with or without Pillow and a replay on the other
-    kind of install reports no drift. None -> callers use a canvas-proportional geometry estimate
-    (correct SIZE on-graph, only the corner offset is approximate)."""
+    kind of install reports no drift. The size is the upright one ComfyUI's LoadImage loads: it applies the
+    EXIF rotation, so a phone photo stored 4032x3024 with orientation 6 is 3024x4032 there, and a corner
+    watermark placed for 4032 wide fell off the frame (2026-10-25 review). None -> callers use a
+    canvas-proportional geometry estimate (correct SIZE on-graph, only the corner offset is approximate)."""
     try:
         from PIL import Image
         with Image.open(path) as im:
-            return im.size
+            w, h = im.size
+            return (h, w) if im.getexif().get(0x0112) in _ROTATED else (w, h)
     except ImportError:
         pass                       # no Pillow -> header read below
     except Exception:
@@ -137,7 +176,11 @@ def _add_common(sp):
     sp.add_argument("--seed", type=int, default=None)
     sp.add_argument("--comfy-url", default=DEFAULT_COMFY_URL)
     sp.add_argument("--comfy-output-dir", default=None)
-    sp.add_argument("--watermark", action="store_true", help="stamp the brand logo (opt-in)")
+    # None = the brand's watermark.enabled_default; --no-watermark turns a brand's default off for one render
+    sp.add_argument("--watermark", dest="watermark", action="store_true", default=None,
+                    help="stamp the brand logo (default: the brand's watermark.enabled_default, else off)")
+    sp.add_argument("--no-watermark", dest="watermark", action="store_false",
+                    help="don't stamp it, even for a brand whose watermark.enabled_default is true")
     sp.add_argument("--out-name", default=None, help="(reserved; output is named <brand>_<mode>_<seed>)")
     sp.add_argument("--timeout", type=int, default=None)
     sp.add_argument("--free-before", dest="free_before", action="store_true", default=None)
@@ -160,6 +203,7 @@ def _prepare_image(args, m, brand_dir, client, ap):
         asset_path = _resolve_asset(brand_dir, args.asset,
                                     ("products", "references", "outputs/images"), ap, "relight --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        fkw["_files"] = {"asset": asset_path}   # the local input files, for the sidecar's content hashes
         sz = _image_size(asset_path)
         if sz:   # relight renders at the source's native size -> true watermark canvas
             fkw["canvas"] = sz
@@ -172,6 +216,7 @@ def _prepare_image(args, m, brand_dir, client, ap):
         asset_name = args.asset or logo_fallback or None
         asset_path = _resolve_asset(brand_dir, asset_name, subdirs, ap, f"{args.mode} --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        fkw["_files"] = {"asset": asset_path}
         if args.mode == "product":
             sz = _image_size(asset_path)
             if sz:   # product img2img renders at the source's native size -> true watermark canvas
@@ -209,7 +254,7 @@ def _prepare_video(args, m, brand_dir, client, ap):
     if args.length and r["length"] != args.length:
         print(f"note: {'Wan 2.2' if wan else 'LTX-2.3'} renders {4 if wan else 8}k+1 frames, so --length "
               f"{args.length} renders {r['length']}", file=sys.stderr)
-    return {"from_image": client.upload_image(path),
+    return {"from_image": client.upload_image(path), "_files": {"from_image": path},
             "length": args.length, "fps": args.fps, "audio": args.audio,
             "width": args.width, "height": args.height,
             "model": model, "camera": camera, "quality": getattr(args, "quality", None),
@@ -236,6 +281,11 @@ def _probe_video(path):
         frames = vs.frames or 0
         w, h = vs.codec_context.width, vs.codec_context.height
         dur = (frames / fr) if (frames and fr) else None
+        if dur is None:   # WebM and MKV store no frame count (frames == 0): foley used 5 s for any length
+            if vs.duration and vs.time_base:
+                dur = float(vs.duration * vs.time_base)
+            elif c.duration:
+                dur = c.duration / av.time_base   # the container's, in microseconds
         return fr, dur, w, h
     except Exception:                                 # unreadable stream metadata
         return None, None, None, None
@@ -293,7 +343,7 @@ def _prepare_audio(args, m, brand_dir, client, ap):
         print(f"warning: could not probe {path.name}; using frame_rate={frame_rate} duration={duration}"
               " (pass --fps/--duration to override)", file=sys.stderr)
     # a replay passes the recorded size too (the watermark canvas), so it needn't probe the clip again
-    return {"mode": "foley", "from_video": client.upload_video(path),
+    return {"mode": "foley", "from_video": client.upload_video(path), "_files": {"from_video": path},
             "frame_rate": frame_rate, "duration": duration, "fps": frame_rate,
             "width": getattr(args, "width", None) or w or 768, "height": getattr(args, "height", None) or h or 512,
             "model": model}
@@ -304,7 +354,7 @@ def _prepare_3d(args, m, brand_dir, client, ap):
         print("note: --octree is a Hunyuan3D setting; TRELLIS.2 and Pixal3D ignore it", file=sys.stderr)
     path = _resolve_asset(brand_dir, args.from_image,
                           ("products", "references", "outputs/images"), ap, "3d --from-image")
-    return {"mode": args.mode, "from_image": client.upload_image(path),
+    return {"mode": args.mode, "from_image": client.upload_image(path), "_files": {"from_image": path},
             "octree": args.octree, "model": args.model}
 
 
@@ -358,9 +408,17 @@ def run(args, repo_root, ap):
         pos, neg = build_prompt(m, args.subject)
     expect = getattr(args, "expect", None)   # replay: the sidecar being reproduced
     # a replay keeps the recorded watermark decision: a brand that later turned enabled_default on used to
-    # stamp old renders without a word
-    want = bool(expect.get("watermark")) if expect is not None else (args.watermark or m.watermark.enabled_default)
-    do_watermark = want and _supports_watermark(args.modality, args.mode)
+    # stamp old renders without a word. Otherwise --watermark / --no-watermark, else the brand's default.
+    if expect is not None:
+        want = bool(expect.get("watermark"))
+    else:
+        want = args.watermark if args.watermark is not None else m.watermark.enabled_default
+    supported = _supports_watermark(args.modality, args.mode)
+    if args.watermark and expect is None and not supported:   # it used to be dropped without a word
+        why = {"image": "logo mode already places the logo", "3d": "a mesh has no frame to stamp"}.get(
+            args.modality, "only foley has video frames to stamp")
+        print(f"note: --watermark is ignored for {args.modality} --mode {args.mode}: {why}", file=sys.stderr)
+    do_watermark = want and supported
     if do_watermark and not args.brand:
         ap.error("--watermark needs a --brand (the logo comes from brands/<brand>/logos/)")
     client = ComfyClient(args.comfy_url)
@@ -374,8 +432,10 @@ def run(args, repo_root, ap):
                      f"brands/{args.brand}/logos/ (logo.default is {m.logo.default!r})")
 
     fkw = PREPARE[args.modality](args, m, brand_dir, client, ap)
+    files = fkw.pop("_files", {})   # the local input files: the sidecar records what they held
     if do_watermark:
         fkw["watermark_logo"] = client.upload_image(logo_path)
+        files["watermark_logo"] = logo_path
         sz = _image_size(logo_path)
         if sz:
             fkw["logo_px"] = (int(sz[0] * m.watermark.scale), int(sz[1] * m.watermark.scale))
@@ -389,9 +449,11 @@ def run(args, repo_root, ap):
                                    watermark=do_watermark, **fkw)
     except ValueError as e:   # a combination the filler can't render (e.g. --camera with --model ltx23)
         ap.error(str(e))
+    input_hashes = {k: h for k, p in sorted(files.items()) if (h := file_digest(p))}
     if expect is not None:
         drift = replay_drift(expect, model=_resolve_model_used(args, m), wf=wf, modality=args.modality,
-                             mode=args.mode, model_override=getattr(args, "model_override", None))
+                             mode=args.mode, model_override=getattr(args, "model_override", None),
+                             input_hashes=input_hashes)
         if drift:
             print("this replay would not reproduce the recorded render:", file=sys.stderr)
             for d in drift:
@@ -452,7 +514,7 @@ def run(args, repo_root, ap):
                           wf=wf, inputs=inputs,
                           timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
                           fmt=fmt, comfyui_version=client.comfyui_version(),
-                          pipeline_git_sha=git_provenance(repo_root))
+                          pipeline_git_sha=git_provenance(repo_root), input_hashes=input_hashes)
         write_sidecar(dest, meta)
         print(f"output -> {dest}")
     else:
@@ -696,7 +758,8 @@ def main():
     args = ap.parse_args()
     if getattr(args, "brand", None) and not brand_name_ok(args.brand):
         # before anything renders: route_output refuses it afterwards, leaving the render in ComfyUI's folder
-        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.')")
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.', "
+                 "without any of <>:\"/\\|?*)")
 
     repo_root = Path(__file__).resolve().parents[1]
     _check_repo_layout(repo_root, ap)
@@ -706,6 +769,8 @@ def main():
             dest = new_brand(repo_root, args.name)
         except (ValueError, FileExistsError, FileNotFoundError) as e:
             ap.error(str(e))
+        except OSError as e:   # a name the OS won't create (e.g. a reserved one on Windows) was a traceback
+            ap.error(f"can't create brands/{args.name}: {e.strerror or e}")
         print(f"created {dest}")
         print(f"  next: edit {dest / 'brand.yaml'}, add a logo to logos/, then "
               f"`python scripts/generate.py lint --brand {args.name}`")
@@ -772,6 +837,10 @@ def main():
         ap.error("--upscale-model picks the upscaler for --upscale; add --upscale")
     if args.modality == "audio" and args.mode != "music" and (args.bpm is not None or args.keyscale):
         ap.error(f"--bpm/--keyscale are music settings; audio --mode {args.mode} doesn't use them")
+    if args.modality == "audio" and args.mode != "foley" and (args.from_video or args.fps is not None):
+        # without --mode foley a clip was ignored and music rendered from the foley text (2026-10-25 review)
+        ap.error(f"--from-video/--fps are foley settings; add --mode foley (audio --mode {args.mode} doesn't "
+                 "use them)")
     _run_comfy(args, repo_root, ap)
 
 
