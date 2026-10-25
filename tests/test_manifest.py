@@ -168,4 +168,27 @@ def test_a_null_threed_format_means_the_default(tmp_path):
     # `format: null` made every subcommand for the brand fail, image and audio included (2026-10 review)
     p = tmp_path / "brand.yaml"
     p.write_text("name: b\nthreed: { model: null, format: null }\n", encoding="utf-8")
-    assert load_manifest(p).threed.format is None
+    assert load_manifest(p).threed.format == "glb"
+
+
+# --- 2026-10-25 review -------------------------------------------------------------------------------------
+def test_a_null_value_means_the_fields_default(tmp_path):
+    # null was accepted for every text field: a null watermark/logo position crashed in watermark.py after the
+    # logo upload, a null music_tags/foley_negative in prompt.py, and a null defaults.model built FLUX.2 with
+    # unet_name None (HTTP 400 after freeing the GPU)
+    from scripts.brandkit.prompt import build_audio_prompt
+    p = tmp_path / "brand.yaml"
+    p.write_text("name: b\n"
+                 "defaults: { model: null, width: null }\n"
+                 "logo: { position: null }\n"
+                 "watermark: { position: null, opacity: null }\n"
+                 "audio: { music_tags: null, foley_negative: null }\n"
+                 "video: { model: null }\n", encoding="utf-8")
+    m = load_manifest(p)
+    assert m.defaults.model == "qwen_image_2.1_int8_convrot.safetensors" and m.defaults.width == 1024
+    assert m.logo.position == "bottom-right" and m.watermark.position == "bottom-right"
+    assert m.watermark.opacity == 1.0
+    assert m.audio.music_tags == "" and "speech" in m.audio.foley_negative
+    assert m.video.model is None                       # the documented "null = the default" for an optional pin
+    assert build_audio_prompt(m, "a sting", "music") == ("a sting", "")
+    assert build_audio_prompt(m, "steps", "foley")[1] == m.audio.foley_negative

@@ -112,7 +112,10 @@ def _sub(cls, data, key):
     if unknown:
         print(f"warning: brand.yaml '{key}' has unknown key(s) {unknown} — ignored "
               f"(valid: {sorted(allowed)})", file=sys.stderr)
-    picked = {k: v for k, v in raw.items() if k in allowed}
+    # null means the field's default, as the template documents for `video.model: null`. It used to be kept
+    # for every text field, so `watermark: {position: null}` crashed after the logo upload and
+    # `defaults: {model: null}` built FLUX.2 with no model (2026-10-25 review).
+    picked = {k: v for k, v in raw.items() if k in allowed and v is not None}
     # Type-check against the field defaults so a YAML mistake (e.g. a quoted number) fails HERE
     # with the offending key named — not as an opaque TypeError deep inside a filler at render
     # time. Every None-defaulted field in the sub-dataclasses is an optional string.
@@ -132,7 +135,7 @@ def _sub(cls, data, key):
                                     "unquote numbers in brand.yaml)")
             picked[k] = float(v)
         elif isinstance(d, str) or d is None:
-            if v is not None and not isinstance(v, str):
+            if not isinstance(v, str):
                 raise ManifestError(f"'{key}.{k}' must be a string (got {v!r})")
     return cls(**picked)
 
@@ -162,9 +165,8 @@ def load_manifest(path) -> BrandManifest:
     name = data.get("name")
     if not name or not str(name).strip():
         raise ManifestError("brand.yaml requires a non-empty 'name'")
-    threed = _sub(Threed, data, "threed")
-    # null means the default, as it does for every other field (and generate.py reads it as glb)
-    if threed.format is not None and str(threed.format).lower() not in ("glb", "stl", "obj"):
+    threed = _sub(Threed, data, "threed")   # `format: null` is the default glb, like every other null
+    if str(threed.format).lower() not in ("glb", "stl", "obj"):
         raise ManifestError(f"'threed.format' must be glb, stl or obj (got {threed.format!r})")
     return BrandManifest(
         name=str(name),
