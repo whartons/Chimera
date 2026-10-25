@@ -302,7 +302,8 @@ def test_prepare_3d_maps(tmp_path):
     (brand_dir / "products" / "r.png").write_bytes(b"x")
     args = _args_ns(modality="3d", mode="image", from_image="r.png", model="m3d.safetensors", octree=128, brand="b")
     fkw = generate._prepare_3d(args, M, brand_dir, _FakeUploadClient(), _StubAp())
-    assert fkw == {"mode": "image", "from_image": "up:r.png", "octree": 128, "model": "m3d.safetensors"}
+    assert fkw == {"mode": "image", "from_image": "up:r.png", "octree": 128, "model": "m3d.safetensors",
+                   "_files": {"from_image": brand_dir / "products" / "r.png"}}   # run() hashes them for the sidecar
 
 
 def test_prepare_3d_missing_image_errors(tmp_path):
@@ -802,6 +803,21 @@ def test_image_size_of_a_rotated_jpeg_with_pillow_is_what_loadimage_sees(tmp_pat
     assert upright == (48, 64)
     assert _image_size(p) == upright
     assert generate._header_size(p) == upright           # and the no-Pillow read agrees
+
+
+def test_every_input_file_is_handed_to_run_for_the_sidecar_hashes(tmp_path, monkeypatch):
+    monkeypatch.setattr(generate, "_probe_video", lambda p: (25.0, 4.0, 640, 360))
+    brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
+    img = brand_dir / "products" / "r.png"; img.write_bytes(_png_header(64, 64))
+    clip = brand_dir / "products" / "c.mp4"; clip.write_bytes(b"v")
+    c, ap = _FakeUploadClient(), _StubAp()
+    assert generate._prepare_video(_args_ns(modality="video", from_image="r.png", brand="b"), M, brand_dir, c,
+                                   ap)["_files"] == {"from_image": img}
+    assert generate._prepare_audio(_args_ns(modality="audio", mode="foley", from_video="c.mp4", brand="b"), M,
+                                   brand_dir, c, ap)["_files"] == {"from_video": clip}
+    for mode in ("product", "relight"):
+        assert generate._prepare_image(_args_ns(modality="image", mode=mode, asset="r.png", brand="b"), M,
+                                       brand_dir, c, ap)["_files"] == {"asset": img}
 
 
 def _fake_av(monkeypatch, *, frames, stream_duration, container_duration):

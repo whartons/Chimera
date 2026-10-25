@@ -36,7 +36,7 @@ from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.outputs import (NoOutputError, brand_name_ok, comfy_output_path, fresh_output_name,
                                       route_output, select_output, write_sidecar)
-from scripts.brandkit.provenance import git_provenance  # re-exported; historical home was here
+from scripts.brandkit.provenance import file_digest, git_provenance  # git_provenance's historical home was here
 from scripts.brandkit.sidecar import build_meta
 
 FILLERS = {"image": image_filler.build, "video": video_filler.build, "audio": audio_filler.build,
@@ -203,6 +203,7 @@ def _prepare_image(args, m, brand_dir, client, ap):
         asset_path = _resolve_asset(brand_dir, args.asset,
                                     ("products", "references", "outputs/images"), ap, "relight --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        fkw["_files"] = {"asset": asset_path}   # the local input files, for the sidecar's content hashes
         sz = _image_size(asset_path)
         if sz:   # relight renders at the source's native size -> true watermark canvas
             fkw["canvas"] = sz
@@ -215,6 +216,7 @@ def _prepare_image(args, m, brand_dir, client, ap):
         asset_name = args.asset or logo_fallback or None
         asset_path = _resolve_asset(brand_dir, asset_name, subdirs, ap, f"{args.mode} --asset")
         fkw["asset"] = client.upload_image(asset_path)
+        fkw["_files"] = {"asset": asset_path}
         if args.mode == "product":
             sz = _image_size(asset_path)
             if sz:   # product img2img renders at the source's native size -> true watermark canvas
@@ -252,7 +254,7 @@ def _prepare_video(args, m, brand_dir, client, ap):
     if args.length and r["length"] != args.length:
         print(f"note: {'Wan 2.2' if wan else 'LTX-2.3'} renders {4 if wan else 8}k+1 frames, so --length "
               f"{args.length} renders {r['length']}", file=sys.stderr)
-    return {"from_image": client.upload_image(path),
+    return {"from_image": client.upload_image(path), "_files": {"from_image": path},
             "length": args.length, "fps": args.fps, "audio": args.audio,
             "width": args.width, "height": args.height,
             "model": model, "camera": camera, "quality": getattr(args, "quality", None),
@@ -341,7 +343,7 @@ def _prepare_audio(args, m, brand_dir, client, ap):
         print(f"warning: could not probe {path.name}; using frame_rate={frame_rate} duration={duration}"
               " (pass --fps/--duration to override)", file=sys.stderr)
     # a replay passes the recorded size too (the watermark canvas), so it needn't probe the clip again
-    return {"mode": "foley", "from_video": client.upload_video(path),
+    return {"mode": "foley", "from_video": client.upload_video(path), "_files": {"from_video": path},
             "frame_rate": frame_rate, "duration": duration, "fps": frame_rate,
             "width": getattr(args, "width", None) or w or 768, "height": getattr(args, "height", None) or h or 512,
             "model": model}
@@ -352,7 +354,7 @@ def _prepare_3d(args, m, brand_dir, client, ap):
         print("note: --octree is a Hunyuan3D setting; TRELLIS.2 and Pixal3D ignore it", file=sys.stderr)
     path = _resolve_asset(brand_dir, args.from_image,
                           ("products", "references", "outputs/images"), ap, "3d --from-image")
-    return {"mode": args.mode, "from_image": client.upload_image(path),
+    return {"mode": args.mode, "from_image": client.upload_image(path), "_files": {"from_image": path},
             "octree": args.octree, "model": args.model}
 
 
@@ -430,8 +432,10 @@ def run(args, repo_root, ap):
                      f"brands/{args.brand}/logos/ (logo.default is {m.logo.default!r})")
 
     fkw = PREPARE[args.modality](args, m, brand_dir, client, ap)
+    files = fkw.pop("_files", {})   # the local input files: the sidecar records what they held
     if do_watermark:
         fkw["watermark_logo"] = client.upload_image(logo_path)
+        files["watermark_logo"] = logo_path
         sz = _image_size(logo_path)
         if sz:
             fkw["logo_px"] = (int(sz[0] * m.watermark.scale), int(sz[1] * m.watermark.scale))
@@ -445,9 +449,11 @@ def run(args, repo_root, ap):
                                    watermark=do_watermark, **fkw)
     except ValueError as e:   # a combination the filler can't render (e.g. --camera with --model ltx23)
         ap.error(str(e))
+    input_hashes = {k: h for k, p in sorted(files.items()) if (h := file_digest(p))}
     if expect is not None:
         drift = replay_drift(expect, model=_resolve_model_used(args, m), wf=wf, modality=args.modality,
-                             mode=args.mode, model_override=getattr(args, "model_override", None))
+                             mode=args.mode, model_override=getattr(args, "model_override", None),
+                             input_hashes=input_hashes)
         if drift:
             print("this replay would not reproduce the recorded render:", file=sys.stderr)
             for d in drift:
@@ -508,7 +514,7 @@ def run(args, repo_root, ap):
                           wf=wf, inputs=inputs,
                           timestamp=datetime.datetime.now().isoformat(timespec="seconds"),
                           fmt=fmt, comfyui_version=client.comfyui_version(),
-                          pipeline_git_sha=git_provenance(repo_root))
+                          pipeline_git_sha=git_provenance(repo_root), input_hashes=input_hashes)
         write_sidecar(dest, meta)
         print(f"output -> {dest}")
     else:

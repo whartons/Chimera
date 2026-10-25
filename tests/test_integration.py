@@ -763,6 +763,39 @@ def test_watermark_says_when_the_render_has_no_frame_to_stamp(monkeypatch, tmp_p
     assert "--watermark" in err and "ignored" in err
 
 
+def _replay_args(meta):
+    rargs = generate._args_from_sidecar(meta)
+    rargs.expect, rargs.accept_drift, rargs.model_override = meta, False, None
+    return rargs
+
+
+def test_a_replay_says_when_an_input_file_changed_since_the_render(monkeypatch, tmp_path, capsys):
+    # sidecars kept only the input's file name, so replay used whatever file had it and reported no drift
+    import hashlib
+    repo = _repo_3d(tmp_path)                        # every template; brands/b/products/rover.png holds b"x"
+    _watermark_brand(repo, False)
+    monkeypatch.setattr(generate, "ComfyClient", FakeComfy)
+    comfyout = tmp_path / "comfyout"; comfyout.mkdir()
+    (comfyout / "out.png").write_bytes(b"PNG")
+    generate.run(_img_args(mode="product", asset="rover.png", seed=6, watermark=True,
+                           comfy_output_dir=str(comfyout)), repo, _StubAp())
+    meta = json.loads((repo / "brands" / "b" / "outputs" / "images" / "b_product_6.json").read_text(encoding="utf-8"))
+    logo = repo / "brands" / "b" / "logos" / "primary.png"
+    assert meta["provenance"]["input_hashes"] == {
+        "asset": hashlib.sha256(b"x").hexdigest()[:16],
+        "watermark_logo": hashlib.sha256(logo.read_bytes()).hexdigest()[:16]}
+    generate.run(_replay_args(meta), repo, _StubAp())                       # the same files: it renders
+    (repo / "brands" / "b" / "products" / "rover.png").write_bytes(b"another rover")
+    with pytest.raises(SystemExit) as e:
+        generate.run(_replay_args(meta), repo, _StubAp())
+    assert e.value.code == 1
+    err = capsys.readouterr().err
+    assert "rover.png" in err and "content" in err and "--accept-drift" in err
+    rargs = _replay_args(meta)
+    rargs.accept_drift = True
+    generate.run(rargs, repo, _StubAp())                                    # drift, not a refusal
+
+
 def test_a_brand_default_watermark_on_music_says_nothing(monkeypatch, tmp_path, capsys):
     repo = _repo_3d(tmp_path)
     _watermark_brand(repo, True)

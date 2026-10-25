@@ -1,6 +1,18 @@
-"""Render-time provenance of the pipeline repo itself, recorded in reproducibility sidecars."""
+"""Render-time provenance recorded in reproducibility sidecars: the pipeline repo's own commit, and what
+the render's input files held."""
 from __future__ import annotations
-import subprocess
+import hashlib, subprocess
+
+
+def file_digest(path):
+    """A short sha256 (16 hex digits) of a file's content, or None if it can't be read. Sidecars keep only an
+    input's file name, so replay used whatever file had that name (a Downloads photo instead of the brand's own
+    products/rover.png, a logo replaced in place) and reported no drift (2026-10-25 review)."""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.file_digest(f, "sha256").hexdigest()[:16]
+    except OSError:
+        return None
 
 
 def git_provenance(repo_root):

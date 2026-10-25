@@ -136,15 +136,17 @@ def relevant_inputs(modality, mode, inputs):
 
 
 def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, inputs,
-               timestamp, fmt=None, comfyui_version=None, pipeline_git_sha=None):
+               timestamp, fmt=None, comfyui_version=None, pipeline_git_sha=None, input_hashes=None):
     """Assemble the schema-2 sidecar dict. `model` is the already-resolved model filename
     (the caller resolves Z-Image variants etc.); we do not re-resolve. Top-level prompt/negative
     are kept for backward-compat with schema-1 sidecars; `format` is set only when fmt is given.
 
     A `provenance` block records what produced the render so it traces back exactly: a structural
     `graph_signature` and a settings `graph_values` hash (always; replay compares both to detect
-    drift), plus the ComfyUI engine version and the pipeline's git commit (`-dirty` if the tree had
-    uncommitted changes) when the caller can supply them (both best-effort, omitted when None)."""
+    drift), plus the ComfyUI engine version and the pipeline's git commit (`-dirty` if a tracked file
+    had uncommitted changes) when the caller can supply them (both best-effort, omitted when None), and
+    `input_hashes`, a short content hash of each input file ({"asset" | "from_image" | "from_video" |
+    "watermark_logo": hash}), which replay compares too (omitted when the render read no file)."""
     pos, neg = graph_prompts(wf, modality, mode)
     meta = {
         "schema": SCHEMA_VERSION,
@@ -161,6 +163,8 @@ def build_meta(*, modality, mode, brand, seed, model, watermark, comfy_url, wf, 
         prov["comfyui_version"] = comfyui_version
     if pipeline_git_sha:
         prov["pipeline_git_sha"] = pipeline_git_sha
+    if input_hashes:
+        prov["input_hashes"] = dict(input_hashes)
     meta["provenance"] = prov
     return meta
 
