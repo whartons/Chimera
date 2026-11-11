@@ -323,7 +323,7 @@ def test_cross_family_image_and_3d_overrides_drop_family_only_inputs():
     assert _args_from_sidecar(_threed_sidecar(), model="hunyuan21").octree == 256
 
 
-@pytest.mark.parametrize("brand", ["../..", "a/b", "..", ".hidden", "a\\b", "c:x", "trailing.", " pad"])
+@pytest.mark.parametrize("brand", ["../..", "a/b/c", "..", ".hidden", "a\\b", "c:x", "trailing.", " pad"])
 def test_replay_refuses_a_brand_that_is_not_a_folder_name(brand):
     s = _image_sidecar(); s["brand"] = brand
     with pytest.raises(ValueError, match="brand"):

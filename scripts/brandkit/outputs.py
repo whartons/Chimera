@@ -55,7 +55,7 @@ def _same_render(sidecar: Path, identity) -> bool:
 
 
 def _output_stem(brand, mode, seed) -> str:
-    stem = f"{brand}_{mode}_{seed}" if brand else f"{mode}_{seed}"
+    stem = f"{brand_stem(brand)}_{mode}_{seed}" if brand else f"{mode}_{seed}"
     if not plain_name(stem) or (brand and not brand_name_ok(brand)):
         # mode and brand can come from a shared sidecar: never let them name a folder (2026-10 review)
         raise NoOutputError(f"refusing to name an output {stem!r}: brand and mode must be plain names")
@@ -88,19 +88,33 @@ def plain_name(value) -> bool:
 _NOT_IN_A_FOLDER_NAME = set('<>:"/\\|?*')   # what Windows refuses in a file or folder name
 
 
-def brand_name_ok(name) -> bool:
-    """A brand folder name new-brand creates and replay accepts: one plain name, not hidden, nothing Windows
-    refuses in a folder name and no control character. `new-brand 'what?'` passed, then copytree raised
-    WinError 123; a '"' broke brand.yaml's name: line on POSIX (2026-10-25 review)."""
-    v = str(name)
+def _brand_folder_name_ok(v: str) -> bool:
+    """One brand folder name: plain, not hidden, nothing Windows refuses in a folder name, no control
+    character. `new-brand 'what?'` passed, then copytree raised WinError 123; a '"' broke brand.yaml's name:
+    line on POSIX (2026-10-25 review)."""
     return (plain_name(v) and not v.startswith(".") and not _NOT_IN_A_FOLDER_NAME.intersection(v)
             and not any(unicodedata.category(ch) == "Cc" for ch in v))
+
+
+def brand_name_ok(name) -> bool:
+    """A brand name new-brand creates and replay accepts: one brand folder name (`acme`), or a sub-brand
+    `family/name` (`acme/medals`, brands/acme/medals/), which groups one organisation's brands in one folder.
+    Each part is a full folder name on its own; '/' is the only separator and there is one level at most."""
+    parts = str(name).split("/")
+    return len(parts) in (1, 2) and all(_brand_folder_name_ok(p) for p in parts)
+
+
+def brand_stem(brand) -> str:
+    """The flat name a brand's files carry: a sub-brand `family/name` is `family-name`, a brand is itself. A
+    brand moved into a family keeps the file names it already had (`acme-medals` -> `acme/medals`)."""
+    return str(brand).replace("/", "-")
 
 
 def route_output(repo_root, brand, src, mode: str, seed: int, _retries=5, _delay=0.4, *,
                  keep_existing=False, identity=None, stem=None, producer="ComfyUI") -> Path:
     """Relocate a finished render into its outputs folder, grouped by media type. With a brand it
-    goes to brands/<brand>/outputs/<media>/<brand>_<mode>_<seed>; brandless (brand falsy) it goes to
+    goes to brands/<brand>/outputs/<media>/<brand>_<mode>_<seed> (a sub-brand `family/name` to
+    brands/family/name/outputs/<media>/family-name_<mode>_<seed>); brandless (brand falsy) it goes to
     the global outputs/<media>/<mode>_<seed> — both gitignored. Lock-retry.
     A name that is taken is replaced only by the same render: `identity` (sidecar.render_identity of the new
     render's sidecar) equal to what the earlier render's sidecar records, a true re-render. Anything else (another

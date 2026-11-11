@@ -6,6 +6,15 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Sub-brands: `--brand family/name`.** One organisation's looks (a club's trophies, medals and
+  certificates, each with its own style) can live in one family folder, `brands/family/name/`, each with its
+  own `brand.yaml`. `new-brand acme/medals` makes one (and the family folder if it's new); `image`, `video`,
+  `audio`, `3d`, `render`, `cad`, `finalize-texture`, `lint`, `doctor`, `replay`, the agent loops and LoRA
+  training all take the name. Renders go to `brands/acme/medals/outputs/…` with flat file names,
+  `acme-medals_<mode>_<seed>`, so a brand moved from `brands/acme-medals/` into the family keeps its file
+  names. A brand name is still one plain folder name, or two joined by `/`; nothing deeper, no `..`.
+
 ## [0.6.3] - 2026-10-25
 
 The review release: a full bug and documentation sweep of v0.6.2, live-tested across every modality and both

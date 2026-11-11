@@ -12,7 +12,7 @@ import argparse, json, shutil, subprocess, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.brandkit.manifest import ManifestError, load_manifest
-from scripts.brandkit.outputs import brand_name_ok
+from scripts.brandkit.outputs import brand_name_ok, brand_stem
 from scripts.brandkit.training import scan_dataset, build_config, TrainingError
 
 
@@ -24,7 +24,8 @@ def main(argv=None, repo_root=None):
     ap.add_argument("--run", action="store_true", help="actually invoke the backend (needs it installed)")
     args = ap.parse_args(argv)
     if not brand_name_ok(args.brand):   # it is joined to brands/: '../x' read and wrote outside it
-        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.')")
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, or family/name, "
+                 "not starting with '.')")
 
     repo_root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[1]
     brand_dir = repo_root / "brands" / args.brand
@@ -38,7 +39,7 @@ def main(argv=None, repo_root=None):
         print(f"ERROR: {e}", file=sys.stderr); sys.exit(2)
 
     cfg = build_config(args.brand, m, args.steps, args.backend)
-    cfg_path = brand_dir / "lora" / f"{args.brand}-train-config.json"
+    cfg_path = brand_dir / "lora" / f"{brand_stem(args.brand)}-train-config.json"
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     captioned = sum(1 for _, c in pairs if c)

@@ -770,8 +770,8 @@ def main():
     args = ap.parse_args()
     if getattr(args, "brand", None) and not brand_name_ok(args.brand):
         # before anything renders: route_output refuses it afterwards, leaving the render in ComfyUI's folder
-        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.', "
-                 "without any of <>:\"/\\|?*)")
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, or family/name for a "
+                 "sub-brand, each not starting with '.' and without any of <>:\"\\|?*)")
 
     repo_root = Path(__file__).resolve().parents[1]
     _check_repo_layout(repo_root, ap)

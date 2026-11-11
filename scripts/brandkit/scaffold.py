@@ -16,9 +16,11 @@ _LEVEL_MARK = {"ok": "[ok]  ", "warn": "[warn]", "fail": "[FAIL]", "info": "[inf
 
 
 def new_brand(repo_root, name) -> Path:
-    """Copy brands/_template/ to brands/<name>/, refuse if it exists, seed the name: field."""
+    """Copy brands/_template/ to brands/<name>/ (a sub-brand `family/name` to brands/family/name/, making the
+    family folder if it's new), refuse if it exists, seed the name: field."""
     if not brand_name_ok(name):
-        raise ValueError(f"invalid brand name {name!r}: use a simple folder-safe name (none of <>:\"/\\|?*)")
+        raise ValueError(f"invalid brand name {name!r}: use a simple folder-safe name, or family/name for a "
+                         "sub-brand (none of <>:\"\\|?*)")
     src = Path(repo_root) / "brands" / "_template"
     if not src.is_dir():
         raise FileNotFoundError(f"template not found: {src}")

@@ -18,7 +18,7 @@ from . import freecad as freecad_runner
 from .comfy import ComfyClient
 from .dcc import job_outputs
 from .manifest import ManifestError, default_manifest, load_manifest
-from .outputs import NoOutputError, job_stem, route_output, write_sidecar
+from .outputs import NoOutputError, brand_stem, job_stem, route_output, write_sidecar
 from .provenance import git_provenance
 from .sidecar import build_cad_meta, build_render_meta
 
@@ -65,7 +65,7 @@ def _resolve_asset(brand_dir, name, subdirs, ap, what):
 
 
 def _render_params(args, asset, tmp, seed):
-    p = {"out_dir": str(tmp), "stem": f"{args.brand or 'render'}_{args.mode}_{seed}",
+    p = {"out_dir": str(tmp), "stem": f"{brand_stem(args.brand or 'render')}_{args.mode}_{seed}",
          "samples": args.samples, "res": list(args.res), "engine": "CYCLES", "seed": seed}
     if args.mode == "mesh":
         p.update(mesh=str(asset), turntable=bool(args.turntable), frames=args.frames)
@@ -255,7 +255,7 @@ def _cad_formats(args):
 def _cad_params(args, source, tmp, seed):
     """The params blob handed to the FreeCAD template (pure). Primitive carries shape + its dims;
     convert carries the absolute source path. `formats` is the normalized export list."""
-    p = {"out_dir": str(tmp), "stem": f"{args.brand or 'cad'}_{args.mode}_{seed}",
+    p = {"out_dir": str(tmp), "stem": f"{brand_stem(args.brand or 'cad')}_{args.mode}_{seed}",
          "formats": _cad_formats(args)}
     if args.mode == "primitive":
         p["shape"] = args.shape

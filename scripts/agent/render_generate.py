@@ -11,7 +11,7 @@ from pathlib import Path
 from scripts.brandkit import workflow as image_filler
 from scripts.brandkit import threed as threed_filler
 from scripts.brandkit import montage
-from scripts.brandkit.outputs import route_output, run_graph_to_file
+from scripts.brandkit.outputs import brand_stem, route_output, run_graph_to_file
 from scripts.brandkit.blender import run_template
 from scripts.agent.geometry import RENDER_CHECKS_SUFFIX
 from scripts.agent.loop import SeedNames
@@ -83,7 +83,7 @@ def make_render_generate(args, repo_root, manifest, client, *, blender_runner=ru
         tmp = Path(tempfile.mkdtemp(prefix="chimera_eval_"))
         tag = name(seed)
         try:
-            stem = f"{args.brand or 'agent'}_{tag}"
+            stem = f"{brand_stem(args.brand or 'agent')}_{tag}"
             mani, sheet_tmp = eval_contact_sheet(
                 glb_src, tmp, stem, template=template, samples=args.samples, res=args.res,
                 seed=seed, blender_runner=blender_runner, blender_bin=args.blender_bin,

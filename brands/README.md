@@ -58,8 +58,25 @@ See [`_template/brand.yaml`](_template/brand.yaml) for the annotated starter and
   as an unknown key inside a block does.
 - **`logo.position` / `watermark.position`** is one of `top-left`, `top-right`, `bottom-left`,
   `bottom-right` or `center`, without regard to case or separator (`Top-Left` and `top left` both work).
-- **Brand names** (the folder, and `new-brand <name>`) can't contain any of `<>:"/\|?*` or a control
-  character: they must be a folder name on every OS.
+- **Brand names** (the folder, and `new-brand <name>`) can't contain any of `<>:"\|?*` or a control
+  character: they must be a folder name on every OS. The one `/` allowed is a sub-brand's (below).
+
+## Sub-brands: one folder for related brands
+
+One organisation often needs several looks: a club's trophies, its medals and its certificates, each with its
+own style. Each look is a brand of its own, and a **sub-brand** keeps them together in one family folder:
+
+```bash
+chimera new-brand acme/medals        # brands/acme/medals/brand.yaml (makes brands/acme/ if it's new)
+chimera new-brand acme/certificates  # a second look in the same family
+chimera image --brand acme/medals --subject "..."
+```
+
+A sub-brand is a full brand (its own `brand.yaml`, `logos/`, `references/`, `outputs/`); the family folder
+only groups them, so it has no `brand.yaml` of its own. Names are `family/name` with `/` (one level), each
+part following the folder-name rule above. File names stay flat: `acme/medals` renders are named
+`acme-medals_<mode>_<seed>`, so a brand that moves from `brands/acme-medals/` into the family keeps its file
+names. Its sidecars record `acme/medals`, which is what `replay` reads.
 
 ## Generate (the orchestrator)
 

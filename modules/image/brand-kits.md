@@ -96,6 +96,11 @@ outputs by media type: `images/ video/ audio/ 3d/`). That keeps
 every brand's renders adjacent to its source art while `brands/**/outputs/` stays
 gitignored. Pass `--comfy-output-dir` so the orchestrator knows where to pick the file up.
 
+A **sub-brand** (`--brand family/name`, see [`brands/README.md`](../../brands/README.md)) routes to
+`brands/family/name/outputs/<media>/family-name_<mode>_<seed>.<ext>`: the folder nests, the file name stays
+flat (`outputs.brand_stem`), and so do the Blender/FreeCAD job stems, the agent loops' and the LoRA config's
+names. `outputs.brand_name_ok` accepts one name or `family/name` (each part a plain folder name, one level).
+
 A taken name is replaced only by an identical re-render: the same graph structure and settings, the same
 prompt and negative, and the same input files (`sidecar.render_identity`). Any other render with that seed
 takes the next free name, `<brand>_<mode>_<seed>_2`, `_3`, …, with its sidecar under the same stem, so the

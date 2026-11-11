@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from scripts.brandkit import repaint as repaint_filler
+from scripts.brandkit.outputs import brand_stem
 
 FINALIZE_TEMPLATE = "mesh_finalize.py"   # Blender bake template under workflows/templates/blender/
 FINALIZE_TIMEOUT = 1800                  # bake + N-view albedo projection (seconds)
@@ -26,7 +27,7 @@ def even_azimuths(n):
 def finalize_params(*, mesh, view_paths, azimuths, brand, seed, elevation, back_fill, palette,
                     texture_res, samples, res, out_dir) -> dict:
     """Single source of truth for the mesh_finalize.py Blender job params (CLI + loop both build this)."""
-    return {"mesh": str(mesh), "out_dir": str(out_dir), "stem": f"{brand or 'finalize'}_{seed}",
+    return {"mesh": str(mesh), "out_dir": str(out_dir), "stem": f"{brand_stem(brand or 'finalize')}_{seed}",
             "view_images": [str(v) for v in view_paths], "azimuths": list(azimuths),
             "elevation": elevation, "back_fill": back_fill, "palette": list(palette),
             "texture_res": texture_res, "samples": samples, "res": list(res), "seed": seed}

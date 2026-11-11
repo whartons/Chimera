@@ -61,7 +61,7 @@ def test_new_brand_refuses_existing_dest(tmp_path):
         new_brand(tmp_path, "dup")
 
 
-@pytest.mark.parametrize("bad", ["a/b", "../evil", "a\\b", ""])
+@pytest.mark.parametrize("bad", ["a/b/c", "../evil", "a\\b", ""])
 def test_new_brand_rejects_unsafe_names(tmp_path, bad):
     _template(tmp_path)
     with pytest.raises(ValueError):
