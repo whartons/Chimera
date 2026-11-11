@@ -14,6 +14,14 @@ All notable changes to Chimera are documented here. The format follows
   training all take the name. Renders go to `brands/acme/medals/outputs/…` with flat file names,
   `acme-medals_<mode>_<seed>`, so a brand moved from `brands/acme-medals/` into the family keeps its file
   names. A brand name is still one plain folder name, or two joined by `/`; nothing deeper, no `..`.
+- **The memory guard: a job that won't fit is refused, not run.** On 2026-11-11 an LTX-2.3 job on the 62 GB
+  reference box, beside other heavy work, took Windows' commit charge to 122 GB of a 107.6 GB limit and froze the
+  desktop twice; ComfyUI's `--reserve-vram` isn't honoured under dynamic VRAM. Before queueing, Chimera now adds up
+  the model files the job's graph loads (through ComfyUI's `/internal/folder_paths`), compares that plus 2 GB with
+  Windows' commit room (or Linux's available memory) minus 10% of RAM kept for the desktop, has ComfyUI unload
+  earlier models if that's short, and otherwise refuses with the numbers; nothing is queued. Covers `generate.py`
+  and the agent loops, local ComfyUI only; `CHIMERA_SKIP_MEMORY_CHECK=1` turns it off. `chimera doctor` shows the
+  room. Docs: the Blackwell tuning guide (with where Comfy Desktop 1.1.x keeps its launch line), SETUP.
 
 ### Fixed
 - **A render that times out is cancelled in ComfyUI.** `--timeout` (and a loop's graph wait) raised and left

@@ -718,7 +718,9 @@ inside its own `/free`). It names a model still holding memory after its 10 s, a
 answer instead of calling it "not running". `chimera doctor` reports both apps' GPU memory and warns when
 Ollama holds 8 GB or more, or when it is there but doesn't answer (what it holds is then unknown). A render that
 times out (`--timeout`, or a loop's graph) is cancelled in ComfyUI, that prompt only, so a stuck job doesn't
-leave the next ones queued behind it. Don't run other heavy GPU jobs beside a loop.
+leave the next ones queued behind it. Every graph a loop renders passes the memory guard first: one whose models
+won't fit in this machine's memory raises `MemoryGuardError` before it's queued (see the Blackwell tuning guide).
+Don't run other heavy GPU jobs beside a loop.
 
 ```
 python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug"   # the GPU tier's local models

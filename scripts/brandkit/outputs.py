@@ -4,6 +4,7 @@ import itertools, json, os, shutil, time, unicodedata, uuid
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from .nodes import find_node_by_title, NodeNotFound
 from .sidecar import render_identity
+from .memguard import ensure_room
 
 # Outputs are grouped by what the file IS (extension-driven), so a foley clip (a video) lands
 # with the videos and a music stinger with the audio — see media_subdir().
@@ -235,7 +236,11 @@ def run_graph_to_file(client, wf, out_dir, *, timeout=900):
     """Queue a built graph, wait for it, and return the produced file's LOCAL path under
     `out_dir` (the host's ComfyUI output dir). Anchors on the graph's brand:save node via
     select_output and reuses wait()'s history record (no /history re-fetch) — the
-    queue -> wait -> select -> local-path dance every generator was hand-rolling."""
+    queue -> wait -> select -> local-path dance every generator was hand-rolling. A graph whose models won't fit
+    in this machine's memory raises memguard.MemoryGuardError before anything is queued."""
+    note = ensure_room(client, wf)
+    if note:
+        print(f"note: {note}", flush=True)
     pid = client.queue_prompt(fresh_output_name(wf))
     hist = client.wait(pid, max_wait=timeout)
     fname, subfolder, _ = select_output(client, pid, wf, history=hist)

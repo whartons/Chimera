@@ -73,6 +73,11 @@ NVFP4 files each `models.md` names; GGUF quants need ComfyUI-GGUF's own loader n
 workflows rather than Chimera's graphs.
 
 ## Performance tuning (RTX 50-series / Blackwell)
+**Memory.** Every job is checked before it's queued: one whose models won't fit in what this machine has left
+(minus 10% of RAM kept for the desktop) is refused with the numbers instead of freezing Windows. `chimera doctor`
+shows the room; FLUX.2 (~68 GB) and the video models (~37 GB) need a 62 GB machine mostly to themselves. See
+[the memory guard](BLACKWELL-TUNING.md#the-memory-guard-a-job-that-wont-fit-is-refused-not-run).
+
 Check your current state in the ComfyUI **startup log**: the attention backend line
 (`Using pytorch attention` vs `Using sage attention`) and whether the
 `You need pytorch with cu130 or higher` warning is present (that warning means the

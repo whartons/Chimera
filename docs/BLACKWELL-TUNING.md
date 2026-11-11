@@ -110,6 +110,37 @@ full steps.
 
 ---
 
+## The memory guard: a job that won't fit is refused, not run
+ComfyUI 0.45 stages a job's model weights in system memory and loads them onto the GPU from there. On Windows a
+job whose weights don't fit in the memory left pushes the commit charge past its limit; Windows then grows the page
+file and pages until the desktop stops responding. On 2026-11-11 an LTX-2.3 job (36 GB of model files) on the
+62 GB reference box, beside an IDE, a browser and another session's test suites, took the commit charge from 87 GB to
+122 GB of a 107.6 GB limit: explorer crashed, and the second time ComfyUI had to be stopped from a phone. ComfyUI's
+own knobs didn't prevent it: dynamic VRAM filled the card to 30.9 of 31.8 GB with `--reserve-vram 4` set, and
+`--cache-ram` only evicts caches.
+
+So Chimera checks every job first (`scripts/brandkit/memguard.py`):
+- It finds the model files the job's graph loads through ComfyUI's own model folders (`/internal/folder_paths`)
+  and adds up their sizes. A job takes about that much plus 2 GB (measured on the LTX job: 36.1 GB of files, ~35 GB
+  of commit growth).
+- It compares that with what this machine has left: Windows' commit room (commit limit minus commit charge), or
+  `MemAvailable` on Linux, minus 10% of RAM (at least 4 GB) kept for the desktop.
+- If the job doesn't fit, it asks ComfyUI to unload models left over from earlier jobs and looks again. If it
+  still doesn't fit, `generate.py` stops with the numbers ("render refused: ...") and nothing is queued; the agent
+  loops raise the same error.
+- Only a ComfyUI on this machine is checked. `CHIMERA_SKIP_MEMORY_CHECK=1` turns the check off.
+- `chimera doctor` shows how much memory jobs can take right now, and warns under 8 GB.
+
+What jobs need on the reference box (model files + 2 GB): Z-Image ~14 GB, Qwen-Image-2.1 ~18 GB, Stable Audio 3
+~16 GB, ACE-Step ~21 GB, foley ~8 GB, TRELLIS.2 ~16 GB, Wan 2.2 ~37 GB, LTX-2.3 ~38 GB, FLUX.2 ~68 GB (its bf16 text
+encoder alone is 35.6 GB). On a 62 GB machine, FLUX.2 and the video models need the machine mostly to themselves.
+
+`--cache-ram <GB>` is still worth setting: ComfyUI evicts its caches and stops pinning more memory while less than
+that is free (its default is 10% of RAM, at most 10 GB). The reference box runs `--cache-ram 15.5`. `--reserve-vram`
+does nothing under dynamic VRAM, so it isn't set.
+
+---
+
 ## Appendix: ComfyUI Desktop launch args
 ComfyUI **Desktop** has **no GUI field** for arbitrary server flags (and its
 `config.json` `extraArgs` key is ignored — a common wrong guess). The real
@@ -129,6 +160,12 @@ It's an **object** mapping arg-name → value; an empty value emits a bare flag:
 **Edit it only while the app is fully closed** (it rewrites the file on exit and
 will clobber live edits), then reopen. A manual `python main.py` install just takes
 these as normal CLI flags.
+
+**Comfy Desktop 1.1.x** also keeps a per-installation launch line, `launchArgs` in
+`%APPDATA%\Comfy Desktop\installations.json` (for example
+`"--port 8000 --fast fp16_accumulation --use-sage-attention --enable-manager --cache-ram 15.5"`), and that line is
+what the server starts with: flags appended there were live on the next start (2026-11-11). Quit the app from its
+tray icon before editing it, too.
 
 > Bonus: `output-directory` is how you point renders at any folder (e.g. a synced
 > drive) without moving your models.

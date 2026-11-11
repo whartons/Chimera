@@ -36,6 +36,7 @@ from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.outputs import (NoOutputError, brand_name_ok, comfy_output_path, fresh_output_name,
                                       route_output, select_output, write_sidecar)
+from scripts.brandkit.memguard import MemoryGuardError, ensure_room
 from scripts.brandkit.provenance import file_digest, git_provenance  # git_provenance's historical home was here
 from scripts.brandkit.sidecar import build_meta, render_identity
 
@@ -468,6 +469,13 @@ def run(args, repo_root, ap):
                       "(the new sidecar records what was actually used)", file=sys.stderr)
                 sys.exit(1)
             print("--accept-drift: rendering anyway", file=sys.stderr)
+    # a job whose models won't fit in this machine's memory froze Windows twice (2026-11-11): refuse it up front
+    try:
+        note = ensure_room(client, wf)
+    except MemoryGuardError as e:
+        print(f"render refused: {e}", file=sys.stderr); sys.exit(1)
+    if note:
+        print(f"note: {note}", file=sys.stderr)
     # free only now: a replay stopped by drift, or a bad flag, must not unload every ComfyUI model first
     free_before = args.free_before if args.free_before is not None else _default_free_before(args, m)
     if free_before:
@@ -796,7 +804,8 @@ def main():
         from scripts.brandkit.gpu import gpu_checks
         client = ComfyClient(args.comfy_url)
         from scripts.agent.llm import local_model_checks   # the CLI may import the agent layer, not the reverse
-        results = (run_checks(client, repo_root, args.brand) + gpu_checks(client, args.ollama_url)
+        from scripts.brandkit.memguard import doctor_line
+        results = (run_checks(client, repo_root, args.brand) + gpu_checks(client, args.ollama_url) + [doctor_line()]
                    + local_model_checks(client, args.ollama_url))
         fails = print_doctor(args.brand, results)
         sys.exit(1 if fails else 0)
