@@ -160,7 +160,7 @@ The Python MCP servers launch via Astral's `uv`. Install once:
 ### FreeCAD
 1. Install **FreeCAD 1.1.4 or newer** (winget `FreeCAD.FreeCAD` or freecad.org; earlier releases
    have HIGH security advisories triggered by opening a crafted `.FCStd`).
-2. Copy the **whole `FreeCADMCP` addon** directory (`addon/FreeCADMCP/` at commit `78bf023`,
+2. Copy the **whole `FreeCADMCP` addon** directory (`addon/FreeCADMCP/` at commit `ec8abf2`,
    including its `package.xml`) into FreeCAD's user `Mod/` dir, keeping no backup copies inside `Mod/`. **FreeCAD 1.1 uses a versioned data dir** — Windows: `%APPDATA%\FreeCAD\v1-1\Mod\`
    (1.0 omits the `v1-1`). Unsure? In FreeCAD use **Tools → Open user data directory** and copy into
    the `Mod/` there. Then **fully restart FreeCAD** and select the **"MCP Addon" workbench**.

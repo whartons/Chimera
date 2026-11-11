@@ -161,7 +161,25 @@ class ComfyClient:
                 raise RuntimeError(f"ComfyUI prompt {prompt_id} is no longer queued and left no result: ComfyUI "
                                    "restarted, or the job was cancelled from its queue")
             time.sleep(poll)
-        raise TimeoutError(f"prompt {prompt_id} did not finish in {max_wait}s")
+        # Giving up must take the job off ComfyUI too: left there, a loop of renders queued job after job behind a
+        # stuck one, and when it ended the next FLUX.2 load hard-hung Windows (2026-11-10).
+        try:
+            self.cancel(prompt_id)
+        except OSError as e:
+            raise TimeoutError(f"prompt {prompt_id} did not finish in {max_wait}s, and Chimera could not cancel it "
+                               f"({e}): remove it from ComfyUI's queue by hand") from e
+        raise TimeoutError(f"prompt {prompt_id} did not finish in {max_wait}s, so it was cancelled in ComfyUI (a job "
+                           "stuck loading a model stops only when the load ends: restart ComfyUI if it stays busy)")
+
+    def cancel(self, prompt_id: str) -> None:
+        """Take one prompt off ComfyUI: delete it if it's still pending, interrupt it if it's running. Both requests
+        name the prompt, so nothing else is touched: /queue's delete matches only that id, and /interrupt with a
+        prompt_id fires only while that prompt is the one running. Raises OSError if ComfyUI can't be reached."""
+        for path, body in (("/queue", {"delete": [prompt_id]}), ("/interrupt", {"prompt_id": prompt_id})):
+            req = urllib.request.Request(self.base + path, data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=self.timeout):
+                pass
 
     def output_files_by_node(self, prompt_id: str, history=None):
         """Every saved output file for a prompt, tagged with the node id that produced it:

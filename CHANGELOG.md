@@ -15,6 +15,36 @@ All notable changes to Chimera are documented here. The format follows
   `acme-medals_<mode>_<seed>`, so a brand moved from `brands/acme-medals/` into the family keeps its file
   names. A brand name is still one plain folder name, or two joined by `/`; nothing deeper, no `..`.
 
+### Fixed
+- **A render that times out is cancelled in ComfyUI.** `--timeout` (and a loop's graph wait) raised and left
+  the job in ComfyUI, so a shell loop of renders queued job after job behind a stuck one; on 2026-11-10 two
+  FLUX.2 relights piled up behind a 35-minute text-encoder load, and when it ended the next one hung Windows.
+  On a timeout the client now deletes that prompt if it is still queued and interrupts it if it is running
+  (by its id only, so nobody else's job is touched), then reports the timeout. A job stuck inside a model
+  load stops only when the load ends, so the message says to restart ComfyUI if it stays busy.
+- **`chimera doctor` no longer reads a silent Ollama as idle.** A timed-out `/api/ps` read as "Ollama holds no
+  GPU memory", and a timed-out `/api/version` as "not running". Both now warn that Ollama is there but didn't
+  answer, so what it holds is unknown.
+- **`chimera free` names what it couldn't free.** A model still holding memory after its 10 s wait was left
+  out of the report (which could then say "no models were loaded"); it is now listed with the memory it holds.
+  A ComfyUI that times out on `/free` reads "didn't answer", not "not running".
+- **CAD code-gen ignores inline `<think>` reasoning.** On a server that inlines a thinking model's reasoning, a
+  draft code fence inside it could be taken as the script.
+- **Windows device names aren't brand names.** `CON`, `NUL`, `PRN`, `AUX`, `COM0`–`COM9` and `LPT0`–`LPT9`
+  (with or without an extension, in either part of a sub-brand) passed the name check and failed later.
+
+### Changed
+- **ComfyUI-LTXVideo `15d09ab → 220e1d4`, hold lifted, local patch withdrawn.** Upstream fixed STG on ComfyUI
+  0.40+ itself (`339ecc1`, the same unwrap as our patch), so the pin moves, `GIT_HOLDS` is empty, and
+  `modules/video/patches/ltxvideo-stg-comfyui-0.40.patch` is gone. Re-audited `44c8a36 → 220e1d4`: the STG
+  fix, two HDR nodes removed, a `pyproject.toml` with the same deps as `requirements.txt`; the three nodes
+  Chimera uses are unchanged.
+- **freecad-mcp `78bf023 → ec8abf2` (v0.1.27 → v0.1.30).** Re-audited (32 commits, fixes only): per-thread
+  `execute_code` stdout capture, XML-safe replies, a transactional `create_object`, the headless worker's
+  stdin closed, unit-checked FEM forces; same 17 tools, same loopback/allowlist checks, no new network; new
+  dependency floors `anyio>=4.14.2`, `certifi>=2026.10.19`, `pyjwt>=2.15.0`. Re-copy the whole
+  `addon/FreeCADMCP/` into FreeCAD's `Mod/`, restart FreeCAD, and restart Claude Code.
+
 ## [0.6.3] - 2026-10-25
 
 The review release: a full bug and documentation sweep of v0.6.2, live-tested across every modality and both

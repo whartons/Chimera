@@ -47,8 +47,8 @@ def test_comfyui_qwenvl_not_auto_pinned():
 
 
 def test_freecad_pinned_via_github_git_pack():
-    # FreeCAD MCP is on GitHub -> tracked by check_git_pack (GIT_PACKS), pinned to commit 78bf023.
-    assert any(owner == "neka-nat" and repo == "freecad-mcp" and pin == "78bf023"
+    # FreeCAD MCP is on GitHub -> tracked by check_git_pack (GIT_PACKS), pinned to commit ec8abf2.
+    assert any(owner == "neka-nat" and repo == "freecad-mcp" and pin == "ec8abf2"
                for _, owner, repo, pin in ur.GIT_PACKS)
 
 
@@ -324,7 +324,7 @@ def test_gather_advisories_and_apps_cover_every_pin_and_host_app(monkeypatch):
     monkeypatch.setattr(ur, "check_npm_advisories", lambda *a: ("ok", "npm"))
     rows = ur.gather_advisories()
     assert len(rows) == len(ur.GIT_PACKS) + len(ur.NPM_PACKS) + 1 + sum(1 for a in ur.HOST_APPS if a[2])
-    assert ("freecad-mcp (FreeCAD MCP)", "neka-nat/freecad-mcp", "0.1.27", "78bf023") in calls
+    assert ("freecad-mcp (FreeCAD MCP)", "neka-nat/freecad-mcp", "0.1.30", "ec8abf2") in calls
     assert ("ComfyUI", "Comfy-Org/ComfyUI", ur.COMFY_REF, None) in calls
     monkeypatch.setattr(ur, "check_comfyui", lambda: ("info", "comfy"))
     monkeypatch.setattr(ur, "check_app", lambda *a: ("ok", a[0]))
@@ -402,7 +402,9 @@ def _held_gh(since_audit):
 
 
 def test_a_held_pack_is_quiet_until_upstream_moves_past_its_re_audit(monkeypatch):
-    # LTXVideo is held at 15d09ab until our STG fix lands upstream; 44c8a36 was re-audited (2026-10-16)
+    # a pack held at 15d09ab (as LTXVideo was until upstream fixed STG itself) with 44c8a36 re-audited
+    monkeypatch.setattr(ur, "GIT_HOLDS", {"Lightricks/ComfyUI-LTXVideo": (
+        "44c8a36", "until our STG fix, Lightricks/ComfyUI-LTXVideo#580, lands")})
     monkeypatch.setattr(ur, "_gh", _held_gh(0))
     lvl, msg = ur.check_git_pack("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "15d09ab")
     assert lvl == "info" and "held at `15d09ab`" in msg and "#580" in msg and "re-audited up to `44c8a36`" in msg

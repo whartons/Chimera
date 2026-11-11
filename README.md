@@ -57,6 +57,7 @@ pip install -e ".[images]"  # Pillow: needed by the mesh3d/cad loops' contact sh
 pip install -e ".[print]"   # optional: 3D printing (`render --mode finish --solid` + the STL print check)
 chimera doctor              # preflight: ComfyUI reachable? node types + each modality's default models? GPU memory?
 chimera free                # clear GPU memory: unload Ollama's models (waiting until it lets go), then ComfyUI's
+                            # (a render that hits --timeout is cancelled in ComfyUI, so nothing piles up behind it)
 ```
 
 **Generate — no brand, no setup** (output → `outputs/<media>/`):
@@ -126,7 +127,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream, security advisories and outdated host apps; monthly and quarterly checklists | [MAINTENANCE.md](docs/MAINTENANCE.md) · [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **1511 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **1537 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |

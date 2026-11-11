@@ -575,3 +575,10 @@ def test_the_code_gen_prompt_states_what_the_cad_loop_checks():
     from scripts.agent.llm import _CAD_SYSTEM
     assert "ONE connected solid" in _CAD_SYSTEM and "never into an existing cavity" in _CAD_SYSTEM
     assert "App.Vector" in _CAD_SYSTEM and "a Matrix has no `.rotate`" in _CAD_SYSTEM
+
+
+def test_extract_code_skips_a_fence_inside_inline_thinking():
+    # a server that inlines <think> let the code-gen pick the draft fence from the reasoning (v0.6.3 known limit)
+    reply = "<think>maybe\n```python\nbox = 0\n```\nno, bigger</think>\n```python\nbox = 1\n```"
+    assert _extract_code(reply) == "box = 1"
+    assert _extract_code("plan...</think>\n```python\nbox = 2\n```") == "box = 2"   # opening tag was in the prompt

@@ -194,33 +194,14 @@ The pack itself was security-scanned before adoption (same standard applied to
 the MCP bridge). Verdict: **safe for local use** with the above two nodes
 excluded. Re-scan on every pack update before advancing the pin.
 
-## Known issue: ComfyUI ≥ 0.40 breaks the pack's STG guidance (patch included)
+## STG on ComfyUI ≥ 0.40 (fixed upstream)
 
-ComfyUI **0.40.0** (2026-10-13) passes attention inputs to the attention backend wrapped in a single-use
-`AttentionTensorContainer` (core PR #16806). The LTXVideo pack's spatiotemporal guidance (STG) patches
-that call, and for the layers it skips it returns `v` unchanged. On 0.40 that is the container rather
-than a tensor, so sampling fails:
-
-```
-SamplerCustomAdvanced: AttributeError: 'AttentionTensorContainer' object has no attribute 'shape'
-```
-
-This template uses STG (`"stg": 1.0` in both `GuiderParameters` nodes), so every LTX-2.3 render
-(`--model ltx23`) fails on 0.40 with any pack version up to at least `44c8a36` (2026-10-14); Wan 2.2 runs
-on core nodes and is unaffected. Fix it by applying
-[`patches/ltxvideo-stg-comfyui-0.40.patch`](patches/ltxvideo-stg-comfyui-0.40.patch) to the pack, then
-restart ComfyUI:
-
-```bash
-cd <ComfyUI>/custom_nodes/ComfyUI-LTXVideo
-git apply <path-to-chimera>/modules/video/patches/ltxvideo-stg-comfyui-0.40.patch
-```
-
-The patch unwraps the container in the two skip shortcuts and changes nothing on older ComfyUI; it applies
-cleanly at both the pinned `15d09ab` and `44c8a36`. Undo it with `git checkout stg.py`. If you can't patch the
-pack, setting `"stg": 0.0` in both `GuiderParameters` nodes also renders, but without STG guidance. Reported
-upstream as [Lightricks/ComfyUI-LTXVideo#579](https://github.com/Lightricks/ComfyUI-LTXVideo/issues/579), with
-this fix as [#580](https://github.com/Lightricks/ComfyUI-LTXVideo/pull/580); remove this section once it ships.
+ComfyUI **0.40.0** wraps attention inputs in a single-use `AttentionTensorContainer`, and the pack's
+spatiotemporal guidance (STG) returned that container for the layers it skips, so every LTX-2.3 render
+(`--model ltx23`, whose `GuiderParameters` use `"stg": 1.0`) failed with
+`'AttentionTensorContainer' object has no attribute 'shape'`. Upstream fixed it in `339ecc1`
+(2026-10-20), the same unwrap Chimera shipped as a local patch, so the pin `220e1d4` needs no patch.
+If your pack is older than that and fails this way, check out the pin.
 
 ## Why LTX-2.3 needs this exact graph (the gotchas)
 

@@ -144,9 +144,9 @@ audio.
 **Synced-audio option (`--model ltx23`): LTX-2.3 22B**
 
 Node pack: `https://github.com/Lightricks/ComfyUI-LTXVideo` — **pinned at audited
-commit `15d09ab`** (re-scan before advancing the pin). Chimera's graph uses three of its nodes
+commit `220e1d4`** (re-scan before advancing the pin). Chimera's graph uses three of its nodes
 (`MultimodalGuider`, `GuiderParameters`, `LTXVImgToVideoConditionOnly`); its sampler, Gemma loader and
-latent upsampler are core — install via ComfyUI-Manager, then `git checkout 15d09ab`, before using the
+latent upsampler are core — install via ComfyUI-Manager, then `git checkout 220e1d4`, before using the
 models below.
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
@@ -416,7 +416,7 @@ and the **FreeCAD CAD self-correction loop** (`--mode script` + autonomous `auto
 | Tool | Server | Pin | Bridge license | Socket |
 |------|--------|-----|----------------|--------|
 | **Blender** | official `lab/blender_mcp` (Blender Foundation, Gitea) | `dbbf836a` (v1.0.2 +3) | GPL-3.0-or-later | `127.0.0.1:9876` |
-| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `78bf023` (v0.1.27) | MIT | `127.0.0.1:9875` |
+| **FreeCAD** | `neka-nat/freecad-mcp` (GitHub) | commit `ec8abf2` (v0.1.30) | MIT | `127.0.0.1:9875` |
 
 > The **Bridge license** column is the MCP server's own license, **not** the host application's. The host
 > apps are licensed separately: **Blender** GPL-3.0-or-later, **FreeCAD** LGPL-2.1 (LGPL-2.0-or-later).

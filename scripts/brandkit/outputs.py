@@ -86,6 +86,8 @@ def plain_name(value) -> bool:
 
 
 _NOT_IN_A_FOLDER_NAME = set('<>:"/\\|?*')   # what Windows refuses in a file or folder name
+# names Windows keeps for devices, with or without an extension ('CON', 'nul.txt'): new-brand failed on them later
+_WINDOWS_DEVICES = {"CON", "PRN", "AUX", "NUL", *(f"{p}{d}" for p in ("COM", "LPT") for d in "0123456789¹²³")}
 
 
 def _brand_folder_name_ok(v: str) -> bool:
@@ -93,7 +95,7 @@ def _brand_folder_name_ok(v: str) -> bool:
     character. `new-brand 'what?'` passed, then copytree raised WinError 123; a '"' broke brand.yaml's name:
     line on POSIX (2026-10-25 review)."""
     return (plain_name(v) and not v.startswith(".") and not _NOT_IN_A_FOLDER_NAME.intersection(v)
-            and not any(unicodedata.category(ch) == "Cc" for ch in v))
+            and not any(unicodedata.category(ch) == "Cc" for ch in v) and v.split(".")[0].upper() not in _WINDOWS_DEVICES)
 
 
 def brand_name_ok(name) -> bool:

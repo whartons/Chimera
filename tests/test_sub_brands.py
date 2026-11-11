@@ -179,3 +179,16 @@ def test_lora_training_names_are_flat_for_a_sub_brand(tmp_path, monkeypatch):
     cfg = json.loads((b / "lora" / "acme-medals-train-config.json").read_text(encoding="utf-8"))
     assert cfg["dataset_dir"] == "brands/acme/medals/training" and cfg["output_dir"] == "brands/acme/medals/lora"
     assert cfg["output_name"] == "acme-medals-v1" and cfg["trigger_word"] == "acme medals"
+
+
+# --- Windows device names (v0.6.3 known limit, fixed 2026-11-11) --------------------------------------------
+@pytest.mark.parametrize("name", ["CON", "con", "Nul", "PRN", "AUX", "COM1", "lpt9", "CON.brand", "acme/NUL",
+                                  "nul/medals"])
+def test_a_windows_device_name_is_not_a_brand(name):
+    # `new-brand CON` passed the check and failed later with an OSError
+    assert outputs.brand_name_ok(name) is False
+
+
+@pytest.mark.parametrize("name", ["CONTOSO", "console", "com10", "auxiliary", "acme/nullable", "lpt"])
+def test_names_that_only_start_like_a_device_are_fine(name):
+    assert outputs.brand_name_ok(name) is True
