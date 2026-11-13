@@ -87,9 +87,60 @@ def test_wan_sizes_snap_down_to_multiples_of_16():
     assert (i2v["width"], i2v["height"]) == (768, 496)
 
 
-def test_wan_has_no_latent_upscaler():
-    with pytest.raises(ValueError, match="ltx23"):
-        _build(upscale=True)
+def test_wan_upscale_is_relayvsr_2x_on_the_decoded_frames():
+    # 2026-11-12 bake-off: RelayVSR 2x on a Wan clip, 9 s on an RTX 5090, 3.4x bicubic's sharpness, flicker within
+    # 5% of the source's, mean difference 3.9/255 from the source when scaled back down
+    frames = _in(_build(), "brand:create_video")["images"]          # what CreateVideo got before
+    wf = _build(upscale=True)
+    model_id, model = find_node_by_title(wf, "brand:video_upscale_model")
+    assert model["class_type"] == "UNETLoader" and model["inputs"]["unet_name"] == video.DEFAULT_WAN_UPSCALE_MODEL
+    cond_id, cond = find_node_by_title(wf, "brand:video_upscale")
+    assert cond["class_type"] == "RelayVSRConditioning" and cond["inputs"] == {"model": [model_id, 0],
+                                                                                "images": frames}
+    ks = _in(wf, "brand:video_upscale_sampler")
+    assert ks["positive"] == ks["negative"] == [cond_id, 0] and ks["latent_image"] == [cond_id, 1]
+    assert (ks["steps"], ks["cfg"], ks["seed"], ks["denoise"]) == (1, 1.0, 9, 1.0)
+    dec_id, dec = find_node_by_title(wf, "brand:video_upscale_decode")
+    assert dec["class_type"] == "VSRDecode" and dec["inputs"]["images"] == frames and dec["inputs"]["detail"] == 1.0
+    assert _in(wf, "brand:video_upscale_vae")["vae_name"] == video.RELAYVSR_VAE
+    assert _in(wf, "brand:create_video")["images"] == [dec_id, 0]
+    assert _in(wf, "brand:create_video")["fps"] == 16                 # same frames, same timing
+
+
+def test_wan_upscale_model_override_and_camera_moves():
+    wf = _build(upscale=True, upscale_model="relayvsr_x2_fp16.safetensors", camera="pan-left")
+    assert _in(wf, "brand:video_upscale_model")["unet_name"] == "relayvsr_x2_fp16.safetensors"
+    assert _in(wf, "brand:camera")["camera_pose"] == "Pan Left"
+
+
+def test_the_watermark_stamps_the_upscaled_wan_frames_at_2x():
+    wf = _build(upscale=True, watermark=True, watermark_logo="primary.png", logo_px=(100, 100))
+    dec_id, _ = find_node_by_title(wf, "brand:video_upscale_decode")
+    comp_id, comp = find_node_by_title(wf, "brand:watermark_composite")
+    assert comp["inputs"]["destination"] == [dec_id, 0] and _in(wf, "brand:create_video")["images"] == [comp_id, 0]
+    plain = find_node_by_title(_build(watermark=True, watermark_logo="primary.png", logo_px=(100, 100)),
+                               "brand:watermark_composite")[1]["inputs"]
+    assert comp["inputs"]["x"] > plain["x"]                            # placed on the 1536x1024 canvas
+
+
+def test_wan_resolves_its_own_upscaler_not_the_brands_ltx_one(tmp_path):
+    p = tmp_path / "b.yaml"
+    p.write_text('name: B\nvideo: { upscale_model: "ltx-2.3-spatial-upscaler-x2-1.1.safetensors" }\n')
+    m = load_manifest(p)
+    assert video.resolved_upscale_model(m) == video.DEFAULT_WAN_UPSCALE_MODEL               # Wan is the default
+    assert video.resolved_upscale_model(m, model="ltx23") == "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+    assert video.resolved_upscale_model(m, "mine.safetensors", camera="static") == "mine.safetensors"
+    wf = video.build(ROOT, m, positive="x", negative="", seed=1, from_image="car.png", upscale=True)
+    assert _in(wf, "brand:video_upscale_model")["unet_name"] == video.DEFAULT_WAN_UPSCALE_MODEL
+
+
+def test_the_sidecar_records_the_wan_upscaler():
+    from argparse import Namespace
+    from scripts.brandkit.replay import SIDECAR_INPUT_KEYS, resolve_sidecar_inputs
+    args = Namespace(**{**{k: None for k in SIDECAR_INPUT_KEYS}, "modality": "video", "mode": "i2v",
+                        "from_image": "car.png", "upscale": True})
+    inp = resolve_sidecar_inputs(args, load_manifest(FIX))
+    assert inp["upscale"] is True and inp["upscale_model"] == video.DEFAULT_WAN_UPSCALE_MODEL
 
 
 def test_a_camera_move_needs_wan():

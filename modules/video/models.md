@@ -18,6 +18,18 @@ quality. All Apache-2.0, from `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` (the text e
 | `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `text_encoders/` | ~6.3 GB | all Wan |
 | `wan_2.1_vae.safetensors` | `vae/` | ~0.25 GB | all Wan |
 
+### `--upscale` for Wan: RelayVSR (optional)
+
+A one-step 2× video super-resolution model, run on Wan's decoded frames by `video --upscale`. Its nodes
+(`RelayVSRConditioning`, `VSRDecode`) are core since ComfyUI 0.45, so there's no pack to install. It's from
+[`Comfy-Org/RelayVSR`](https://huggingface.co/Comfy-Org/RelayVSR) (Apache-2.0; base model `kopper/RelayVSR`),
+and the files sit at the repo's top level, with no `split_files/`.
+
+| File | Destination (`ComfyUI/models/…`) | Size |
+|------|----------------------------------|------|
+| `relayvsr_x2_lightx2v_int8_convrot.safetensors` | `diffusion_models/` | ~4.8 GB |
+| `relayvsr_flash_vae_x2_fp32.safetensors` | `vae/` | ~0.1 GB |
+
 ---
 
 ## LTX-2.3 22B (`--model ltx23`) — synced audio

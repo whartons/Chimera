@@ -22,6 +22,22 @@ All notable changes to Chimera are documented here. The format follows
   earlier models if that's short, and otherwise refuses with the numbers; nothing is queued. Covers `generate.py`
   and the agent loops, local ComfyUI only; `CHIMERA_SKIP_MEMORY_CHECK=1` turns it off. `chimera doctor` shows the
   room. Docs: the Blackwell tuning guide (with where Comfy Desktop 1.1.x keeps its launch line), SETUP.
+- **Wan clips get `--upscale`: RelayVSR 2×.** `video --upscale` was LTX-only; on Wan, the default, it was an
+  error. It now runs RelayVSR, a one-step video super-resolution model with core nodes since ComfyUI 0.45, on
+  the decoded frames: 768×512 → 1536×1024, before the watermark. In the 2026-11-12 bake-off on a Wan clip it was
+  3.4× sharper than bicubic, with flicker within 5% of the source's and a mean difference of 3.9/255 from it, in
+  9 s on an RTX 5090. The models are `relayvsr_x2_lightx2v_int8_convrot` (4.8 GB, `diffusion_models/`) and
+  `relayvsr_flash_vae_x2_fp32` (`vae/`) from `Comfy-Org/RelayVSR` (Apache-2.0); `--upscale-model` overrides the
+  first. A brand's `video.upscale_model` stays LTX's, and the sidecar records the upscaler the family used.
+- **Relight on Qwen-Image-2.1: `image --mode relight --model qwen_image_2.1_int8_convrot.safetensors`.** A
+  relight with a Qwen-Image `--model` was silently switched to FLUX.2; it now runs Qwen's reference edit (the
+  product edit) at the source's own size, in ~18 GB of memory and 10–30 s. In the 2026-11-12 bake-off (four
+  stills, same prompts and seeds):
+  - **Qwen:** kept each scene and its fine detail more faithfully.
+  - **FLUX.2:** delivered a "cool moonlight and a warm rim light" brief that Qwen turned all-blue.
+
+  So FLUX.2 stays the default: a relight without `--model`, on a brand whose default is Qwen-Image or Z-Image,
+  still runs on FLUX.2, and a Z-Image `--model` falls back to it with a note.
 
 ### Fixed
 - **A render that times out is cancelled in ComfyUI.** `--timeout` (and a loop's graph wait) raised and left
@@ -42,6 +58,24 @@ All notable changes to Chimera are documented here. The format follows
   (with or without an extension, in either part of a sub-brand) passed the name check and failed later.
 
 ### Changed
+- **FLUX.2 loads the fp8 text encoder, and relights on nvfp4: ~40 GB of memory instead of ~68 GB.** Every
+  FLUX.2 graph now loads `mistral_3_small_flux2_fp8` (16.8 GB, `Comfy-Org/flux2-dev`) instead of the bf16 encoder
+  (33 GB), and the default relight model is `flux2-dev-nvfp4-mixed` instead of `flux2_dev_fp8mixed`.
+  - **Same images:** in the 2026-11-12 bake-off, nvfp4 with the fp8 encoder gave the fp8 model + bf16
+    encoder's images at the same seeds (three relights, compared at 1:1), in 30 s per 1024² relight including
+    the load.
+  - **Why it matters:** with the bf16 encoder, a FLUX.2 relight needed more memory than the 62 GB reference box
+    has, and the memory guard refused it.
+  - **What you need:** download the fp8 encoder (or rename `clip_name` in the FLUX.2 templates if you keep the
+    bf16 one). On a card before the RTX 50 series, nvfp4 upcasts and runs slower, so pass
+    `--model flux2_dev_fp8mixed.safetensors` (~52 GB).
+- **Reference build: ComfyUI 0.45.2** (Comfy Desktop 1.1.9), smoke-validated 2026-11-12 with every output
+  checked: Qwen-Image txt2img, Qwen and FLUX.2 relight, Stable Audio 3 music, ACE-Step lyrics, TRELLIS.2 3D,
+  `render`, `cad`, Wan 2.2 with and without RelayVSR `--upscale`, and LTX-2.3 with STG and synced audio on the
+  pack's own fix. Two LTX-2.3 runs on 0.45.2 had frozen the desktop the day before; with the memory guard the
+  same job ran with commit at 79 of 108 GB. `COMFY_REF` and `docs/STACK.md` §7 moved with it, and the "LTX-2.3
+  needs the patch" notes are gone.
+- **Docs: `actions/setup-python` is `v7.1.0`** in `docs/STACK.md` (Dependabot #78 moved the pin, not the doc).
 - **ComfyUI-LTXVideo `15d09ab → 220e1d4`, hold lifted, local patch withdrawn.** Upstream fixed STG on ComfyUI
   0.40+ itself (`339ecc1`, the same unwrap as our patch), so the pin moves, `GIT_HOLDS` is empty, and
   `modules/video/patches/ltxvideo-stg-comfyui-0.40.patch` is gone. Re-audited `44c8a36 → 220e1d4`: the STG

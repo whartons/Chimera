@@ -131,9 +131,28 @@ So Chimera checks every job first (`scripts/brandkit/memguard.py`):
 - Only a ComfyUI on this machine is checked. `CHIMERA_SKIP_MEMORY_CHECK=1` turns the check off.
 - `chimera doctor` shows how much memory jobs can take right now, and warns under 8 GB.
 
-What jobs need on the reference box (model files + 2 GB): Z-Image ~14 GB, Qwen-Image-2.1 ~18 GB, Stable Audio 3
-~16 GB, ACE-Step ~21 GB, foley ~8 GB, TRELLIS.2 ~16 GB, Wan 2.2 ~37 GB, LTX-2.3 ~38 GB, FLUX.2 ~68 GB (its bf16 text
-encoder alone is 35.6 GB). On a 62 GB machine, FLUX.2 and the video models need the machine mostly to themselves.
+What jobs need on the reference box (model files + 2 GB):
+
+| Job | Needs |
+|---|---|
+| Z-Image | ~14 GB |
+| Qwen-Image-2.1, including `relight --model qwen_image…` | ~18 GB |
+| Stable Audio 3 | ~16 GB |
+| ACE-Step | ~21 GB |
+| foley | ~8 GB |
+| TRELLIS.2 | ~16 GB |
+| Wan 2.2 | ~37 GB (+5 GB with RelayVSR `--upscale`) |
+| LTX-2.3 | ~38 GB |
+| FLUX.2 nvfp4, the default relight | ~40 GB |
+| FLUX.2 fp8 | ~52 GB |
+
+The FLUX.2 figures assume the fp8 text encoder, which every FLUX.2 graph has loaded since 2026-11-12; with the
+bf16 encoder FLUX.2 needed ~68 GB. On a 62 GB machine, FLUX.2 and the video models need the machine mostly to
+themselves.
+
+ComfyUI keeps the last job's models cached, and the guard can't tell which models those are. So a job that only
+fits after an unload gets one first, even when it's the same models, and a back-to-back repeat of a big job
+reloads them (about 10–20 s for FLUX.2).
 
 `--cache-ram <GB>` is still worth setting: ComfyUI evicts its caches and stops pinning more memory while less than
 that is free (its default is 10% of RAM, at most 10 GB). The reference box runs `--cache-ram 15.5`. `--reserve-vram`

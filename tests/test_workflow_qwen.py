@@ -1,8 +1,9 @@
-"""Qwen-Image-2.1 family (the default image backend): txt2img, logo overlay, and product as a
-reference-image edit of the product photo; relight still resolves to FLUX.2."""
+"""Qwen-Image-2.1 family (the default image backend): txt2img, logo overlay, product as a reference-image edit
+of the product photo, and relight as the same edit when --model asks for it (FLUX.2 stays the default relight)."""
 from pathlib import Path
 from scripts.brandkit.manifest import load_manifest, default_manifest
-from scripts.brandkit.workflow import build, resolve_image_model, needs_free_before
+from scripts.brandkit.workflow import (DEFAULT_RELIGHT_MODEL, build, image_model, needs_free_before,
+                                       resolve_image_model)
 from scripts.brandkit.nodes import find_node_by_title
 from scripts.brandkit.sidecar import graph_prompts
 
@@ -68,10 +69,56 @@ def test_qwen_product_watermark_ignores_the_product_photo_size(tmp_path):
     assert pos(with_photo) == pos(brand_size)
 
 
-def test_qwen_relight_still_resolves_to_flux2_and_qwen_needs_no_free_first():
-    assert resolve_image_model("relight", None, QWEN) == "flux2_dev_fp8mixed.safetensors"
-    assert resolve_image_model("txt2img", None, QWEN) == QWEN
-    assert needs_free_before("txt2img", None, QWEN) is False
+FLUX2 = "flux2_dev_fp8mixed.safetensors"
+
+
+def test_relight_stays_flux2_by_default_and_runs_on_qwen_when_asked():
+    # 2026-11-12 bake-off: the Qwen edit relights more faithfully and keeps more detail in ~18 GB; FLUX.2
+    # does multi-light briefs better, so it stays the default and Qwen is the --model choice
+    assert image_model("relight", None, QWEN) == DEFAULT_RELIGHT_MODEL   # a brand's default Qwen relights on FLUX.2
+    assert image_model("relight", None, FLUX2) == FLUX2                   # a FLUX.2 brand relights on its own model
+    assert image_model("relight", QWEN, FLUX2) == QWEN                    # --model qwen_image... picks the Qwen edit
+    assert image_model("txt2img", None, QWEN) == QWEN
+    assert resolve_image_model("relight", None, QWEN) == QWEN
+    assert resolve_image_model("relight", None, "z_image_turbo_nvfp4.safetensors") == DEFAULT_RELIGHT_MODEL
+    assert needs_free_before("txt2img", None, QWEN) is False and needs_free_before("relight", None, QWEN) is False
+
+
+def test_qwen_relight_is_a_reference_edit_at_the_sources_size(tmp_path):
+    wf = build(ROOT, _m(tmp_path), positive="blue hour", negative="", seed=5, mode="relight", asset="lamp.png",
+               model=QWEN, canvas=(1662, 930))
+    assert _is_qwen(wf) and _inputs(wf, "brand:unet")["unet_name"] == QWEN
+    load_id, load = find_node_by_title(wf, "brand:relight_load")
+    assert load["inputs"]["image"] == "lamp.png" and _inputs(wf, "brand:positive")["images.image_1"] == [load_id, 0]
+    lat = _inputs(wf, "brand:latent")
+    assert (lat["width"], lat["height"]) == (1648, 928)                # the source's frame, snapped to 16
+    assert _inputs(wf, "brand:save")["filename_prefix"] == "brand_qwen_relight"
+
+
+def test_a_brands_default_qwen_relights_on_flux2(tmp_path):
+    wf = build(ROOT, _m(tmp_path), positive="blue hour", negative="", seed=5, mode="relight", asset="lamp.png")
+    assert _inputs(wf, "brand:unet")["unet_name"] == DEFAULT_RELIGHT_MODEL and not _is_qwen(wf)
+
+
+def test_qwen_relight_places_the_watermark_on_the_source_sized_frame(tmp_path):
+    m = _m(tmp_path)
+    kw = dict(positive="x", negative="", seed=1, mode="relight", asset="lamp.png", model=QWEN, watermark=True,
+              watermark_logo="primary.png", logo_px=(100, 100))
+    from scripts.brandkit.watermark import logo_geometry
+    w = m.watermark
+    at = lambda size: logo_geometry(size, logo_px=(100, 100), scale=w.scale, margin=w.margin, position=w.position)[:2]
+    wide = _inputs(build(ROOT, m, canvas=(1670, 930), **kw), "brand:watermark_composite")
+    assert (wide["x"], wide["y"]) == at((1664, 928))                    # the snapped source frame
+    brand = _inputs(build(ROOT, m, **kw), "brand:watermark_composite")    # no readable size: the brand's
+    assert (brand["x"], brand["y"]) == at((1216, 832))
+
+
+def test_the_sidecar_records_the_relight_model_the_graph_loads():
+    from argparse import Namespace
+    from scripts.brandkit.replay import resolve_model_used
+    m = default_manifest()
+    ask = lambda model: Namespace(modality="image", mode="relight", variant=None, model=model)
+    assert resolve_model_used(ask(None), m) == DEFAULT_RELIGHT_MODEL and resolve_model_used(ask(QWEN), m) == QWEN
 
 
 def test_qwen_lora_splices_between_the_unet_and_the_cache(tmp_path):

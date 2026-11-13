@@ -40,7 +40,7 @@ NPM_PACKS = [("comfyui-mcp (MCP bridge)", "comfyui-mcp", "0.18.0")]
 NPM_HOLDS = {"comfyui-mcp": "#56"}
 # the released version a pinned pack is at, where the project tags versions: advisories name affected versions
 PACK_VERSIONS = {"neka-nat/freecad-mcp": "0.1.30"}
-COMFY_REF = "0.40.0"   # the reference build documented in docs/STACK.md / SETUP.md
+COMFY_REF = "0.45.2"   # the reference build documented in docs/STACK.md / SETUP.md
 # The host apps besides ComfyUI that Chimera is validated against (docs/STACK.md §7 — keep in sync): (name,
 # reference version, GitHub repo for releases + security advisories, endoflife.date product for end of life)
 HOST_APPS = [

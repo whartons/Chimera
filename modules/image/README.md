@@ -65,7 +65,7 @@ python scripts/generate.py image \
 | `txt2img` | Text → on-brand image | `turbo` |
 | `logo` | `txt2img` + in-graph composite of the real brand logo PNG | `turbo` |
 | `product` | **Qwen-Image:** a reference edit — the product photo goes to the text encoder as a reference image, so the product keeps its exact look in a new scene, rendered at the brand size. **Z-Image / FLUX.2:** img2img (restyle in-brand) at denoise 0.62 (Z-Image) or 0.65 (FLUX.2) | `base` |
-| `relight` | FLUX.2 `ReferenceLatent` edit that keeps the composition ([below](#relighting-a-still-while-keeping-its-composition---mode-relight)) | — |
+| `relight` | FLUX.2 `ReferenceLatent` edit that keeps the composition, or the Qwen-Image-2.1 reference edit with `--model qwen_image…` ([below](#relighting-a-still-while-keeping-its-composition---mode-relight)) | — |
 
 - `--mode logo --asset logo.png` — provide the logo filename via `--asset`.
 - `--mode product --asset product.png` — provide the product image via `--asset`: a file in the brand's
@@ -262,11 +262,24 @@ python scripts/generate.py image --mode relight \
 
 - `--asset` is the source still (a brand `products/`/`references/`/`outputs/images/` file, or — when
   brandless — a direct path). `--subject` is the relight prompt.
-- **Relight is a FLUX.2 capability.** The mode loads the FLUX.2 relight template and, if your brand
-  default is Qwen-Image or Z-Image, transparently uses `flux2_dev_fp8mixed.safetensors`. The sidecar
-  records the FLUX.2 model actually used.
+- **FLUX.2 by default; Qwen-Image when you ask for it.** Without `--model`, relight loads the FLUX.2
+  template on `flux2-dev-nvfp4-mixed.safetensors` with the fp8 text encoder, even when your brand's default is
+  Qwen-Image or Z-Image. A FLUX.2 brand relights on its own FLUX.2 model, and on a card before the RTX 50 series
+  `--model flux2_dev_fp8mixed.safetensors` avoids nvfp4's slow upcast.
+  `--model qwen_image_2.1_int8_convrot.safetensors` runs the **Qwen-Image-2.1 reference edit** instead
+  ([`workflow.qwen-image-relight.template.json`](workflow.qwen-image-relight.template.json)). That's the
+  product edit, rendered at the source's own size snapped to multiples of 16, so the frame is kept. A
+  Z-Image `--model` falls back to FLUX.2, with a note. The sidecar records the model actually used.
+- **Which one (the 2026-11-12 bake-off, four stills, same prompts and seeds):**
+  - **Qwen:** kept the scene and its fine detail more faithfully (gears, feathers, brass edges) and fits
+    in **~18 GB** of memory, 9–29 s per image.
+  - **FLUX.2:** is the more cinematic. It delivered a "cool moonlight **and** a warm rim light" brief that
+    Qwen turned all-blue, and it re-stages a scene, for example adding a sunset window.
+  - **Memory:** a FLUX.2 relight needs **~40 GB** of system memory (nvfp4 with the fp8 encoder; ~52 GB with
+    the fp8 model). It was ~68 GB with the bf16 encoder before 2026-11-12. On a 32 GB machine, or beside other
+    heavy work, the memory guard refuses it, so use Qwen there.
 - **Live-validated on ComfyUI 0.26.2** (sunset and moonlight relights both held the source's exact
-  composition while transforming the lighting).
+  composition while transforming the lighting) and the Qwen edit on 0.45.2.
 
 **How it works (and why not img2img):** `LoadImage(source) → VAEEncode → latent`, fed into
 `ReferenceLatent(conditioning, latent)` so it rides the *positive* conditioning, then a full-denoise
@@ -298,7 +311,7 @@ JIT). Keep the model resident for fast iteration.
 | Qwen-Image-2.1 (int8) | ~16 GB of weights (6.8 GB model + 8.7 GB Qwen3-VL-8B encoder + VAE); smaller cards rely on ComfyUI's offloading |
 | Z-Image turbo (nvfp4) | ~8–12 GB |
 | Z-Image base (bf16) | ~12–16 GB |
-| FLUX.2 fp8 | ~16–24 GB observed peak, with ComfyUI's offloading (the file is 35.5 GB, plus the 35.6 GB Mistral encoder, which ComfyUI streams from disk) |
-| FLUX.2 nvfp4 | ~12–16 GB observed peak, with offloading (the file is 22.8 GB; cu130 only) |
+| FLUX.2 fp8 | ~16–24 GB observed peak, with ComfyUI's offloading (the file is 35.5 GB, plus the 18 GB fp8 Mistral encoder, which ComfyUI streams from disk); ~52 GB of system memory |
+| FLUX.2 nvfp4 | ~12–16 GB observed peak, with offloading (the file is 22.8 GB; cu130 only); ~40 GB of system memory |
 
 See [`models.md`](models.md) for download details and quantized alternatives.

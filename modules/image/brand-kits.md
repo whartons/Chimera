@@ -62,7 +62,8 @@ toggle and lands in a separate V2 plan — adding it doesn't disturb V1.
 ## Modes → templates
 
 `--mode` selects one of four generic, API-format graphs in `workflows/templates/`: `txt2img`, `logo`
-and `product` (table below), plus `relight`, which always uses FLUX.2 (`brand-flux2-relight.json`). The
+and `product` (table below), plus `relight`, which uses FLUX.2 (`brand-flux2-relight.json`) unless
+`--model` names a Qwen-Image file (`brand-qwen-image-relight.json`, a reference edit at the source's size). The
 **default backend is Qwen-Image-2.1**. The filler picks the graph family from the model name:
 `qwen_image*` → the `brand-qwen-image-*` graphs, `z_image*` → `brand-zimage-*`, and `flux2*` → the
 FLUX.2 graphs. It addresses nodes by a stable `_meta.title` (see `brandkit/nodes.py`), so re-saving
@@ -78,7 +79,8 @@ The earlier backends stay one setting away: set the model in `brand.yaml` or pas
 (see [`../../docs/CATALOG.md`](../../docs/CATALOG.md)). **Z-Image** (`z_image_turbo_*`, the
 default before v0.6.0) uses the `brand-zimage-*` graphs; its `product` mode is an img2img
 re-render at the product photo's size. **FLUX.2** (`flux2*`) uses `brand-txt2img.json` /
-`brand-logo-overlay.json` / `brand-product-mockup.json`, and is also what `--mode relight` runs on.
+`brand-logo-overlay.json` / `brand-product-mockup.json`, and is also what `--mode relight` runs on by
+default (a brand's default model doesn't choose the relight; `--model` does).
 
 The logo overlay uses `LoadImage`'s mask output as the composite alpha and computes
 x/y from `logo.position` + `logo.margin` against the canvas, so the logo stays

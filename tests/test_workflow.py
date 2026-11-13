@@ -102,6 +102,25 @@ def test_relight_forces_flux2_on_zimage_brand(tmp_path):
     assert wf["13"]["class_type"] == "ReferenceLatent"              # loaded the flux2 relight template
     assert resolve_image_model("relight", None, "z_image_turbo_nvfp4.safetensors") == DEFAULT_RELIGHT_MODEL
 
+FLUX2_TEMPLATES = ("brand-txt2img.json", "brand-logo-overlay.json", "brand-product-mockup.json",
+                   "brand-flux2-relight.json", "flux2-txt2img.json")
+
+
+@pytest.mark.parametrize("name", FLUX2_TEMPLATES)
+def test_flux2_graphs_load_the_fp8_text_encoder(name):
+    # 2026-11-12 bake-off: the fp8 Mistral encoder (16.8 GB) gave the bf16 one's (33 GB) images at the same seeds,
+    # which brought a FLUX.2 relight from ~68 GB of memory to ~40 GB with the nvfp4 model
+    import json
+    wf = json.loads((ROOT / "workflows" / "templates" / name).read_text(encoding="utf-8"))
+    clips = [n["inputs"]["clip_name"] for n in wf.values() if isinstance(n, dict) and n.get("class_type") == "CLIPLoader"]
+    assert clips == ["mistral_3_small_flux2_fp8.safetensors"]
+
+
+def test_the_default_relight_is_flux2_nvfp4():
+    from scripts.brandkit.workflow import DEFAULT_RELIGHT_MODEL
+    assert DEFAULT_RELIGHT_MODEL == "flux2-dev-nvfp4-mixed.safetensors"
+
+
 def test_logo_top_left_and_center_placement(tmp_path):
     p = tmp_path / "b.yaml"
     p.write_text("name: B\nstyle: x\n"

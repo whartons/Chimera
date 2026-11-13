@@ -128,7 +128,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | **Reproducible** | every render writes a provenance sidecar; `chimera replay` re-runs it on the recorded model and stops if anything changed since | [below](#-reproducibility--replay) |
 | **Preflight & updates** | `chimera doctor` / `update-check` / `free` (clears GPU memory); a weekly issue flags packs behind upstream, security advisories and outdated host apps; monthly and quarterly checklists | [MAINTENANCE.md](docs/MAINTENANCE.md) · [UPDATING.md](docs/UPDATING.md) |
 | **Blackwell tuning** | cu130 FP4 kernels + SageAttention + NVFP4 — **2.7× measured** on a 5090 | [BLACKWELL-TUNING.md](docs/BLACKWELL-TUNING.md) |
-| **Tested, GPU-free** | **1556 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
+| **Tested, GPU-free** | **1571 unit tests** (mocked ComfyUI), ruff, cross-platform CI (Linux + Windows) | [STACK.md](docs/STACK.md) |
 
 ## 🧩 Modules
 | Module | What it does | Status |
@@ -136,7 +136,7 @@ roles itself, and no `CHIMERA_*` keys are read.
 | [`agent`](modules/agent/self-correction.md) | Self-correction loop (generate → VLM judge → refine) — 2D image, textured 3D mesh (`--pipeline mesh3d`), and parametric CAD (`--pipeline cad`, an LLM writes the FreeCAD script) | ✅ |
 | [`agent`](modules/agent/) | MCP bridge + security model — drive ComfyUI from an assistant | ✅ |
 | [`image`](modules/image/) | Qwen-Image-2.1 (default) · Z-Image · FLUX.2 — txt2img / logo / product edit / relight · `--upscale` | ✅ |
-| [`video`](modules/video/) | Wan 2.2 image-to-video (default) + Fun Camera moves (`--camera`) · LTX-2.3 with native synced audio (`--model ltx23`) | ✅ |
+| [`video`](modules/video/) | Wan 2.2 image-to-video (default) + Fun Camera moves (`--camera`) + RelayVSR 2× `--upscale` · LTX-2.3 with native synced audio (`--model ltx23`) | ✅ |
 | [`audio`](modules/audio/) | Stable Audio 3 (music + sound effects) · ACE-Step (`--model acestep`, sings `--lyrics`) · HunyuanVideo-Foley (video → SFX) | ✅ |
 | [`threed`](modules/threed/) | TRELLIS.2 (default, textured PBR) · Pixal3D · Hunyuan3D 2.1 (shape only) — image → mesh (GLB / STL / OBJ) | ✅ |
 | [`blender`](modules/blender/) | MCP bridge (live GUI); `generate.py render` (headless mesh render, ComfyUI→scene, finish/figurine, `--solid` printable STL); `finalize-texture` (all-around bake) | ✅ |
@@ -285,7 +285,9 @@ high: on a smaller card, take the route in the last column (the agent loop picks
 |---|---|---|---|
 | image | Qwen-Image-2.1 (int8) | ~16 GB of weights | Z-Image turbo, ~8–12 GB (`--model z_image_turbo_nvfp4.safetensors`), or ComfyUI's offloading |
 | `--upscale` | SeedVR2 7B (int8) | ~8 GB of weights, tiled VAE | ESRGAN, which auto-tiles (`--upscale-model 4x-UltraSharp.pth`) |
+| relight | FLUX.2 nvfp4 + the fp8 text encoder | ~12–16 GB peak; ~40 GB of system memory | the Qwen-Image-2.1 edit, ~18 GB (`--model qwen_image_2.1_int8_convrot.safetensors`); on a card before the RTX 50 series, `--model flux2_dev_fp8mixed.safetensors` |
 | video | Wan 2.2 14B (fp8) | two ~13–14 GB experts run in turn + a ~6 GB text encoder; ~84–89% of a 24 GB card at 640² (official template) | ComfyUI's offloading and a smaller `--width`/`--height`; not `--model ltx23` (~28–32 GB) |
+| video `--upscale` | RelayVSR 2× (int8) | ~5 GB of weights, after the Wan models are done | ComfyUI's offloading |
 | music / sfx | Stable Audio 3 Medium | ~14 GB of weights | ComfyUI's offloading |
 | foley | HunyuanVideo-Foley (fp8) | ~12–16 GB peak | it already offloads between passes (`force_offload`, on by default) |
 | 3D | TRELLIS.2 (int8) | ~8 GB of weights, 12–15 GB at its busiest: a 16–24 GB card is enough | `--model hunyuan21` (shape only, ~8–10 GB peak) with a lower `--octree`, or ComfyUI's offloading |

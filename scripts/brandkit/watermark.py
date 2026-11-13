@@ -5,7 +5,7 @@ frame-source node + sink node serves image (`brand:decode`->`brand:save`), video
 (`brand:decode`->`brand:create_video`), and foley (`brand:components`->`brand:create_video`)
 graphs; the audio edge into CreateVideo is always left untouched."""
 from __future__ import annotations
-from .nodes import assert_free_ids, find_node_by_title
+from .nodes import NodeNotFound, assert_free_ids, find_node_by_title
 
 
 def logo_geometry(canvas, *, logo_px, scale, margin, position):
@@ -64,9 +64,16 @@ def inject_image_watermark(wf, *, manifest, logo_name, canvas, logo_px=None):
 
 def inject_video_watermark(wf, *, manifest, logo_name, canvas, logo_px=None):
     """Video graphs: stamp the logo onto the decoded FRAME BATCH before CreateVideo, leaving
-    the synced audio edge to CreateVideo untouched."""
+    the synced audio edge to CreateVideo untouched. A Wan --upscale graph's frames are RelayVSR's output
+    (brand:video_upscale_decode), not brand:decode's, or the logo would land on the small frames and the
+    upscale would be bypassed."""
+    try:
+        find_node_by_title(wf, "brand:video_upscale_decode")
+        frames = "brand:video_upscale_decode"
+    except NodeNotFound:
+        frames = "brand:decode"
     return _inject_watermark(wf, manifest=manifest, logo_name=logo_name, canvas=canvas,
-                             logo_px=logo_px, sink_title="brand:create_video")
+                             logo_px=logo_px, sink_title="brand:create_video", frames_title=frames)
 
 
 def inject_foley_watermark(wf, *, manifest, logo_name, canvas, logo_px=None):

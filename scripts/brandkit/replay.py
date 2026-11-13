@@ -71,7 +71,8 @@ def resolve_model_used(args, m):
     if args.modality == "3d":
         return threed_filler.resolved_model(m, args.model)
     # Z-Image's variant determines the actual model file (product -> base, etc.).
-    return image_filler.resolve_image_model(args.mode, args.variant, args.model or m.defaults.model)
+    return image_filler.resolve_image_model(args.mode, args.variant,
+                                            image_filler.image_model(args.mode, args.model, m.defaults.model))
 
 
 def resolve_sidecar_inputs(args, m, fmt=None):
@@ -88,8 +89,12 @@ def resolve_sidecar_inputs(args, m, fmt=None):
     if args.modality == "3d" and threed_filler.family(threed_filler.resolved_model(m, args.model)) != "hunyuan3d":
         inputs["octree"] = None    # only Hunyuan3D reads it
     if args.modality in ("image", "video"):
-        resolver = (image_filler.resolved_upscale_model if args.modality == "image"
-                    else video_filler.resolved_upscale_model)
+        if args.modality == "image":
+            resolver = image_filler.resolved_upscale_model
+        else:   # LTX and Wan each have their own upscaler
+            def resolver(m, upscale_model):
+                return video_filler.resolved_upscale_model(m, upscale_model, model=getattr(args, "model", None),
+                                                           camera=getattr(args, "camera", None))
         inputs["upscale"] = True if args.upscale else None
         inputs["upscale_model"] = resolver(m, args.upscale_model) if args.upscale else None
     if args.modality == "video":

@@ -61,7 +61,8 @@ python scripts/generate.py video \
   freed.
 - **Silent.** For sound, run `python scripts/generate.py audio --mode foley --from-video <clip>
   --subject "<the sounds>"`, or use `--model ltx23`.
-- `--upscale` is LTX-only (its latent upscaler); for a bigger Wan clip ask for it with `--width`/`--height`.
+- `--upscale` doubles a Wan clip with **RelayVSR** video super-resolution (768×512 → 1536×1024, about 10 s
+  more on an RTX 5090); see [Upscale](#upscale---upscale).
 
 ## Use it — LTX-2.3 with synced audio (`--model ltx23`)
 
@@ -229,9 +230,35 @@ synced audio without re-encoding the audio stream.
 
 ## Upscale (`--upscale`)
 
-`--upscale` is **LTX-2.3 only** (`--model ltx23`): it runs a **2× LTX spatial latent upscaler** before the
-VAE decode. With Wan 2.2 (the default) it is an error; ask Wan for the size you want with
-`--width`/`--height` instead.
+`--upscale` doubles the clip's size. Each family has its own 2× upscaler: Wan 2.2 (the default) runs
+**RelayVSR** on the decoded frames, and LTX-2.3 runs its **spatial latent upscaler** before the VAE decode.
+
+### Wan 2.2: RelayVSR
+
+```
+python scripts/generate.py video --brand example-brand \
+  --subject "..." --from-image rover.png --upscale \
+  [--upscale-model relayvsr_x2_lightx2v_int8_convrot.safetensors]
+```
+
+- **RelayVSR** is a one-step video super-resolution model, with core nodes since ComfyUI 0.45. It reads
+  the decoded frames (`RelayVSRConditioning`), samples their detail in one `KSampler` step, and `VSRDecode`
+  adds that detail to a bicubic 2× of the same frames. The graph is the official template's
+  (`utility_relayvsr_video_x2_upscale`), spliced between the Wan decode and `brand:create_video`.
+- **Bake-off (2026-11-12, a 768×512 Wan clip):**
+  - **Sharpness:** 3.4× bicubic's (Laplacian variance), with cables, panels and edges restored and no
+    invented texture.
+  - **Flicker:** frame-to-frame change within 5% of the source's when scaled back down.
+  - **Faithfulness:** a mean difference of 3.9/255 from the source.
+  - **Speed:** 9 s on an RTX 5090, 36 s for the whole render plus upscale.
+- **Models:** `relayvsr_x2_lightx2v_int8_convrot.safetensors` (4.8 GB, `diffusion_models/`) and
+  `relayvsr_flash_vae_x2_fp32.safetensors` (0.1 GB, `vae/`) from
+  [`Comfy-Org/RelayVSR`](https://huggingface.co/Comfy-Org/RelayVSR) (Apache-2.0). `--upscale-model`
+  overrides the diffusion model. A brand's `video.upscale_model` names LTX's latent upscaler, so Wan ignores
+  it.
+- **Watermark:** the logo goes on the 2× frames, placed on the 1536×1024 canvas.
+
+### LTX-2.3: the spatial latent upscaler
 
 ```
 python scripts/generate.py video --model ltx23 --brand example-brand \

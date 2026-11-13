@@ -1,6 +1,6 @@
 {
   "1": {"class_type": "UNETLoader", "_meta": {"title": "brand:unet"}, "inputs": {"unet_name": "flux2_dev_fp8mixed.safetensors", "weight_dtype": "default"}},
-  "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "mistral_3_small_flux2_bf16.safetensors", "type": "flux2"}},
+  "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "mistral_3_small_flux2_fp8.safetensors", "type": "flux2"}},
   "3": {"class_type": "VAELoader", "inputs": {"vae_name": "flux2-vae.safetensors"}},
   "4": {"class_type": "CLIPTextEncode", "_meta": {"title": "brand:positive"}, "inputs": {"text": "PLACEHOLDER_POSITIVE", "clip": ["2", 0]}},
   "5": {"class_type": "FluxGuidance", "_meta": {"title": "brand:guidance"}, "inputs": {"conditioning": ["4", 0], "guidance": 3.5}},

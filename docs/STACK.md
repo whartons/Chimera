@@ -12,7 +12,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 ```mermaid
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
-        comfy["ComfyUI 0.40.0 (engine + models)"]
+        comfy["ComfyUI 0.45.2 (engine + models)"]
         packs["pinned node packs: LTXVideo · Foley · IPAdapter"]
         comfy --- packs
     end
@@ -41,7 +41,7 @@ The `chimera` package (**v0.6.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (1556 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (1571 tests) |
 | **ruff** | `>=0.17.1,<0.18` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`); one minor, the same as the pre-commit hook, so a new ruff can't break CI unannounced |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent; **required by the mesh3d and cad agent loops**, whose judged contact sheet it builds (`auto_generate.py` refuses `--pipeline mesh3d\|cad` without it) |
@@ -54,7 +54,7 @@ except that the mesh3d and cad loops need `[images]` (`[print]` also brings Pill
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **ComfyUI** (Desktop) | **0.40.0** (reference, Comfy Desktop 1.1.7; smoke-validated 2026-10-14, then re-validated 2026-10-15 on the v0.6.0 defaults, every output checked as created by the run: Qwen-Image txt2img · product edit + SeedVR2 upscale · relight · Wan 2.2 i2v + camera move · foley · Stable Audio 3 music + sfx · TRELLIS.2 3D · render · cad · finalize-texture · image/mesh3d/cad agent loops on local Ollama models · replay) · **≥0.40** for the default models (their nodes are core in 0.40) · **≥0.24.x** runs the earlier models via `--model` · **LTX-2.3 needs the LTXVideo patch on ≥0.40** (see §3) | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is the floor because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
+| **ComfyUI** (Desktop) | **0.45.2** (reference, Comfy Desktop 1.1.9; smoke-validated 2026-11-12, every output checked as created by the run: Qwen-Image txt2img · Qwen and FLUX.2 relight · Stable Audio 3 music · ACE-Step lyrics · TRELLIS.2 3D · render · cad · Wan 2.2 i2v + RelayVSR `--upscale` · LTX-2.3 with STG and synced audio on the pack's own fix; earlier: 0.40.0 on 2026-10-14/15 for the v0.6.0 defaults, foley, camera moves, finalize-texture and the agent loops) · **≥0.40** for the default models (their nodes are core in 0.40) · **≥0.45** for Wan `--upscale` (RelayVSR's nodes) · **≥0.24.x** runs the earlier models via `--model` | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is the floor because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
 
 ## 3 · Third-party ComfyUI node packs (pinned + security-audited)
 Every pack is **pinned by commit** (never `@latest`) and read-through audited before adoption; a
@@ -113,9 +113,10 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
 |----------|---------|-----------------|
-| Image | **Qwen-Image-2.1** (`qwen_image_2.1_int8_convrot`) | Comfy-Org · Qwen research license · Z-Image (fast) and FLUX.2 (cinematic, relight) via `--model` |
+| Image | **Qwen-Image-2.1** (`qwen_image_2.1_int8_convrot`) | Comfy-Org · Qwen research license · Z-Image (fast) and FLUX.2 (cinematic, the default relight) via `--model`; `--mode relight --model qwen_image…` relights on Qwen in ~18 GB |
 | Image — `--upscale` | **SeedVR2 7B** (`seedvr2_7b_int8_convrot`) | Comfy-Org · Apache-2.0 · ESRGAN (`4x-UltraSharp.pth`) via `--upscale-model` |
 | Video | **Wan 2.2 14B** (`fp8`, 4-step lightx2v LoRAs; Fun Camera for `--camera`) | Comfy-Org · Apache-2.0 · core nodes · LTX-2.3 22B (synced audio) via `--model ltx23` |
+| Video — `--upscale` | **RelayVSR** 2× (`relayvsr_x2_lightx2v_int8_convrot`) for Wan; LTX's spatial latent upscaler for `--model ltx23` | Comfy-Org · Apache-2.0 · core nodes since ComfyUI 0.45 |
 | Audio — music + sfx | **Stable Audio 3 Medium** (+ Qwen3.5-2B prompt enhancer) | Comfy-Org · core-native · Stability Community License · ACE-Step 1.5 XL Turbo via `--model acestep` |
 | Audio — foley | **HunyuanVideo-Foley** | phazei · 48 kHz synced |
 | 3D | **TRELLIS.2** (`trellis_2_int8_convrot`, textured PBR GLB) | Comfy-Org · MIT · core in ComfyUI 0.40 · Pixal3D and Hunyuan3D 2.1 (shape only) via `--model` |
@@ -127,7 +128,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | Action | Version | Role |
 |--------|---------|------|
 | `actions/checkout` | `v7.0.1` | checkout, with `persist-credentials: false` (the token isn't kept) |
-| `actions/setup-python` | `v7.0.0` | Python 3.12 (the required checks), 3.13 and 3.14 (Linux) + pip cache |
+| `actions/setup-python` | `v7.1.0` | Python 3.12 (the required checks), 3.13 and 3.14 (Linux) + pip cache |
 | `actions/upload-artifact` / `download-artifact` | `v7.0.2` / `v8.0.2` | hand `coverage.xml` from the Ubuntu test job to the upload job |
 | `codecov/codecov-action` | `v7.1.1` | coverage upload in its own `coverage` job, the only job with `id-token: write` (OIDC; **non-blocking**, `continue-on-error`) |
 | **CodeQL** | default setup | security scanning |
@@ -139,8 +140,8 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (1556 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
-1508 on Windows, which stays on `[dev]`, so the 9 Pillow-gated and 39 print-gated tests skip there and the no-Pillow
+py3.12 (1571 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
+1523 on Windows, which stays on `[dev]`, so the 9 Pillow-gated and 39 print-gated tests skip there and the no-Pillow
 paths are proven; `[print]` would bring Pillow along through scikit-image;
 `--cov-fail-under=85`). Python 3.13 and 3.14 also run on Linux but aren't required. CI runs weekly too (Mondays
 06:00 UTC), so an upstream release that breaks the suite shows up in a week with no commits. Codecov is **not**

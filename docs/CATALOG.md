@@ -70,9 +70,15 @@ through the FLUX.2 templates instead.
 
 | File | HuggingFace repo | Destination (`ComfyUI/models/…`) | License |
 |------|-----------------|----------------------------------|---------|
+| `flux2-dev-nvfp4-mixed.safetensors` *(default relight; RTX 50 / cu130)* | `black-forest-labs/FLUX.2-dev-NVFP4` | `diffusion_models/` | ❓ non-commercial — verify |
 | `flux2_dev_fp8mixed.safetensors` | `Comfy-Org/flux2-dev` | `diffusion_models/` | ❓ non-commercial — verify |
-| `mistral_3_small_flux2_bf16.safetensors` | `Comfy-Org/flux2-dev` text encoders | `text_encoders/` | ✅ Mistral / Apache-2.0 |
+| `mistral_3_small_flux2_fp8.safetensors` | `Comfy-Org/flux2-dev` text encoders | `text_encoders/` | ✅ Mistral / Apache-2.0 |
 | `flux2-vae.safetensors` | `Comfy-Org/flux2-dev` repo | `vae/` | ❓ verify |
+
+- **The fp8 text encoder** (16.8 GB) replaced the bf16 one (33 GB) in every FLUX.2 graph on 2026-11-12. Its
+  images matched the bf16 encoder's at the same seeds (three relights, compared at 1:1). With the nvfp4 model,
+  a FLUX.2 render needs ~40 GB of system memory instead of ~68 GB, and 30 s per 1024² relight including the
+  model load.
 
 > **FLUX.2 caveat:** community reports of "waxy faces" and the full fp16 model
 > saturates a 32 GB card. Use Z-Image for portraits; reserve FLUX.2 for
@@ -106,6 +112,13 @@ through the FLUX.2 templates instead.
   SUPIR (below) is the heavier alternative.
 
 ## ✂️ Image editing / control
+- **Relight (`image --mode relight`)** — FLUX.2's `ReferenceLatent` edit by default, or the Qwen-Image-2.1
+  reference edit with `--model qwen_image_2.1_int8_convrot.safetensors`. In the 2026-11-12 bake-off (four
+  stills, same prompts and seeds):
+  - **Qwen:** kept each scene and its fine detail more faithfully, at ~18 GB of memory and 9–29 s.
+  - **FLUX.2:** delivered a "cool moonlight plus a warm rim light" brief that Qwen turned all-blue, and
+    re-staged scenes more dramatically, at ~40 GB (nvfp4 with the fp8 encoder; ~68 GB with the old bf16
+    encoder).
 - **Qwen-Image-Edit** — object insert/remove, style transfer, inpainting. ✅
 - **ControlNet** (pose / depth / canny / normal) — structural control.
 - **IP-Adapter** — reference a style or subject image.
@@ -140,6 +153,17 @@ audio.
 | `wan_2.1_vae.safetensors` | `Comfy-Org/Wan_2.1_ComfyUI_repackaged` | `vae/` | ~0.25 GB | ✅ Apache-2.0 |
 
 (The repackaged repos nest files under `split_files/<type>/`; drop that folder level when placing them.)
+
+**Wan `--upscale`: RelayVSR** (2× video super-resolution; core nodes since ComfyUI 0.45)
+
+| File | HuggingFace repo | Destination (`ComfyUI/models/…`) | Size | License |
+|------|-----------------|----------------------------------|------|---------|
+| `relayvsr_x2_lightx2v_int8_convrot.safetensors` | `Comfy-Org/RelayVSR` | `diffusion_models/` | ~4.8 GB | ✅ Apache-2.0 |
+| `relayvsr_flash_vae_x2_fp32.safetensors` | `Comfy-Org/RelayVSR` | `vae/` | ~0.1 GB | ✅ Apache-2.0 |
+
+- One sampling step on the decoded frames; `VSRDecode` adds the detail to a bicubic 2×. In the 2026-11-12
+  bake-off on a 768×512 Wan clip it was 3.4× sharper than bicubic, with flicker within 5% of the source's
+  and a mean difference of 3.9/255 from it. It took 9 s on an RTX 5090. Before it, Wan clips had no upscale.
 
 **Synced-audio option (`--model ltx23`): LTX-2.3 22B**
 

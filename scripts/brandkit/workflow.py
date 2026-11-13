@@ -12,18 +12,22 @@ _TEMPLATES = {
     "zimage": {"txt2img": "brand-zimage-txt2img.json", "logo": "brand-zimage-logo-overlay.json",
                "product": "brand-zimage-product.json"},
     # Qwen-Image-2.1: product is a reference-image EDIT (the photo is a reference to the text encoder),
-    # not img2img, so the product keeps its identity in the new scene.
+    # not img2img, so the product keeps its identity in the new scene. relight is the same edit of a still,
+    # rendered at the still's own size.
     "qwen": {"txt2img": "brand-qwen-image-txt2img.json", "logo": "brand-qwen-image-logo-overlay.json",
-             "product": "brand-qwen-image-product.json"},
+             "product": "brand-qwen-image-product.json", "relight": "brand-qwen-image-relight.json"},
 }
 # Qwen-Image-2.1's validated sampler settings (official template: euler/simple, 25 steps, CFG 1). Like
 # the Z-Image variants they are fixed per model; a brand's FLUX.2 steps/guidance don't apply.
 _QWEN = {"steps": 25, "cfg": 1.0}
-# Relight (FLUX.2 ReferenceLatent edit) is a FLUX.2-only capability — Z-Image has no equivalent edit
-# node here. When relight is requested without a FLUX.2 model, fall back to this default so the mode
-# "just works" rather than erroring on a Z-Image brand default. (resolve_image_model enforces this for
-# both the graph and the sidecar; see build_workflow.)
-DEFAULT_RELIGHT_MODEL = "flux2_dev_fp8mixed.safetensors"
+# Relight is a FLUX.2 ReferenceLatent edit by default, or a Qwen-Image-2.1 reference edit when --model names a
+# Qwen-Image file (2026-11-12 bake-off: Qwen relights more faithfully and keeps more detail in ~18 GB; FLUX.2 did a
+# two-light brief the Qwen edit missed). Z-Image has no edit here, and a brand's default model doesn't choose the
+# relight, so both fall back to this. (image_model and resolve_image_model decide it for both the graph and the
+# sidecar; see build_workflow.) The nvfp4 FLUX.2 with the fp8 text encoder gave the fp8 model + bf16 encoder's
+# images at the same seeds in ~40 GB of memory instead of ~68 GB (2026-11-12); on a card before the RTX 50 series
+# nvfp4 upcasts and runs slower, so pass --model flux2_dev_fp8mixed.safetensors (~52 GB) there.
+DEFAULT_RELIGHT_MODEL = "flux2-dev-nvfp4-mixed.safetensors"
 # Z-Image fidelity variants: model + KSampler steps/cfg (validated values).
 _ZIMAGE_VARIANTS = {
     "turbo": {"model": "z_image_turbo_nvfp4.safetensors", "steps": 8, "cfg": 1.0},
@@ -90,13 +94,21 @@ def _zimage_variant(mode, variant, model):
     return "turbo"
 
 
+def image_model(mode, model, default):
+    """The model an image render asks for: --model, else the brand's default. A relight is chosen only by
+    --model: the brand default (Qwen-Image for most brands) relights on DEFAULT_RELIGHT_MODEL."""
+    if mode == "relight" and not model:
+        return default if family(default) == "flux2" else DEFAULT_RELIGHT_MODEL
+    return model or default
+
+
 def resolve_image_model(mode, variant, model):
     """The model file the image graph will actually load — for the sidecar. Z-Image's variant
     determines the file (e.g. product/--variant base -> z_image_bf16, not the brand's turbo
-    default); FLUX.2 (and anything non-z_image) loads the given model name as-is. `relight` is a
-    FLUX.2 (ReferenceLatent) capability, so a non-FLUX.2 model resolves to DEFAULT_RELIGHT_MODEL —
-    keeping the graph and the sidecar in agreement on a single source of truth."""
-    if mode == "relight" and family(model) != "flux2":
+    default); FLUX.2 (and anything non-z_image) loads the given model name as-is. A relight runs on
+    FLUX.2 or Qwen-Image; Z-Image has no edit, so it resolves to DEFAULT_RELIGHT_MODEL — keeping the
+    graph and the sidecar in agreement on a single source of truth."""
+    if mode == "relight" and family(model) == "zimage":
         return DEFAULT_RELIGHT_MODEL
     if family(model) == "zimage":
         return _ZIMAGE_VARIANTS[_zimage_variant(mode, variant, model)]["model"]
@@ -104,7 +116,7 @@ def resolve_image_model(mode, variant, model):
 
 
 def needs_free_before(mode, variant, model):
-    """True when the image graph loads FLUX.2: its ~33 GB bf16 text encoder (beside a ~32 GB fp8
+    """True when the image graph loads FLUX.2: its text encoder (the ~33 GB bf16 one then; fp8 since 2026-11-12, beside a ~32 GB fp8
     diffusion model) is disk-streamed by ComfyUI 0.40's comfy-aimdo, and that load fails with Windows
     error 1450 ("HostBuffer.read_file_slice failed") while other models are still staged — freeing
     first fixes it (2026-10-14 smoke; upstream: Comfy-Org/comfy-aimdo#61). Z-Image graphs keep the fast
@@ -238,7 +250,7 @@ def _place_logo(wf: dict, m: BrandManifest, logo_px=None):
 def build_workflow(repo_root, m: BrandManifest, mode: str, positive: str, negative: str,
                    seed: int, logo_image=None, product_image=None, source_image=None, logo_px=None,
                    variant=None, model=None) -> dict:
-    model = model or m.defaults.model
+    model = image_model(mode, model, m.defaults.model)
     # Resolve the model FIRST and derive the family from the resolved name, so a relight on a Z-Image
     # brand default correctly resolves to FLUX.2 and loads the FLUX.2 relight template (not a missing
     # zimage/relight one). resolve_image_model is a passthrough for normal FLUX.2/Z-Image runs.
@@ -289,8 +301,14 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
         kw["source_image"] = asset
     wf = build_workflow(repo_root, manifest, mode=mode, positive=positive,
                         negative=negative, seed=seed, **kw)
-    if mode == "product" and family(resolve_image_model(mode, variant, model or manifest.defaults.model)) == "qwen":
+    qwen = family(resolve_image_model(mode, variant, image_model(mode, model, manifest.defaults.model))) == "qwen"
+    if mode == "product" and qwen:
         canvas = None   # a Qwen edit renders at the brand size, not at the product photo's size
+    if mode == "relight" and qwen:   # a relight keeps the still's frame: render at its size (Qwen needs 16s)
+        lat = _n(wf, "brand:latent")["inputs"]
+        if canvas:
+            lat["width"], lat["height"] = (max(16, int(v) // 16 * 16) for v in canvas)
+        canvas = (lat["width"], lat["height"])
     if watermark and mode != "logo":  # logo mode already composites a logo
         from .watermark import inject_image_watermark
         inject_image_watermark(wf, manifest=manifest, logo_name=watermark_logo,
