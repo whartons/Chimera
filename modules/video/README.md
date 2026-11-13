@@ -201,8 +201,9 @@ ComfyUI **0.40.0** wraps attention inputs in a single-use `AttentionTensorContai
 spatiotemporal guidance (STG) returned that container for the layers it skips, so every LTX-2.3 render
 (`--model ltx23`, whose `GuiderParameters` use `"stg": 1.0`) failed with
 `'AttentionTensorContainer' object has no attribute 'shape'`. Upstream fixed it in `339ecc1`
-(2026-10-20), the same unwrap Chimera shipped as a local patch, so the pin `220e1d4` needs no patch.
-If your pack is older than that and fails this way, check out the pin.
+(2026-10-20), the same unwrap Chimera shipped as a local patch, so the pin `220e1d4` needs no patch
+(verified on ComfyUI 0.45.2 on 2026-11-12: STG on, synced 48 kHz audio). If your pack is older than that and
+fails this way, check out the pin.
 
 ## Why LTX-2.3 needs this exact graph (the gotchas)
 
