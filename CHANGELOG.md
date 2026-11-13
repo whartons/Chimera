@@ -6,6 +6,13 @@ All notable changes to Chimera are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-11-12
+
+The memory-guard release. A job that won't fit in this machine's memory is refused before it starts, instead of
+freezing Windows. A model bake-off on ComfyUI 0.45.2, the new reference build, gave Wan clips a 2× RelayVSR
+`--upscale` and cut a FLUX.2 relight's memory need from ~68 GB to ~40 GB. Sub-brands group one organisation's
+looks.
+
 ### Added
 - **Sub-brands: `--brand family/name`.** One organisation's looks (a club's trophies, medals and
   certificates, each with its own style) can live in one family folder, `brands/family/name/`, each with its
@@ -1438,7 +1445,8 @@ agent layer — plus a provider-agnostic, per-role LLM backend. Repo renamed `Co
   `new-brand` / `lint` / `doctor` / `update-check`, the hardened MCP bridge, a GPU-free test suite,
   cross-platform CI, and `pip`-installable packaging.
 
-[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/whartons/Chimera/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/whartons/Chimera/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/whartons/Chimera/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/whartons/Chimera/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/whartons/Chimera/compare/v0.6.0...v0.6.1
