@@ -62,7 +62,8 @@ chimera/
 │   ├── brandkit/        # shared core: manifest, prompt, fillers, watermark, outputs, sidecar, mesh,
 │   │                    #   comfy, nodes, provenance, replay (sidecar-inputs/replay contract),
 │   │                    #   dcc (runner core) + dcc_cli (render/cad/finalize orchestration),
-│   │                    #   gpu (ComfyUI/Ollama GPU-memory hand-off), solidify + printcheck
+│   │                    #   gpu (ComfyUI/Ollama GPU-memory hand-off), memguard (refuse a job whose
+│   │                    #   models won't fit in system memory), solidify + printcheck
 │   │                    #   (3D printing: AI sheet -> one solid; STL size/closed/solid check)
 │   └── agent/           # self-correction loop: rubric, expander, judge, loop, llm, geometry,
 │                        #   auto_generate, cad_generate, render_generate, finalize
