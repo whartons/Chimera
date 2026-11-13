@@ -4,6 +4,8 @@ The actual training run is delegated to a pluggable backend (see train_brand_lor
 from __future__ import annotations
 from pathlib import Path
 
+from scripts.brandkit.outputs import brand_stem
+
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -43,8 +45,8 @@ def build_config(brand: str, manifest, steps: int, backend: str) -> dict:
         "base_model": manifest.defaults.model,
         "dataset_dir": f"brands/{brand}/training",
         "output_dir": f"brands/{brand}/lora",
-        "output_name": f"{brand}-v1",
+        "output_name": f"{brand_stem(brand)}-v1",
         "steps": steps,
         "resolution": [manifest.defaults.width, manifest.defaults.height],
-        "trigger_word": brand.replace("-", " "),
+        "trigger_word": brand_stem(brand).replace("-", " "),
     }

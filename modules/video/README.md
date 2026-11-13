@@ -61,7 +61,8 @@ python scripts/generate.py video \
   freed.
 - **Silent.** For sound, run `python scripts/generate.py audio --mode foley --from-video <clip>
   --subject "<the sounds>"`, or use `--model ltx23`.
-- `--upscale` is LTX-only (its latent upscaler); for a bigger Wan clip ask for it with `--width`/`--height`.
+- `--upscale` doubles a Wan clip with **RelayVSR** video super-resolution (768×512 → 1536×1024, about 10 s
+  more on an RTX 5090); see [Upscale](#upscale---upscale).
 
 ## Use it — LTX-2.3 with synced audio (`--model ltx23`)
 
@@ -194,33 +195,14 @@ The pack itself was security-scanned before adoption (same standard applied to
 the MCP bridge). Verdict: **safe for local use** with the above two nodes
 excluded. Re-scan on every pack update before advancing the pin.
 
-## Known issue: ComfyUI ≥ 0.40 breaks the pack's STG guidance (patch included)
+## STG on ComfyUI ≥ 0.40 (fixed upstream)
 
-ComfyUI **0.40.0** (2026-10-13) passes attention inputs to the attention backend wrapped in a single-use
-`AttentionTensorContainer` (core PR #16806). The LTXVideo pack's spatiotemporal guidance (STG) patches
-that call, and for the layers it skips it returns `v` unchanged. On 0.40 that is the container rather
-than a tensor, so sampling fails:
-
-```
-SamplerCustomAdvanced: AttributeError: 'AttentionTensorContainer' object has no attribute 'shape'
-```
-
-This template uses STG (`"stg": 1.0` in both `GuiderParameters` nodes), so every LTX-2.3 render
-(`--model ltx23`) fails on 0.40 with any pack version up to at least `44c8a36` (2026-10-14); Wan 2.2 runs
-on core nodes and is unaffected. Fix it by applying
-[`patches/ltxvideo-stg-comfyui-0.40.patch`](patches/ltxvideo-stg-comfyui-0.40.patch) to the pack, then
-restart ComfyUI:
-
-```bash
-cd <ComfyUI>/custom_nodes/ComfyUI-LTXVideo
-git apply <path-to-chimera>/modules/video/patches/ltxvideo-stg-comfyui-0.40.patch
-```
-
-The patch unwraps the container in the two skip shortcuts and changes nothing on older ComfyUI; it applies
-cleanly at both the pinned `15d09ab` and `44c8a36`. Undo it with `git checkout stg.py`. If you can't patch the
-pack, setting `"stg": 0.0` in both `GuiderParameters` nodes also renders, but without STG guidance. Reported
-upstream as [Lightricks/ComfyUI-LTXVideo#579](https://github.com/Lightricks/ComfyUI-LTXVideo/issues/579), with
-this fix as [#580](https://github.com/Lightricks/ComfyUI-LTXVideo/pull/580); remove this section once it ships.
+ComfyUI **0.40.0** wraps attention inputs in a single-use `AttentionTensorContainer`, and the pack's
+spatiotemporal guidance (STG) returned that container for the layers it skips, so every LTX-2.3 render
+(`--model ltx23`, whose `GuiderParameters` use `"stg": 1.0`) failed with
+`'AttentionTensorContainer' object has no attribute 'shape'`. Upstream fixed it in `339ecc1`
+(2026-10-20), the same unwrap Chimera shipped as a local patch, so the pin `220e1d4` needs no patch.
+If your pack is older than that and fails this way, check out the pin.
 
 ## Why LTX-2.3 needs this exact graph (the gotchas)
 
@@ -248,9 +230,35 @@ synced audio without re-encoding the audio stream.
 
 ## Upscale (`--upscale`)
 
-`--upscale` is **LTX-2.3 only** (`--model ltx23`): it runs a **2× LTX spatial latent upscaler** before the
-VAE decode. With Wan 2.2 (the default) it is an error; ask Wan for the size you want with
-`--width`/`--height` instead.
+`--upscale` doubles the clip's size. Each family has its own 2× upscaler: Wan 2.2 (the default) runs
+**RelayVSR** on the decoded frames, and LTX-2.3 runs its **spatial latent upscaler** before the VAE decode.
+
+### Wan 2.2: RelayVSR
+
+```
+python scripts/generate.py video --brand example-brand \
+  --subject "..." --from-image rover.png --upscale \
+  [--upscale-model relayvsr_x2_lightx2v_int8_convrot.safetensors]
+```
+
+- **RelayVSR** is a one-step video super-resolution model, with core nodes since ComfyUI 0.45. It reads
+  the decoded frames (`RelayVSRConditioning`), samples their detail in one `KSampler` step, and `VSRDecode`
+  adds that detail to a bicubic 2× of the same frames. The graph is the official template's
+  (`utility_relayvsr_video_x2_upscale`), spliced between the Wan decode and `brand:create_video`.
+- **Bake-off (2026-11-12, a 768×512 Wan clip):**
+  - **Sharpness:** 3.4× bicubic's (Laplacian variance), with cables, panels and edges restored and no
+    invented texture.
+  - **Flicker:** frame-to-frame change within 5% of the source's when scaled back down.
+  - **Faithfulness:** a mean difference of 3.9/255 from the source.
+  - **Speed:** 9 s on an RTX 5090, 36 s for the whole render plus upscale.
+- **Models:** `relayvsr_x2_lightx2v_int8_convrot.safetensors` (4.8 GB, `diffusion_models/`) and
+  `relayvsr_flash_vae_x2_fp32.safetensors` (0.1 GB, `vae/`) from
+  [`Comfy-Org/RelayVSR`](https://huggingface.co/Comfy-Org/RelayVSR) (Apache-2.0). `--upscale-model`
+  overrides the diffusion model. A brand's `video.upscale_model` names LTX's latent upscaler, so Wan ignores
+  it.
+- **Watermark:** the logo goes on the 2× frames, placed on the 1536×1024 canvas.
+
+### LTX-2.3: the spatial latent upscaler
 
 ```
 python scripts/generate.py video --model ltx23 --brand example-brand \

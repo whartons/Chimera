@@ -155,7 +155,7 @@ def test_resolved_upscale_model_matches_graph():
     m = load_manifest(FIX)
     wf = build(ROOT, m, positive="x", negative="", seed=1, watermark=False, from_image="r.png",
                length=97, fps=25, audio=True, width=768, height=512, upscale=True)
-    assert resolved_upscale_model(m) == \
+    assert resolved_upscale_model(m, model=LTX23_MODEL) == \
         find_node_by_title(wf, "brand:video_upscale_model")[1]["inputs"]["model_name"]
 
 
@@ -170,12 +170,12 @@ def test_resolved_upscale_model_brand_override_flows_to_graph_and_resolver(tmp_p
     wf = build(ROOT, mv, positive="x", negative="", seed=1, watermark=False, from_image="r.png",
                length=97, fps=25, audio=True, width=768, height=512, upscale=True)
     node = find_node_by_title(wf, "brand:video_upscale_model")[1]["inputs"]["model_name"]
-    assert resolved_upscale_model(mv) == "brand-up.safetensors" == node
+    assert resolved_upscale_model(mv, model=LTX23_MODEL) == "brand-up.safetensors" == node
     wf2 = build(ROOT, mv, positive="x", negative="", seed=1, watermark=False, from_image="r.png",
                 length=97, fps=25, audio=True, width=768, height=512, upscale=True,
                 upscale_model="cli-up.safetensors")
     node2 = find_node_by_title(wf2, "brand:video_upscale_model")[1]["inputs"]["model_name"]
-    assert resolved_upscale_model(mv, "cli-up.safetensors") == "cli-up.safetensors" == node2
+    assert resolved_upscale_model(mv, "cli-up.safetensors", model=LTX23_MODEL) == "cli-up.safetensors" == node2
 
 
 def test_video_upscale_model_default_none_and_loaded():

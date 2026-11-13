@@ -441,7 +441,9 @@ _FENCE_TAG = re.compile(r"[\w+.#-]*[ \t]*\n")   # a fence's language tag ('pytho
 
 
 def _extract_code(text: str) -> str:
-    """Pull the python from a ```python ...``` block; fall back to the raw text if unfenced."""
+    """Pull the python from a ```python ...``` block; fall back to the raw text if unfenced. A thinking model's
+    inline <think> reasoning goes first: a draft fence inside it was picked over the answer's (v0.6.3 limit)."""
+    text = strip_thinking(text)
     if "```" in text:
         block = text.split("```", 2)
         if len(block) >= 2:

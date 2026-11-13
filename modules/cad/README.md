@@ -19,7 +19,7 @@ you choose. For unattended geometry authoring there is a **second, headless path
 | | |
 |---|---|
 | **Server** | `neka-nat/freecad-mcp` (GitHub) |
-| **Pinned** | commit `78bf023` (v0.1.27) — server + addon share the commit |
+| **Pinned** | commit `ec8abf2` (v0.1.30) — server + addon share the commit |
 | **License** | MIT · runs 100% locally (loopback XML-RPC `127.0.0.1:9875`) |
 | **Transport** | stdio (Claude launches it) → XML-RPC → FreeCAD addon |
 | **Tools** | 17: parametric object ops, FEM, doc/view introspection, dispatch health, async-job status, code-exec (GUI + headless) |
@@ -48,7 +48,7 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 `PATH`; **FreeCAD 1.1.4 or newer** (it bundles Python 3.11; older releases have open security advisories).
 
 1. **Install the FreeCAD addon.** Copy the **whole** `addon/FreeCADMCP/` directory from the
-   pinned commit `78bf023` into FreeCAD's user `Mod/` directory (`package.xml` is required: the
+   pinned commit `ec8abf2` into FreeCAD's user `Mod/` directory (`package.xml` is required: the
    addon reads its version from it at import). **FreeCAD 1.1 uses a versioned data dir** — on
    Windows that is `%APPDATA%\FreeCAD\v1-1\Mod\FreeCADMCP\` (1.0 omits the `v1-1`). If unsure,
    use **Tools → Open user data directory** in FreeCAD and copy into the `Mod/` there. When
@@ -63,7 +63,7 @@ Prerequisites: **[Astral `uv`](https://docs.astral.sh/uv/)** installed and on yo
 3. **Register the MCP server.** The server entry lives in
    [`../../.mcp.json`](../../.mcp.json) and is launched by Claude Code as:
    ```
-   uvx --from git+https://github.com/neka-nat/freecad-mcp@78bf0230a03324b56c9a0b7f55150fb5be2a0d42 freecad-mcp --host 127.0.0.1
+   uvx --from git+https://github.com/neka-nat/freecad-mcp@ec8abf21fb9e9ed4bbcbba497515e088423ad251 freecad-mcp --host 127.0.0.1
    ```
    Optional hardening (v0.1.25+): set a shared secret with the addon's **"Set Auth Token"**
    command and pass the same value to the server through the `FREECAD_MCP_TOKEN` environment
@@ -186,10 +186,10 @@ between doesn't lose it.
 **Still roadmap:** sketch/constraint modeling, FEM headless, and assemblies. Keep a FreeCAD window open
 with the addon active for live MCP-assisted editing.
 
-## Security audit (commit `78bf023`) & per-tool gates
+## Security audit (commit `ec8abf2`) & per-tool gates
 
-**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `78bf023` (v0.1.27, MIT) has a
-clean minimal dep set (`mcp[cli]>=1.28.1,<3`, `validators`) with **no telemetry/Supabase/pickle/torch**
+**Verdict:** safe-with-precautions — `neka-nat/freecad-mcp` @ `ec8abf2` (v0.1.30, MIT) has a
+clean minimal dep set (`mcp[cli]>=1.28.1,<3`, `validators`, plus the security floors `anyio>=4.14.2`, `certifi>=2026.10.19`, `pyjwt>=2.15.0`) with **no telemetry/Supabase/pickle/torch**
 and no outbound network; the sole transport is loopback XML-RPC to FreeCAD on
 hardcoded `:9875`, a default `127.0.0.1` bind that flips to `0.0.0.0` only on
 explicit user opt-in and is still IP-allowlist-filtered (default `127.0.0.1`) via
@@ -227,20 +227,25 @@ Gates are enforced in [`../../.claude/settings.json`](../../.claude/settings.jso
 - **Approve `insert_part_from_library` paths.** Upstream now confines library paths, but the
   tool still writes into your document; check the path before approving any call.
 - **Pin from commit, never floating tag.** Always launch from the pinned git ref
-  `78bf023` so the server's own code can't change under you (its Python dependencies, `mcp[cli]` and
+  `ec8abf2` so the server's own code can't change under you (its Python dependencies, `mcp[cli]` and
   `validators`, still resolve within their ranges when `uvx` installs it). If the addon reports a
   version mismatch and suggests `uvx freecad-mcp@latest`, **don't**: bump the pin (and re-audit) instead.
 - **Re-audit on every pin bump.** When the pin is advanced, re-run the full audit
   against the diff before committing. Runbook:
   [`../../docs/UPDATING.md`](../../docs/UPDATING.md).
-  Last re-audit: `3745ff9 → 78bf023` (v0.1.22 → v0.1.27, 83 upstream commits) — **bump with
-  changes**: the GHSA-v4pw-r6h3-v75q fix, the `insert_part_from_library` path fix, `execute_code`
-  namespace isolation, the optional auth token, a server↔addon version handshake, threaded RPC
-  and GUI-dispatch timeouts, and two **new tools** (`execute_code_headless`, Tier 1, gated;
-  `get_async_status`, read-only). No new network egress; no build hooks. The addon now ships a
-  `package.xml` that it reads at import, so **re-copy the whole `addon/FreeCADMCP/` directory
-  into FreeCAD's `Mod/` and restart FreeCAD** — the `uvx` pin only refreshes the server half.
-  (Prior re-audits: `4c3f2ef → 3745ff9`, `1697aff → 4c3f2ef`, `63acb30 → 1697aff`: clean.)
+  Last re-audit: `78bf023 → ec8abf2` (v0.1.27 → v0.1.30, 32 upstream commits, 2026-11-11) — **bump, fixes
+  only**: per-thread stdout capture for `execute_code` (another thread's output no longer leaks into a reply),
+  XML-safe RPC replies, a transactional `create_object` (a failed call rolls back what it made),
+  `execute_code_headless` runs its worker with stdin closed (model code can't read the MCP stdio stream),
+  unit-checked FEM `Force` values, and `reload_document` reports the name FreeCAD reopened. Same 17 tools,
+  same bind / IP allowlist / Origin and Host checks, no new network egress, no build hooks. New dependency
+  floors `anyio>=4.14.2`, `certifi>=2026.10.19`, `pyjwt>=2.15.0` (already pulled in by `mcp[cli]`; they rule
+  out known advisories). **Re-copy the whole `addon/FreeCADMCP/` directory into FreeCAD's `Mod/` and restart
+  FreeCAD** (new `stdout_capture.py` and `fem_loads.py`): the `uvx` pin only refreshes the server half.
+  (Prior re-audits: `3745ff9 → 78bf023`, 83 commits: the GHSA-v4pw-r6h3-v75q fix, the
+  `insert_part_from_library` path fix, `execute_code` namespace isolation, the optional auth token, the
+  server↔addon version handshake, threaded RPC, and two new tools, `execute_code_headless` (Tier 1) and
+  `get_async_status`; `4c3f2ef → 3745ff9`, `1697aff → 4c3f2ef`, `63acb30 → 1697aff`: clean.)
 
 ## Tool surface (highlights)
 

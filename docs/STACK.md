@@ -12,7 +12,7 @@ use** — the package keeps a deliberately tiny runtime footprint (the heavy lif
 ```mermaid
 flowchart TD
     subgraph host["Host stack — RTX 5090 · CUDA cu130 · torch 2.10 · SageAttention"]
-        comfy["ComfyUI 0.40.0 (engine + models)"]
+        comfy["ComfyUI 0.45.2 (engine + models)"]
         packs["pinned node packs: LTXVideo · Foley · IPAdapter"]
         comfy --- packs
     end
@@ -41,7 +41,7 @@ The `chimera` package (**v0.6.3**, MIT) is pure Python with one required runtime
 |---------|---------|-------|----------|
 | **Python** | `>=3.12` | runtime | everything |
 | **pyyaml** | `>=6` | runtime (required) | parse `brand.yaml` manifests |
-| **pytest** | `>=8` | dev | the GPU-free test suite (1475 tests) |
+| **pytest** | `>=8` | dev | the GPU-free test suite (1571 tests) |
 | **ruff** | `>=0.17.1,<0.18` | dev | lint — correctness + likely-bug + modern-syntax (`select=["F", "B", "UP"]`); one minor, the same as the pre-commit hook, so a new ruff can't break CI unannounced |
 | **pytest-cov** | `>=5` | dev | coverage gate (`--cov-fail-under=85`) |
 | **pillow** | `>=12.3` (12.2 has 6 PYSEC advisories) | optional `[images]` | non-PNG logo sizing (`generate._image_size`) — graceful PNG-header fallback if absent; **required by the mesh3d and cad agent loops**, whose judged contact sheet it builds (`auto_generate.py` refuses `--pipeline mesh3d\|cad` without it) |
@@ -54,7 +54,7 @@ except that the mesh3d and cad loops need `[images]` (`[print]` also brings Pill
 ## 2 · ComfyUI runtime
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **ComfyUI** (Desktop) | **0.40.0** (reference, Comfy Desktop 1.1.7; smoke-validated 2026-10-14, then re-validated 2026-10-15 on the v0.6.0 defaults, every output checked as created by the run: Qwen-Image txt2img · product edit + SeedVR2 upscale · relight · Wan 2.2 i2v + camera move · foley · Stable Audio 3 music + sfx · TRELLIS.2 3D · render · cad · finalize-texture · image/mesh3d/cad agent loops on local Ollama models · replay) · **≥0.40** for the default models (their nodes are core in 0.40) · **≥0.24.x** runs the earlier models via `--model` · **LTX-2.3 needs the LTXVideo patch on ≥0.40** (see §3) | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is the floor because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
+| **ComfyUI** (Desktop) | **0.45.2** (reference, Comfy Desktop 1.1.9; smoke-validated 2026-11-12, every output checked as created by the run: Qwen-Image txt2img · Qwen and FLUX.2 relight · Stable Audio 3 music · ACE-Step lyrics · TRELLIS.2 3D · render · cad · Wan 2.2 i2v + RelayVSR `--upscale` · LTX-2.3 with STG and synced audio on the pack's own fix · the image agent loop on the local Qwen 3.8 27B judge; earlier: 0.40.0 on 2026-10-14/15 for the v0.6.0 defaults, foley, camera moves, finalize-texture and the mesh3d/cad loops) · **≥0.40** for the default models (their nodes are core in 0.40) · **≥0.45** for Wan `--upscale` (RelayVSR's nodes) · **≥0.24.x** runs the earlier models via `--model` | the generation engine (**GPL-3.0**; run as a separate process over HTTP, not vendored). ≥0.24.x is the floor because the agent verdict-capture uses the **core** node `SaveImageTextDataSetToFolder` (added in 0.24.x). CUDA 12.8+ is the floor to drive Blackwell at all. |
 
 ## 3 · Third-party ComfyUI node packs (pinned + security-audited)
 Every pack is **pinned by commit** (never `@latest`) and read-through audited before adoption; a
@@ -62,7 +62,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 
 | Pack | Repo | Pinned commit | Used by | Audit verdict |
 |------|------|--------------|---------|---------------|
-| **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `15d09ab` | video (LTX-2.3 i2v + synced audio: `MultimodalGuider`, `GuiderParameters`, `LTXVImgToVideoConditionOnly`) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code`. **On ComfyUI ≥ 0.40 apply [`modules/video/patches/ltxvideo-stg-comfyui-0.40.patch`](../modules/video/patches/ltxvideo-stg-comfyui-0.40.patch)** (the pack's STG skip returns core's new `AttentionTensorContainer`, so every STG render fails; see the video README). Re-audited `3b9c5cd → 15d09ab` (4 commits): LTX-2.5 example workflows (inert JSON) + legacy RoPE helpers made self-contained (`rope_utils.py`, pure math) + Gemma-loader dir-resolution/left-padding fixes; no new nodes, deps, or network. **Held at `15d09ab`** until our STG fix ([#580](https://github.com/Lightricks/ComfyUI-LTXVideo/pull/580)) lands: `15d09ab → 44c8a36` (18 commits) re-audited 2026-10-16, clean with the same precautions (new deps `colour-science` + `openimageio`; HDR and tiled-fusion nodes; the prompt enhancer and the `tricks/` nodes removed; the three nodes Chimera uses unchanged; the STG patch still needed) |
+| **ComfyUI-LTXVideo** | `Lightricks/ComfyUI-LTXVideo` | `220e1d4` | video (LTX-2.3 i2v + synced audio: `MultimodalGuider`, `GuiderParameters`, `LTXVImgToVideoConditionOnly`) | safe-with-precautions — never use the cloud `GemmaAPITextEncode`; avoid the prompt-enhancer's `trust_remote_code`. Re-audited `15d09ab → 44c8a36` (18 commits, 2026-10-16: new deps `colour-science` + `openimageio`; HDR and tiled-fusion nodes; the prompt enhancer and the `tricks/` nodes removed) and `44c8a36 → 220e1d4` (2 commits, 2026-11-11: **upstream's own STG fix for ComfyUI ≥ 0.40**, the same unwrap as our withdrawn patch; two HDR nodes removed; a `pyproject.toml` listing the same deps as `requirements.txt`); the three nodes Chimera uses unchanged, no new network. Earlier: `3b9c5cd → 15d09ab` (4 commits, clean). |
 | **ComfyUI-HunyuanVideo-Foley** | `phazei/ComfyUI-HunyuanVideo-Foley` | `afd2960` | audio foley (video→SFX) | safe-with-precautions — only 3 nodes used; never run the bundled `cli.py`/`infer.py`/`gradio_app.py` (pickle-RCE) |
 | **ComfyUI_IPAdapter_plus** | `cubiq/ComfyUI_IPAdapter_plus` | `a0f451a` | Phase-4b auto-repaint (SDXL depth-CN + IPAdapter view generation) | safe-with-precautions — clean deps (torch/comfy/PIL/einops), no net/telemetry/exec; only the niche `IPAdapterEmbeds` loader does `torch.load` (don't feed it untrusted `.ipadpt`) |
 
@@ -80,7 +80,7 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 |--------|---------|---------|-----------|------------------|
 | **comfyui-mcp** | npm `comfyui-mcp` (`artokun`) | **0.18.0** | stdio, **loopback only** (127.0.0.1) | MIT; audited not-malicious. Real controls: per-tool **approval gates** on the code-exec, install/download/config-changing, process-control and destructive tools (`.claude/settings.json`) + loopback-only binding + env-gating of the optional cloud/tunnel/Claude-Agent-SDK features (they stay inert unless explicitly enabled); benign `postinstall` (copies a settings template). `.mcp.json` sets **`NPM_CONFIG_INCLUDE=optional`** (replacing `NPM_CONFIG_OMIT=optional`, which on node ≥ 24 stripped `sharp`'s required native binary `@img/sharp-*` and crashed the server); the optional cloud/tunnel/agent deps install but stay inert, though installing the optional `cloudflared` package runs its postinstall, which downloads the latest `cloudflared` binary from GitHub with no checksum. The version pin fixes the server's own code: it ships no lockfile, so its npm dependencies resolve within their caret ranges at install time. Pinned + re-audited on bump; **0.20.x–0.50.x held** (issues #38/#41/#44/#49) — 0.20.9 has a broken upstream import (`@stable-canvas/comfyui-client/dist/main.modern.mjs`, absent from client `1.5.9`); 0.24.5+ adds **default-on startup self-update** (phones `registry.npmjs.org`, can `npm i @latest` on global/local installs) and **panel auto-install** (mutates the ComfyUI install from an unpinned "nightly" channel), 0.48.x layers a large multi-provider agent/network surface on top, and 0.50.x makes `npx` installs auto-update-ELIGIBLE (our exact launch mode). `.mcp.json` sets the opt-outs `COMFYUI_MCP_AUTOUPDATE=0` + `COMFYUI_MCP_PANEL_AUTOINSTALL=0` as defense-in-depth (inert on 0.18.0; they neutralize both behaviors if the pin ever drifts). See `modules/agent/README.md`. |
 | **blender_mcp** | Gitea `lab/blender_mcp` (Blender Foundation) | **v1.0.2 +3** (`dbbf836a`) | stdio → TCP, **loopback** (127.0.0.1:9876) | GPL-3.0-or-later; first-party, **zero telemetry** (deps `docutils`/`mcp[cli]`/`pyyaml`), from-source audited. Tier-1/2 code-exec & path tools gated; launched from the pinned Gitea commit via `uvx --with "mcp[cli]~=1.12" --from "git+…#subdirectory=mcp"` (the `--with` pins the MCP SDK to 1.x — upstream imports the SDK-1.x `mcp.server.fastmcp` path and does not bound the dep) (server pkg is in the repo's `mcp/` subdir; **never** the bare `uvx blender-mcp`); never `-t http`. The commit pin fixes the server's code; its Python deps resolve when `uvx` installs it. **Gitea, not GitHub.** |
-| **freecad-mcp** | GitHub `neka-nat/freecad-mcp` (server + addon) | **`78bf023`** (v0.1.27) | stdio → XML-RPC, **loopback** (127.0.0.1:9875) | MIT; no telemetry (deps `mcp[cli]>=1.28.1,<3`/`validators`, resolved when `uvx` installs it; the commit pin fixes only the server's code), from-source audited. Tier-1/2 tools gated; keep "Remote Connections" OFF. **v0.1.25+ is the security floor** ([GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q), HIGH: web pages could run Python in FreeCAD via the RPC server; fixed by refusing browser-originated requests). Pinned by commit; re-audited on bump (last: `3745ff9 → 78bf023`, 83 commits — the GHSA fix, `insert_part_from_library` path confinement, `execute_code` namespace isolation, optional auth token (`FREECAD_MCP_TOKEN`), server↔addon version handshake, threaded RPC; NEW tools `execute_code_headless` (Tier 1, gated) + `get_async_status` (read-only); no new network egress; re-copy the whole addon dir, incl. `package.xml`, into FreeCAD `Mod/`). Host: **FreeCAD 1.1.4+** (earlier releases have HIGH crafted-`.FCStd` advisories). |
+| **freecad-mcp** | GitHub `neka-nat/freecad-mcp` (server + addon) | **`ec8abf2`** (v0.1.30) | stdio → XML-RPC, **loopback** (127.0.0.1:9875) | MIT; no telemetry (deps `mcp[cli]>=1.28.1,<3`/`validators` + floors `anyio>=4.14.2`/`certifi>=2026.10.19`/`pyjwt>=2.15.0`, resolved when `uvx` installs it; the commit pin fixes only the server's code), from-source audited. Tier-1/2 tools gated; keep "Remote Connections" OFF. **v0.1.25+ is the security floor** ([GHSA-v4pw-r6h3-v75q](https://github.com/neka-nat/freecad-mcp/security/advisories/GHSA-v4pw-r6h3-v75q), HIGH: web pages could run Python in FreeCAD via the RPC server; fixed by refusing browser-originated requests). Pinned by commit; re-audited on bump (last: `78bf023 → ec8abf2`, 32 commits, fixes only — per-thread `execute_code` stdout capture, XML-safe replies, transactional `create_object`, the headless worker's stdin closed; same 17 tools, no new egress; re-copy the addon. Before that `3745ff9 → 78bf023`, 83 commits — the GHSA fix, `insert_part_from_library` path confinement, `execute_code` namespace isolation, optional auth token (`FREECAD_MCP_TOKEN`), server↔addon version handshake, threaded RPC; NEW tools `execute_code_headless` (Tier 1, gated) + `get_async_status` (read-only); no new network egress; re-copy the whole addon dir, incl. `package.xml`, into FreeCAD `Mod/`). Host: **FreeCAD 1.1.4+** (earlier releases have HIGH crafted-`.FCStd` advisories). |
 
 > **Gitea exception:** `blender_mcp` lives on Blender's Gitea (`projects.blender.org`), not GitHub —
 > Dependabot and the GitHub-compare path in `scripts/update_report.py` can't reach it, so its weekly
@@ -113,9 +113,10 @@ scheduled job re-scans upstream and the pin only advances after a clean result.
 ## 5 · Models (defaults — full inventory in [`CATALOG.md`](CATALOG.md))
 | Modality | Default | Family / source |
 |----------|---------|-----------------|
-| Image | **Qwen-Image-2.1** (`qwen_image_2.1_int8_convrot`) | Comfy-Org · Qwen research license · Z-Image (fast) and FLUX.2 (cinematic, relight) via `--model` |
+| Image | **Qwen-Image-2.1** (`qwen_image_2.1_int8_convrot`) | Comfy-Org · Qwen research license · Z-Image (fast) and FLUX.2 (cinematic, the default relight) via `--model`; `--mode relight --model qwen_image…` relights on Qwen in ~18 GB |
 | Image — `--upscale` | **SeedVR2 7B** (`seedvr2_7b_int8_convrot`) | Comfy-Org · Apache-2.0 · ESRGAN (`4x-UltraSharp.pth`) via `--upscale-model` |
 | Video | **Wan 2.2 14B** (`fp8`, 4-step lightx2v LoRAs; Fun Camera for `--camera`) | Comfy-Org · Apache-2.0 · core nodes · LTX-2.3 22B (synced audio) via `--model ltx23` |
+| Video — `--upscale` | **RelayVSR** 2× (`relayvsr_x2_lightx2v_int8_convrot`) for Wan; LTX's spatial latent upscaler for `--model ltx23` | Comfy-Org · Apache-2.0 · core nodes since ComfyUI 0.45 |
 | Audio — music + sfx | **Stable Audio 3 Medium** (+ Qwen3.5-2B prompt enhancer) | Comfy-Org · core-native · Stability Community License · ACE-Step 1.5 XL Turbo via `--model acestep` |
 | Audio — foley | **HunyuanVideo-Foley** | phazei · 48 kHz synced |
 | 3D | **TRELLIS.2** (`trellis_2_int8_convrot`, textured PBR GLB) | Comfy-Org · MIT · core in ComfyUI 0.40 · Pixal3D and Hunyuan3D 2.1 (shape only) via `--model` |
@@ -127,7 +128,7 @@ Weights are **never committed** — referenced by name + source; see CATALOG for
 | Action | Version | Role |
 |--------|---------|------|
 | `actions/checkout` | `v7.0.1` | checkout, with `persist-credentials: false` (the token isn't kept) |
-| `actions/setup-python` | `v7.0.0` | Python 3.12 (the required checks), 3.13 and 3.14 (Linux) + pip cache |
+| `actions/setup-python` | `v7.1.0` | Python 3.12 (the required checks), 3.13 and 3.14 (Linux) + pip cache |
 | `actions/upload-artifact` / `download-artifact` | `v7.0.2` / `v8.0.2` | hand `coverage.xml` from the Ubuntu test job to the upload job |
 | `codecov/codecov-action` | `v7.1.1` | coverage upload in its own `coverage` job, the only job with `id-token: write` (OIDC; **non-blocking**, `continue-on-error`) |
 | **CodeQL** | default setup | security scanning |
@@ -139,8 +140,8 @@ job (`continue-on-error`). GitHub secret scanning with push protection is on for
 optional pre-commit hooks (`.pre-commit-config.yaml`) include `detect-private-key`.
 
 **Required checks** on `main`: the two pytest matrix jobs — `ubuntu-latest` and `windows-latest`,
-py3.12 (1475 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
-1427 on Windows, which stays on `[dev]`, so the 9 Pillow-gated and 39 print-gated tests skip there and the no-Pillow
+py3.12 (1571 tests, all run locally and on the Linux leg, which installs the `[images]` and `[print]` extras;
+1523 on Windows, which stays on `[dev]`, so the 9 Pillow-gated and 39 print-gated tests skip there and the no-Pillow
 paths are proven; `[print]` would bring Pillow along through scikit-image;
 `--cov-fail-under=85`). Python 3.13 and 3.14 also run on Linux but aren't required. CI runs weekly too (Mondays
 06:00 UTC), so an upstream release that breaks the suite shows up in a week with no commits. Codecov is **not**

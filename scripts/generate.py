@@ -36,6 +36,7 @@ from scripts.brandkit import threed as threed_filler
 from scripts.brandkit.comfy import ComfyClient, DEFAULT_URL as DEFAULT_COMFY_URL
 from scripts.brandkit.outputs import (NoOutputError, brand_name_ok, comfy_output_path, fresh_output_name,
                                       route_output, select_output, write_sidecar)
+from scripts.brandkit.memguard import MemoryGuardError, ensure_room
 from scripts.brandkit.provenance import file_digest, git_provenance  # git_provenance's historical home was here
 from scripts.brandkit.sidecar import build_meta, render_identity
 
@@ -195,10 +196,10 @@ def _prepare_image(args, m, brand_dir, client, ap):
            "upscale": args.upscale,
            "upscale_model": args.upscale_model}  # raw; the filler resolves brand/default
     if args.mode == "relight":
-        if args.model and image_filler.family(args.model) != "flux2":
-            print(f"note: relight is a FLUX.2 edit, so it renders on {image_filler.DEFAULT_RELIGHT_MODEL}, not "
-                  f"{args.model}", file=sys.stderr)
-        # relight (FLUX.2 ReferenceLatent edit): --asset is the source still to relight. Search the
+        if args.model and image_filler.family(args.model) == "zimage":
+            print(f"note: relight is a FLUX.2 or Qwen-Image edit and Z-Image has none, so it renders on "
+                  f"{image_filler.DEFAULT_RELIGHT_MODEL}, not {args.model}", file=sys.stderr)
+        # relight (a FLUX.2 or Qwen-Image edit): --asset is the source still to relight. Search the
         # usual input locations incl. prior renders; brandless -> treat --asset as a direct path.
         asset_path = _resolve_asset(brand_dir, args.asset,
                                     ("products", "references", "outputs/images"), ap, "relight --asset")
@@ -389,9 +390,10 @@ PREPARE = {"image": _prepare_image, "video": _prepare_video, "audio": _prepare_a
 
 def _default_free_before(args, m):
     """--free-before when neither flag is given: per modality, except that image jobs loading FLUX.2
-    also free first (see workflow.needs_free_before). Mirrors the filler's `model or brand default`."""
+    also free first (see workflow.needs_free_before). Mirrors the filler's choice (workflow.image_model)."""
     if args.modality == "image":
-        return image_filler.needs_free_before(args.mode, args.variant, args.model or m.defaults.model)
+        return image_filler.needs_free_before(args.mode, args.variant,
+                                              image_filler.image_model(args.mode, args.model, m.defaults.model))
     return FREE_BEFORE_DEFAULT[args.modality]
 
 
@@ -468,6 +470,13 @@ def run(args, repo_root, ap):
                       "(the new sidecar records what was actually used)", file=sys.stderr)
                 sys.exit(1)
             print("--accept-drift: rendering anyway", file=sys.stderr)
+    # a job whose models won't fit in this machine's memory froze Windows twice (2026-11-11): refuse it up front
+    try:
+        note = ensure_room(client, wf)
+    except MemoryGuardError as e:
+        print(f"render refused: {e}", file=sys.stderr); sys.exit(1)
+    if note:
+        print(f"note: {note}", file=sys.stderr)
     # free only now: a replay stopped by drift, or a bad flag, must not unload every ComfyUI model first
     free_before = args.free_before if args.free_before is not None else _default_free_before(args, m)
     if free_before:
@@ -606,10 +615,12 @@ def main():
                      help="(LTX) force synced audio on (default: brand video.audio, else on); Wan clips are silent")
     vid.add_argument("--no-audio", dest="audio", action="store_false")
     vid.add_argument("--upscale", action="store_true",
-                     help="(LTX) 2x spatial latent upscale (temporally coherent; precedes watermark)")
+                     help="2x upscale, before the watermark: Wan = RelayVSR video super-resolution on the frames "
+                          "(~10 s on an RTX 5090); LTX = its temporally coherent spatial latent upscaler")
     vid.add_argument("--upscale-model", dest="upscale_model", default=None,
-                     help=f"override the latent upscaler (default {video_filler.DEFAULT_VIDEO_UPSCALE_MODEL}; "
-                          "must be in ComfyUI models/latent_upscale_models/)")
+                     help=f"override the upscaler: Wan default {video_filler.DEFAULT_WAN_UPSCALE_MODEL} (ComfyUI "
+                          f"models/diffusion_models/); LTX default {video_filler.DEFAULT_VIDEO_UPSCALE_MODEL} "
+                          "(models/latent_upscale_models/)")
     aud = sub.add_parser("audio", help="music, sound effects and video foley (Stable Audio 3 by default; "
                                       "--model acestep sings --lyrics)"); _add_common(aud)
     aud.add_argument("--mode", choices=["music", "sfx", "foley"], default="music",
@@ -770,8 +781,8 @@ def main():
     args = ap.parse_args()
     if getattr(args, "brand", None) and not brand_name_ok(args.brand):
         # before anything renders: route_output refuses it afterwards, leaving the render in ComfyUI's folder
-        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.', "
-                 "without any of <>:\"/\\|?*)")
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, or family/name for a "
+                 "sub-brand, each not starting with '.' and without any of <>:\"\\|?*)")
 
     repo_root = Path(__file__).resolve().parents[1]
     _check_repo_layout(repo_root, ap)
@@ -796,7 +807,8 @@ def main():
         from scripts.brandkit.gpu import gpu_checks
         client = ComfyClient(args.comfy_url)
         from scripts.agent.llm import local_model_checks   # the CLI may import the agent layer, not the reverse
-        results = (run_checks(client, repo_root, args.brand) + gpu_checks(client, args.ollama_url)
+        from scripts.brandkit.memguard import doctor_line
+        results = (run_checks(client, repo_root, args.brand) + gpu_checks(client, args.ollama_url) + [doctor_line()]
                    + local_model_checks(client, args.ollama_url))
         fails = print_doctor(args.brand, results)
         sys.exit(1 if fails else 0)

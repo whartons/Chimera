@@ -396,34 +396,50 @@ def unload_all(root, _opener=urllib.request.urlopen, *, wait=10.0):
             if unload(root, name, wait=wait, _opener=_opener)]
 
 
-def free_all(comfy_client, ollama_url=None, _opener=urllib.request.urlopen):
+def free_all(comfy_client, ollama_url=None, _opener=urllib.request.urlopen, *, _sleep=time.sleep,
+             _clock=time.monotonic):
     """`chimera free`: unload Ollama's models FIRST, waiting until it has let them go, then ask ComfyUI to unload
     its models and free VRAM. (Reversed, ComfyUI 0.40 can run out of CUDA memory inside /free while Ollama holds
     the GPU.)
-    Returns {"ollama": [(name, vram_bytes)] or None if not running, "comfy": "freed"|"not running"}."""
+    Returns {"ollama": [(name, vram_bytes)] unloaded, or None if not running, "comfy": "freed" | "not running" |
+    "didn't answer (<reason>)"}, plus "ollama_stuck": [(name, vram_bytes)] for models still held after the 10 s wait
+    (they were left out of the report, which then read "no models were loaded"; v0.6.3 limit)."""
     root = ollama_root(ollama_url)
-    report = {"ollama": unload_all(root, _opener=_opener) if is_ollama(root, _opener=_opener) else None}
+    report = {"ollama": None}
+    if is_ollama(root, _opener=_opener):
+        done, stuck = [], []
+        for name, vram in loaded_models(root, _opener=_opener):
+            ok = unload(root, name, wait=10.0, _opener=_opener, _sleep=_sleep, _clock=_clock)
+            (done if ok else stuck).append((name, vram))
+        report["ollama"] = done
+        if stuck:
+            report["ollama_stuck"] = stuck
     try:
         comfy_client.free()
         report["comfy"] = "freed"
-    except Exception:
-        report["comfy"] = "not running"
+    except Exception as e:   # only a refused connection is "not running"; a timeout is a busy or wedged ComfyUI
+        report["comfy"] = "not running" if _refused(e) else f"didn't answer ({getattr(e, 'reason', e)})"
     return report
 
 
 def print_free(report):
     """Render a free_all report (ASCII only, Windows-console safe)."""
+    stuck = report.get("ollama_stuck") or []
     if report["ollama"] is None:
         print("Ollama: not running - nothing to unload")
-    elif not report["ollama"]:
+    elif not report["ollama"] and not stuck:
         print("Ollama: no models were loaded")
     else:
         for name, vram in report["ollama"]:
             print(f"Ollama: unloaded {name} ({vram / _GB:.1f} GB of GPU memory)")
+        for name, vram in stuck:
+            print(f"Ollama: {name} is still holding {vram / _GB:.1f} GB after 10 s - run free again, or restart Ollama")
     if report["comfy"] == "freed":
         print("ComfyUI: asked to unload its models and free VRAM (it does so as soon as it is idle)")
-    else:
+    elif report["comfy"] == "not running":
         print("ComfyUI: not running - nothing to free")
+    else:
+        print(f"ComfyUI: {report['comfy']} - it may be busy or stuck: wait for its job, or restart it")
 
 
 def gpu_checks(comfy_client, ollama_url=None, _opener=urllib.request.urlopen):
@@ -437,10 +453,15 @@ def gpu_checks(comfy_client, ollama_url=None, _opener=urllib.request.urlopen):
     except Exception:
         pass   # ComfyUI reachability is reported by the main doctor checks
     root = ollama_root(ollama_url)
-    if not is_ollama(root, _opener=_opener):
-        out.append(("info", "Ollama not running (needed only for auto_generate.py's local models)"))
+    try:   # strict: a timed-out probe read as "not running" or "holds nothing" about a wedged Ollama (v0.6.3 limit)
+        if not is_ollama(root, _opener=_opener, strict=True):
+            out.append(("info", "Ollama not running (needed only for auto_generate.py's local models)"))
+            return out
+        resident = loaded_models(root, _opener=_opener, strict=True)
+    except ProbeError as e:
+        out.append(("warn", f"Ollama is there but {e}: what it holds on the GPU is unknown (busy or wedged); "
+                            "restart it before a heavy ComfyUI job"))
         return out
-    resident = loaded_models(root, _opener=_opener)
     held = sum(v for _, v in resident) / _GB
     if not resident:
         out.append(("ok", "Ollama holds no GPU memory"))

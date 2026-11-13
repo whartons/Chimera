@@ -544,8 +544,7 @@ class _CountingUploads(_FakeUploadClient):
     (dict(model="ltx23", camera="pan-left"), "Fun Camera"),
     (dict(model="ltx23", quality="full"), "--quality"),
     (dict(model="wan22-camera"), "needs a camera move"),
-    (dict(upscale=True), "latent upscaler"),
-])
+])   # Wan --upscale is allowed since 2026-11-12 (RelayVSR): tests/test_video_wan.py
 def test_prepare_video_rejects_a_combination_before_uploading(tmp_path, over, match):
     brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
     (brand_dir / "products" / "r.png").write_bytes(b"x")
@@ -721,9 +720,19 @@ def test_relight_says_which_model_it_renders_on(tmp_path, capsys):
     brand_dir = tmp_path / "brands" / "b"; (brand_dir / "products").mkdir(parents=True)
     (brand_dir / "products" / "r.png").write_bytes(_png_header(64, 64))
     args = _args_ns(modality="image", mode="relight", asset="r.png", brand="b",
-                    model="qwen_image_2.1_int8.safetensors")
+                    model="z_image_turbo_nvfp4.safetensors")
     generate._prepare_image(args, M, brand_dir, _FakeUploadClient(), _StubAp())
-    assert "relight is a FLUX.2 edit" in capsys.readouterr().err
+    assert "Z-Image has none" in capsys.readouterr().err
+    args.model = "qwen_image_2.1_int8.safetensors"            # a Qwen relight runs as asked (2026-11-12)
+    generate._prepare_image(args, M, brand_dir, _FakeUploadClient(), _StubAp())
+    assert "relight" not in capsys.readouterr().err
+
+
+def test_a_default_relight_still_frees_first_for_flux2():
+    # the brand default (Qwen) relights on FLUX.2, whose text-encoder load needs the free (comfy-aimdo#61)
+    assert generate._default_free_before(_args_ns(modality="image", mode="relight", variant=None, model=None), M)
+    q = _args_ns(modality="image", mode="relight", variant=None, model="qwen_image_2.1_int8_convrot.safetensors")
+    assert not generate._default_free_before(q, M)
 
 
 def test_foley_replays_the_recorded_timing_and_size(tmp_path, monkeypatch):

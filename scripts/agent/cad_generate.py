@@ -15,7 +15,7 @@ from scripts.agent.loop import SeedNames
 from scripts.brandkit import montage  # noqa: F401 (seam: tests patch montage.contact_sheet here)
 from scripts.brandkit import gpu
 from scripts.brandkit.dcc import job_outputs
-from scripts.brandkit.outputs import route_output
+from scripts.brandkit.outputs import brand_stem, route_output
 from scripts.brandkit.freecad import run_template as fc_run
 from scripts.brandkit.blender import run_template as bl_run
 from scripts.agent.render_generate import eval_contact_sheet
@@ -128,7 +128,7 @@ def make_cad_generate(args, repo_root, generator, *, freecad_runner=fc_run, blen
         state["last_good"] = script
         tmp = Path(tempfile.mkdtemp(prefix="chimera_cad_loop_"))
         try:
-            stem = f"{args.brand or 'cad'}_{tag}"
+            stem = f"{brand_stem(args.brand or 'cad')}_{tag}"
             sp = tmp / "model.py"
             sp.write_text(script, encoding="utf-8")
             # 2. execute it headless -> STL (FreeCAD), with restricted builtins + import allowlist

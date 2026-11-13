@@ -18,6 +18,18 @@ quality. All Apache-2.0, from `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` (the text e
 | `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `text_encoders/` | ~6.3 GB | all Wan |
 | `wan_2.1_vae.safetensors` | `vae/` | ~0.25 GB | all Wan |
 
+### `--upscale` for Wan: RelayVSR (optional)
+
+A one-step 2× video super-resolution model, run on Wan's decoded frames by `video --upscale`. Its nodes
+(`RelayVSRConditioning`, `VSRDecode`) are core since ComfyUI 0.45, so there's no pack to install. It's from
+[`Comfy-Org/RelayVSR`](https://huggingface.co/Comfy-Org/RelayVSR) (Apache-2.0; base model `kopper/RelayVSR`),
+and the files sit at the repo's top level, with no `split_files/`.
+
+| File | Destination (`ComfyUI/models/…`) | Size |
+|------|----------------------------------|------|
+| `relayvsr_x2_lightx2v_int8_convrot.safetensors` | `diffusion_models/` | ~4.8 GB |
+| `relayvsr_flash_vae_x2_fp32.safetensors` | `vae/` | ~0.1 GB |
+
 ---
 
 ## LTX-2.3 22B (`--model ltx23`) — synced audio
@@ -66,10 +78,10 @@ what you downloaded).
 | | |
 |---|---|
 | **Repo** | `https://github.com/Lightricks/ComfyUI-LTXVideo` |
-| **Audited commit** | `15d09ab` — **pinned** (never `@latest`); re-scan before advancing the pin |
-| **Install** | Clone into `ComfyUI/custom_nodes/`, then `git checkout 15d09ab`, then `pip install -r requirements.txt` |
+| **Audited commit** | `220e1d4` — **pinned** (never `@latest`); re-scan before advancing the pin |
+| **Install** | Clone into `ComfyUI/custom_nodes/`, then `git checkout 220e1d4`, then `pip install -r requirements.txt` |
 | **Setup.py** | None — cloning the repo runs no code; only `pip install` executes the pack's Python |
-| **Security** | Scan before adoption and on every update (same standard as the MCP bridge). Verdict for the reviewed revision (`15d09ab`, re-audited `3b9c5cd → 15d09ab`: LTX-2.5 example workflows, self-contained legacy RoPE helpers in a new pure-math `rope_utils.py`, Gemma-loader dir-resolution + left-padding fixes; no new nodes/deps/network): safe for local use — **with the two exclusions below** |
+| **Security** | Scan before adoption and on every update (same standard as the MCP bridge). Verdict for the reviewed revision (`220e1d4`, re-audited `15d09ab → 44c8a36 → 220e1d4`: upstream's own STG fix for ComfyUI ≥ 0.40, two HDR nodes removed, new deps `colour-science` + `openimageio`, the three nodes Chimera uses unchanged; before that `3b9c5cd → 15d09ab`: LTX-2.5 example workflows, self-contained legacy RoPE helpers in a new pure-math `rope_utils.py`, Gemma-loader dir-resolution + left-padding fixes; no new nodes/deps/network): safe for local use — **with the two exclusions below** |
 
 ### Excluded nodes (do not use)
 - **`GemmaAPITextEncode`** — sends prompts to a Lightricks cloud endpoint. Use

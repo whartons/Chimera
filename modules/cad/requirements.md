@@ -23,12 +23,12 @@ FreeCAD must be running with its GUI active for MCP-assisted work (see [README.m
 | | |
 |---|---|
 | **Package** | `neka-nat/freecad-mcp` |
-| **Pinned commit** | `78bf023` (v0.1.27; v0.1.25+ is required for the GHSA-v4pw-r6h3-v75q fix) |
+| **Pinned commit** | `ec8abf2` (v0.1.30; v0.1.25+ is required for the GHSA-v4pw-r6h3-v75q fix) |
 | **Source** | <https://github.com/neka-nat/freecad-mcp> |
 | **License** | MIT |
 | **Console script** | `freecad-mcp` → `freecad_mcp.server:main` |
-| **Runtime deps** | `mcp[cli]>=1.28.1,<3`, `validators` |
-| **Launcher** | `uvx --from git+https://github.com/neka-nat/freecad-mcp@78bf0230a03324b56c9a0b7f55150fb5be2a0d42 freecad-mcp --host 127.0.0.1` |
+| **Runtime deps** | `mcp[cli]>=1.28.1,<3`, `validators`, plus security floors `anyio>=4.14.2`, `certifi>=2026.10.19`, `pyjwt>=2.15.0` (all already pulled in by `mcp[cli]`) |
+| **Launcher** | `uvx --from git+https://github.com/neka-nat/freecad-mcp@ec8abf21fb9e9ed4bbcbba497515e088423ad251 freecad-mcp --host 127.0.0.1` |
 
 The server is launched via [`../../.mcp.json`](../../.mcp.json) using Astral's `uv`
 (`uvx`) so no manual install step is needed — `uv` resolves the pinned git ref on
@@ -37,7 +37,7 @@ when `uv` installs it.
 
 ### FreeCAD addon
 
-The repo ships a companion addon at `addon/FreeCADMCP/` (same commit `78bf023`). Copy the whole
+The repo ships a companion addon at `addon/FreeCADMCP/` (same commit `ec8abf2`). Copy the whole
 directory: its `package.xml` is read at import. Keep backups of an older copy outside `Mod/`.
 
 | | |
@@ -87,7 +87,7 @@ dependencies. The only artifacts to acquire are:
 1. FreeCAD **1.1.4 or newer** (from <https://www.freecad.org/downloads.php>; earlier releases have HIGH
    advisories triggered by opening a crafted `.FCStd`, see
    <https://github.com/FreeCAD/FreeCAD/security/advisories>).
-2. The `addon/FreeCADMCP/` directory from the pinned commit `78bf023` (copy to
+2. The `addon/FreeCADMCP/` directory from the pinned commit `ec8abf2` (copy to
    your FreeCAD `Mod/` directory as described above).
 
 `uv` / `uvx` handles the Python server package automatically at launch time from

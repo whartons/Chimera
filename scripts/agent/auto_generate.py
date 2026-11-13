@@ -395,7 +395,8 @@ def main():
     if args.max_iters is None:
         args.max_iters = 3 if args.pipeline in ("mesh3d", "cad") else 4
     if args.brand and not brand_name_ok(args.brand):
-        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, not starting with '.')")
+        ap.error(f"--brand {args.brand!r} isn't a brand folder name (one plain name, or family/name, "
+                 "not starting with '.')")
     try:
         seeds = _run_seeds(args.seeds, args.max_iters)
     except ValueError:

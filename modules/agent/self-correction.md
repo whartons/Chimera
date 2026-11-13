@@ -697,6 +697,8 @@ resident for about 5 minutes after its last request. So when an endpoint is a lo
   starts beside it), and stops the run before the first render with the fix (restart Ollama, or
   `chimera free`). A ComfyUI that times out on its first `/system_stats` refuses the load too, rather than reading as
   "not running" and loading the model beside a wedged card.
+- **Code-gen skips inline reasoning.** On a server that inlines a thinking model's `<think>` block, a draft code
+  fence inside it is ignored; the script comes from the answer.
 - **Whatever the ComfyUI URL**, the unloads run: one given by LAN address, host name or WSL IP may be this
   machine, and an unneeded unload only costs a judge reload. The room check before a model loads needs a
   ComfyUI given as `localhost` or `127.0.0.1`, though, and on another address an image run only warns about a
@@ -712,8 +714,13 @@ costs a few seconds per iteration for the 8B, more for a 27B, and the image mode
 had to free it. Set `CHIMERA_KEEP_LLM_LOADED=1` only if Ollama runs on a second GPU. By hand, `chimera free`
 unloads every Ollama model, waiting up to 10 s per model until Ollama has let go of it, and then asks ComfyUI
 to free its VRAM, in that order (asked while Ollama still held the card, ComfyUI 0.40 can run out of memory
-inside its own `/free`), and `chimera doctor` reports
-both apps' GPU memory and warns when Ollama holds 8 GB or more. Don't run other heavy GPU jobs beside a loop.
+inside its own `/free`). It names a model still holding memory after its 10 s, and says when ComfyUI didn't
+answer instead of calling it "not running". `chimera doctor` reports both apps' GPU memory and warns when
+Ollama holds 8 GB or more, or when it is there but doesn't answer (what it holds is then unknown). A render that
+times out (`--timeout`, or a loop's graph) is cancelled in ComfyUI, that prompt only, so a stuck job doesn't
+leave the next ones queued behind it. Every graph a loop renders passes the memory guard first: one whose models
+won't fit in this machine's memory raises `MemoryGuardError` before it's queued (see the Blackwell tuning guide).
+Don't run other heavy GPU jobs beside a loop.
 
 ```
 python scripts/agent/auto_generate.py --pipeline cad --subject "a coffee mug"   # the GPU tier's local models

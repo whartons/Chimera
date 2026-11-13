@@ -23,15 +23,15 @@ import urllib.request
 
 # Source of truth for the pins is docs/STACK.md — keep this table in sync (see CLAUDE.md docs rule).
 GIT_PACKS = [
-    ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "15d09ab"),
+    ("ComfyUI-LTXVideo", "Lightricks", "ComfyUI-LTXVideo", "220e1d4"),
     ("ComfyUI-HunyuanVideo-Foley", "phazei", "ComfyUI-HunyuanVideo-Foley", "afd2960"),
     ("ComfyUI_IPAdapter_plus", "cubiq", "ComfyUI_IPAdapter_plus", "a0f451a"),
-    ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "78bf023"),
+    ("freecad-mcp (FreeCAD MCP)", "neka-nat", "freecad-mcp", "ec8abf2"),
 ]
-# git packs held behind upstream on purpose: (commit re-audited up to, why). The report stays quiet until upstream
-# moves past the audited commit. LTXVideo: 44c8a36 changes nothing Chimera uses and adds two dependencies, and
-# still needs our STG patch, so it moves once our fix lands upstream.
-GIT_HOLDS = {"Lightricks/ComfyUI-LTXVideo": ("44c8a36", "until our STG fix, Lightricks/ComfyUI-LTXVideo#580, lands")}
+# git packs held behind upstream on purpose: {"owner/repo": (commit re-audited up to, why)}. The report stays
+# quiet until upstream moves past the audited commit. (LTXVideo was held at 15d09ab until upstream fixed STG on
+# ComfyUI >= 0.40 itself in 339ecc1; the hold ended 2026-11-11.)
+GIT_HOLDS: dict[str, tuple[str, str]] = {}
 # blender_mcp lives on Blender's Gitea (not GitHub) — checked via the Gitea compare API.
 GITEA_PACKS = [("blender_mcp (Blender MCP)", "https://projects.blender.org", "lab", "blender_mcp", "dbbf836a")]
 NPM_PACKS = [("comfyui-mcp (MCP bridge)", "comfyui-mcp", "0.18.0")]
@@ -39,8 +39,8 @@ NPM_PACKS = [("comfyui-mcp (MCP bridge)", "comfyui-mcp", "0.18.0")]
 # self-update and panel auto-install; the weekly security routine re-scans new releases there)
 NPM_HOLDS = {"comfyui-mcp": "#56"}
 # the released version a pinned pack is at, where the project tags versions: advisories name affected versions
-PACK_VERSIONS = {"neka-nat/freecad-mcp": "0.1.27"}
-COMFY_REF = "0.40.0"   # the reference build documented in docs/STACK.md / SETUP.md
+PACK_VERSIONS = {"neka-nat/freecad-mcp": "0.1.30"}
+COMFY_REF = "0.45.2"   # the reference build documented in docs/STACK.md / SETUP.md
 # The host apps besides ComfyUI that Chimera is validated against (docs/STACK.md §7 — keep in sync): (name,
 # reference version, GitHub repo for releases + security advisories, endoflife.date product for end of life)
 HOST_APPS = [

@@ -30,6 +30,10 @@ _WAN_QUALITY = {"fast": (4, 1.0, 2), "full": (20, 3.5, 10)}
 # LTX 2x spatial latent upscaler for the opt-in video --upscale pass (built-in option of
 # LatentUpscaleModelLoader; in models/latent_upscale_models/).
 DEFAULT_VIDEO_UPSCALE_MODEL = "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+# Wan's --upscale: RelayVSR, a one-step 2x video super-resolution model (core nodes since ComfyUI 0.45) run on
+# the decoded frames. Its diffusion model is in models/diffusion_models/, its VAE in models/vae/.
+DEFAULT_WAN_UPSCALE_MODEL = "relayvsr_x2_lightx2v_int8_convrot.safetensors"
+RELAYVSR_VAE = "relayvsr_flash_vae_x2_fp32.safetensors"
 # Appended to the brand negative for video: suppress frozen/static frames, force audio, and
 # suppress the i2v artifacts that read as "unrealistic" (warping/morphing/jitter). The brand
 # negative is image-oriented and lacks these; the validated render relied on the first two.
@@ -113,17 +117,18 @@ def check_options(manifest, *, model=None, camera=None, quality=None, upscale=Fa
             raise ValueError("--quality picks Wan 2.2's sampling (fast or full); LTX-2.3 has one: drop "
                              "--quality, or pass --model wan22")
         return
-    if upscale:
-        raise ValueError("video --upscale is LTX's latent upscaler: render with --model ltx23, or ask Wan for "
-                         "the size you want with --width/--height")
     if is_camera_model(mfile) and not camera:
         raise ValueError("the Wan 2.2 Fun Camera model needs a camera move: add --camera (static keeps it "
                          "locked), or use --model wan22")
 
 
-def resolved_upscale_model(manifest, upscale_model=None):
-    """The spatial latent upscaler the --upscale pass will load: override, else the brand's
-    video.upscale_model, else DEFAULT_VIDEO_UPSCALE_MODEL. Shared by build() and the sidecar."""
+def resolved_upscale_model(manifest, upscale_model=None, model=None, camera=None):
+    """The upscaler the --upscale pass will load, for the family `model`/`camera` resolve to. LTX: override, else the
+    brand's video.upscale_model, else DEFAULT_VIDEO_UPSCALE_MODEL (a latent upscaler). Wan: override, else
+    DEFAULT_WAN_UPSCALE_MODEL (RelayVSR; the brand's video.upscale_model names LTX's latent upscaler, which Wan
+    can't load). Shared by build() and the sidecar."""
+    if is_wan(resolved_model(manifest, model, camera)):
+        return upscale_model or DEFAULT_WAN_UPSCALE_MODEL
     return upscale_model or manifest.video.upscale_model or DEFAULT_VIDEO_UPSCALE_MODEL
 
 
@@ -141,6 +146,29 @@ def _inject_video_upscale(wf, model_name):
     wf["71"] = {"class_type": "LTXVLatentUpsampler", "_meta": {"title": "brand:video_upscale"},
                 "inputs": {"samples": src, "upscale_model": ["70", 0], "vae": vae}}
     decode["inputs"]["samples"] = ["71", 0]
+    return wf
+
+
+def _inject_wan_upscale(wf, model_name, seed):
+    """Splice RelayVSR 2x between Wan's decoded frames and brand:create_video: RelayVSRConditioning reads the
+    frames, one KSampler step (the official template's settings) samples the detail, VSRDecode adds it to a
+    bicubic 2x of the same frames. Pixel space, before the watermark. Ids 70-74."""
+    assert_free_ids(wf, "70", "71", "72", "73", "74")
+    _, create = find_node_by_title(wf, "brand:create_video")
+    frames = create["inputs"]["images"]
+    wf["70"] = {"class_type": "UNETLoader", "_meta": {"title": "brand:video_upscale_model"},
+                "inputs": {"unet_name": model_name, "weight_dtype": "default"}}
+    wf["71"] = {"class_type": "RelayVSRConditioning", "_meta": {"title": "brand:video_upscale"},
+                "inputs": {"model": ["70", 0], "images": frames}}
+    wf["72"] = {"class_type": "KSampler", "_meta": {"title": "brand:video_upscale_sampler"},
+                "inputs": {"model": ["70", 0], "positive": ["71", 0], "negative": ["71", 0],
+                           "latent_image": ["71", 1], "seed": seed, "steps": 1, "cfg": 1.0,
+                           "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}}
+    wf["73"] = {"class_type": "VAELoader", "_meta": {"title": "brand:video_upscale_vae"},
+                "inputs": {"vae_name": RELAYVSR_VAE}}
+    wf["74"] = {"class_type": "VSRDecode", "_meta": {"title": "brand:video_upscale_decode"},
+                "inputs": {"vae": ["73", 0], "samples": ["72", 0], "images": frames, "detail": 1.0}}
+    create["inputs"]["images"] = ["74", 0]
     return wf
 
 
@@ -165,7 +193,7 @@ def _build_ltx(repo_root, manifest, positive, negative, seed, from_image, r, ups
     if not r["audio"]:
         _n(wf, "brand:create_video")["inputs"].pop("audio", None)
     if upscale:
-        _inject_video_upscale(wf, resolved_upscale_model(manifest, upscale_model))
+        _inject_video_upscale(wf, resolved_upscale_model(manifest, upscale_model, model=r["model"]))
     return wf
 
 
@@ -207,11 +235,13 @@ def build(repo_root, manifest, *, positive, negative, seed, watermark=False,
                           width=width, height=height, audio=audio)   # audio None = brand video.audio (LTX)
     if is_wan(r["model"]):
         wf = _build_wan(repo_root, positive, negative, seed, from_image, r)
+        if upscale:
+            _inject_wan_upscale(wf, resolved_upscale_model(manifest, upscale_model, model=r["model"]), seed)
     else:
         wf = _build_ltx(repo_root, manifest, positive, negative, seed, from_image, r, upscale, upscale_model)
     if watermark:
         from .watermark import inject_video_watermark
-        # The LTX spatial upscaler is fixed 2x, so the decoded frames are 2x the base canvas;
+        # Both upscalers (LTX's latent one, Wan's RelayVSR) are fixed 2x, so the frames are 2x the base canvas;
         # the watermark places its logo by canvas geometry, so it must use the doubled canvas.
         wm_canvas = (r["width"] * 2, r["height"] * 2) if upscale else (r["width"], r["height"])
         inject_video_watermark(wf, manifest=manifest, logo_name=watermark_logo,

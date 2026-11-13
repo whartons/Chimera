@@ -1,8 +1,9 @@
 # Image module — models
 
 Three backends are supported. **Qwen-Image-2.1 is the default**; Z-Image (fast) and FLUX.2
-(cinematic, relight) are selected by passing a `z_image*` / `flux2*` model name or pinning one in a
-brand.
+(cinematic, the default relight) are selected by passing a `z_image*` / `flux2*` model name or pinning one
+in a brand. Relight also runs on Qwen-Image-2.1 with `--model qwen_image_2.1_int8_convrot.safetensors`
+(no extra files).
 
 Download the files for your chosen backend from Hugging Face and drop each into
 the matching `ComfyUI/models/...` folder. Filenames must match the ones in the
@@ -112,9 +113,17 @@ FLUX.2 [dev] — activates when the model name starts with `flux2`. Uses a
 
 | File | Destination (`ComfyUI/models/…`) | Source | License |
 |------|----------------------------------|--------|---------|
-| `flux2_dev_fp8mixed.safetensors` | `diffusion_models/` | `Comfy-Org/flux2-dev` repackage (Hugging Face) | ❓ FLUX.2 [dev] non-commercial — verify; fine for personal use |
-| `mistral_3_small_flux2_bf16.safetensors` | `text_encoders/` | `Comfy-Org/flux2-dev` text encoders (Hugging Face) | ✅ Mistral / Apache-2.0 |
+| `flux2-dev-nvfp4-mixed.safetensors` *(the default relight)* | `diffusion_models/` | [`black-forest-labs/FLUX.2-dev-NVFP4`](https://huggingface.co/black-forest-labs/FLUX.2-dev-NVFP4) | ❓ FLUX.2 [dev] non-commercial — verify; fine for personal use |
+| `flux2_dev_fp8mixed.safetensors` *(cards before the RTX 50 series)* | `diffusion_models/` | `Comfy-Org/flux2-dev` repackage (Hugging Face) | ❓ FLUX.2 [dev] non-commercial — verify; fine for personal use |
+| `mistral_3_small_flux2_fp8.safetensors` | `text_encoders/` | `Comfy-Org/flux2-dev` (`split_files/text_encoders/`) | ✅ Mistral / Apache-2.0 |
 | `flux2-vae.safetensors` | `vae/` | `Comfy-Org/flux2-dev` repo (Hugging Face) | ❓ FLUX.2 [dev] |
+
+**The fp8 text encoder (since 2026-11-12).** Every FLUX.2 graph loads `mistral_3_small_flux2_fp8` (16.8 GB)
+instead of the bf16 encoder (33 GB). In the 2026-11-12 bake-off it gave the bf16 encoder's images at the same
+seeds (three relights, compared at 1:1). That brought a FLUX.2 render's system-memory need from ~68 GB to ~52 GB
+(the fp8 model) or ~40 GB (nvfp4); see the memory guard in
+[`../../docs/BLACKWELL-TUNING.md`](../../docs/BLACKWELL-TUNING.md). If you only have the bf16 encoder, rename
+the `clip_name` in the FLUX.2 templates.
 
 > Find them via the ComfyUI **Templates Library** (it links the exact downloads),
 > or **ComfyUI-Manager → Model Manager**, or search Hugging Face for
@@ -128,13 +137,15 @@ FLUX.2 [dev] — activates when the model name starts with `flux2`. Uses a
   → `diffusion_models/`. Measured **~2.7× faster** than fp8 at equal quality on
   an RTX 5090 — **requires the cu130 stack** (see
   [`../../docs/BLACKWELL-TUNING.md`](../../docs/BLACKWELL-TUNING.md)). On CUDA 12.x
-  it runs *slower* than fp8; only use it after confirming cu130.
+  it runs *slower* than fp8; only use it after confirming cu130. It's the default relight model since
+  2026-11-12; pass `--model flux2_dev_fp8mixed.safetensors` on an older card.
 
 ### FLUX.2 VRAM
 
 The files are bigger than the card: `flux2_dev_fp8mixed` is 35.5 GB, `flux2-dev-nvfp4-mixed` 22.8 GB and the
-bf16 Mistral encoder 35.6 GB (decimal GB, as Hugging Face lists them). The GPU memory below is the **observed
-peak** with ComfyUI's offloading, which streams the encoder from disk (comfy-aimdo), not the weight size:
+fp8 Mistral encoder 18 GB (the bf16 one is 35.6 GB; decimal GB, as Hugging Face lists them). The GPU memory
+below is the **observed peak** with ComfyUI's offloading, which streams the encoder from disk (comfy-aimdo), not
+the weight size:
 
 - fp8 (`flux2_dev_fp8mixed`): ~16–24 GB peak; ~12 GB load footprint observed.
 - NVFP4: a smaller peak, faster, **cu130 only**.

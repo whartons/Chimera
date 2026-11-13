@@ -74,7 +74,7 @@ def test_an_unknown_brand_is_one_clean_error(tmp_path, capsys):
     assert e.value.code == 2 and "brand 'typo'" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("bad", ["../b", ".hidden", "a/b", "what?"])
+@pytest.mark.parametrize("bad", ["../b", ".hidden", "a/b/c", "what?"])
 def test_a_brand_that_is_not_a_folder_name_is_refused(tmp_path, capsys, bad):
     # --brand was joined to brands/ unchecked, so '../b' read a brand.yaml (and wrote a config) outside brands/
     repo = _tmp_brand(tmp_path)

@@ -5,7 +5,7 @@
   },
   "2": {
     "class_type": "CLIPLoader",
-    "inputs": { "clip_name": "mistral_3_small_flux2_bf16.safetensors", "type": "flux2" }
+    "inputs": { "clip_name": "mistral_3_small_flux2_fp8.safetensors", "type": "flux2" }
   },
   "3": {
     "class_type": "VAELoader",

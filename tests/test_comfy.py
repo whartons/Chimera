@@ -298,3 +298,54 @@ def test_wait_rides_out_a_queue_read_that_tells_nothing(monkeypatch, queue):
     # the /queue check is a hint: a failed or unrecognised read must not abort a render that is still running
     _route(monkeypatch, _history_after(12), queue)
     assert comfy.ComfyClient().wait("abc") == _DONE
+
+
+# --- a wait that times out takes its own prompt off ComfyUI (2026-11-10 freeze) -----------------------------
+def _route_posts(monkeypatch, history, queue, post_fails=False):
+    """Like _route, and records each POST as (path, json body); post_fails makes every POST raise."""
+    posts = []
+
+    def fake(req, timeout=0):
+        url = req if isinstance(req, str) else req.full_url
+        data = None if isinstance(req, str) else req.data
+        if data is not None:
+            if post_fails:
+                raise comfy.urllib.error.URLError("refused")
+            posts.append((url.rsplit("/", 1)[-1], json.loads(data.decode())))
+            return FakeResp(b"")
+        return FakeResp(json.dumps(queue() if url.endswith("/queue") else history()).encode())
+    monkeypatch.setattr(comfy.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(comfy, "time", _Clock())
+    return posts
+
+
+_STUCK = {"queue_running": [[0, "abc", {}, {}, []]], "queue_pending": [[1, "next", {}, {}, []]]}
+
+
+def test_a_timed_out_wait_cancels_its_own_prompt(monkeypatch):
+    # the CLI raised TimeoutError and left the job in ComfyUI, so a loop of renders queued job after job behind a
+    # stuck FLUX.2 text-encoder load; when it finally ended, the next one hard-hung Windows (2026-11-10)
+    posts = _route_posts(monkeypatch, lambda: {}, lambda: _STUCK)
+    with pytest.raises(TimeoutError, match="cancelled"):
+        comfy.ComfyClient().wait("abc", max_wait=30)
+    assert posts == [("queue", {"delete": ["abc"]}), ("interrupt", {"prompt_id": "abc"})]
+
+
+def test_cancel_touches_only_that_prompt(monkeypatch):
+    posts = _route_posts(monkeypatch, lambda: {}, lambda: _STUCK)
+    comfy.ComfyClient().cancel("abc")
+    assert all("clear" not in body for _, body in posts)                       # never the whole queue
+    assert all(body.get("prompt_id") == "abc" for path, body in posts if path == "interrupt")   # never blind
+    assert [p for p, _ in posts] == ["queue", "interrupt"]
+
+
+def test_a_timeout_whose_cancel_fails_still_says_it_timed_out(monkeypatch):
+    _route_posts(monkeypatch, lambda: {}, lambda: _STUCK, post_fails=True)
+    with pytest.raises(TimeoutError, match="could not cancel it") as e:
+        comfy.ComfyClient().wait("abc", max_wait=30)
+    assert "abc" in str(e.value)
+
+
+def test_a_wait_that_finishes_cancels_nothing(monkeypatch):
+    posts = _route_posts(monkeypatch, _history_after(3), lambda: _STUCK)
+    assert comfy.ComfyClient().wait("abc") == _DONE and posts == []

@@ -855,3 +855,54 @@ def test_free_all_asks_comfyui_to_free_only_after_ollama_has_let_go():
             log.append(("free", None))
     gpu.free_all(_C(), "http://127.0.0.1:11434", _opener=open_)
     assert log[-1] == ("free", None) and log[-2] == ("ps", 0)
+
+
+# --- doctor and free say what they don't know (v0.6.3 known limits, fixed 2026-11-11) ------------------------
+def _times_out(routes, slow_paths):
+    """_server, except the paths in `slow_paths` time out (Ollama there but busy or wedged)."""
+    inner = _server(routes, [])
+
+    def open_(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else req
+        if any(url.endswith(p) for p in slow_paths):
+            raise urllib.error.URLError(TimeoutError("timed out"))
+        return inner(req, timeout)
+    return open_
+
+
+def test_doctor_does_not_read_a_silent_ollama_as_holding_nothing():
+    # a timed-out /api/ps came back as [], so doctor said "Ollama holds no GPU memory" about a wedged Ollama
+    out = gpu.gpu_checks(_Comfy([]), "http://o", _opener=_times_out(_OLLAMA, ["/api/ps"]))
+    assert not any("holds no GPU memory" in msg for _, msg in out)
+    assert any(lvl == "warn" and "didn't answer" in msg for lvl, msg in out)
+
+
+def test_doctor_does_not_read_a_silent_ollama_as_not_running():
+    out = gpu.gpu_checks(_Comfy([]), "http://o", _opener=_times_out(_OLLAMA, ["/api/version"]))
+    assert not any("not running" in msg for _, msg in out)
+    assert any(lvl == "warn" and "didn't answer" in msg for lvl, msg in out)
+
+
+def test_free_reports_a_model_that_would_not_let_go():
+    # unload_all dropped a model whose memory outlasted the 10 s wait, so free said nothing about it
+    log, t = [], {"now": 0.0}
+    report = gpu.free_all(_Comfy(log), "http://o", _opener=_ollama(_OLLAMA[("GET", "/api/ps")]["models"], log,
+                                                                   forgets=False),
+                          _sleep=lambda s: t.__setitem__("now", t["now"] + s), _clock=lambda: t["now"])
+    assert report["ollama"] == [] and [n for n, _ in report["ollama_stuck"]] == ["qwen3-vl:8b-instruct", "qwen3.6-27b"]
+
+
+def test_print_free_names_what_is_still_held(capsys):
+    gpu.print_free({"ollama": [], "ollama_stuck": [("qwen3.6-27b", 20 * 2**30)], "comfy": "freed"})
+    out = capsys.readouterr().out
+    assert "qwen3.6-27b" in out and "still" in out and "no models were loaded" not in out
+
+
+def test_free_does_not_call_a_silent_comfyui_not_running(capsys):
+    class Busy:
+        def free(self):
+            raise urllib.error.URLError(TimeoutError("timed out"))
+    report = gpu.free_all(Busy(), "http://o", _opener=_server({}, []))
+    assert report["comfy"] != "not running" and "didn't answer" in report["comfy"]
+    gpu.print_free(report)
+    assert "ComfyUI: not running" not in capsys.readouterr().out

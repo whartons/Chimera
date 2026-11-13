@@ -372,7 +372,7 @@ def test_route_output_names_the_app_that_listed_a_missing_file(tmp_path):
 
 
 # --- 2026-10-25 review -------------------------------------------------------------------------------------
-@pytest.mark.parametrize("name", ['my"brand', "a<b", "a>b", "a|b", "what?", "star*", "a:b", "a/b", "a\\b",
+@pytest.mark.parametrize("name", ['my"brand', "a<b", "a>b", "a|b", "what?", "star*", "a:b", "a/b/c", "a\\b",
                                   "bell\x07", "del\x7f", "c1\x85"])
 def test_a_brand_name_windows_cannot_create_is_refused(name):
     # `new-brand 'what?'` passed the check, then copytree raised WinError 123; a '"' broke brand.yaml's name:

@@ -14,7 +14,8 @@ pass `--model` to use the earlier models (Z-Image / FLUX.2, LTX-2.3, ACE-Step, H
 `--upscale` also needs `--upscale-model 4x-UltraSharp.pth` (SeedVR2's nodes are new in 0.40),
 `audio --mode sfx` has no older path (it is Stable Audio 3 only), and the mesh3d agent loop needs
 `--mesh-model hunyuan21`, plus `--model` with a Z-Image or FLUX.2 file for its concept image (or
-`--from-image`). On 0.40, LTX-2.3 needs the bundled LTXVideo patch (see
+`--from-image`). Wan's `video --upscale` (RelayVSR) needs **0.45**. The reference build is **0.45.2** (Comfy
+Desktop 1.1.9). LTX-2.3's STG runs on ≥ 0.40 with the pinned LTXVideo pack, which carries upstream's own fix (see
 [`../modules/video/README.md`](../modules/video/README.md)).
 
 **Uploads don't overwrite.** Chimera uploads its inputs (logos, product shots, start frames, foley clips) into
@@ -73,6 +74,12 @@ NVFP4 files each `models.md` names; GGUF quants need ComfyUI-GGUF's own loader n
 workflows rather than Chimera's graphs.
 
 ## Performance tuning (RTX 50-series / Blackwell)
+**Memory.** Every job is checked before it's queued: one whose models won't fit in what this machine has left
+(minus 10% of RAM kept for the desktop) is refused with the numbers instead of freezing Windows. `chimera doctor`
+shows the room; a FLUX.2 relight (~40 GB, nvfp4 with the fp8 text encoder) and the video models (~37 GB) need
+a 62 GB machine mostly to themselves, and `relight --model qwen_image…` relights in ~18 GB. See
+[the memory guard](BLACKWELL-TUNING.md#the-memory-guard-a-job-that-wont-fit-is-refused-not-run).
+
 Check your current state in the ComfyUI **startup log**: the attention backend line
 (`Using pytorch attention` vs `Using sage attention`) and whether the
 `You need pytorch with cu130 or higher` warning is present (that warning means the
@@ -160,7 +167,7 @@ The Python MCP servers launch via Astral's `uv`. Install once:
 ### FreeCAD
 1. Install **FreeCAD 1.1.4 or newer** (winget `FreeCAD.FreeCAD` or freecad.org; earlier releases
    have HIGH security advisories triggered by opening a crafted `.FCStd`).
-2. Copy the **whole `FreeCADMCP` addon** directory (`addon/FreeCADMCP/` at commit `78bf023`,
+2. Copy the **whole `FreeCADMCP` addon** directory (`addon/FreeCADMCP/` at commit `ec8abf2`,
    including its `package.xml`) into FreeCAD's user `Mod/` dir, keeping no backup copies inside `Mod/`. **FreeCAD 1.1 uses a versioned data dir** — Windows: `%APPDATA%\FreeCAD\v1-1\Mod\`
    (1.0 omits the `v1-1`). Unsure? In FreeCAD use **Tools → Open user data directory** and copy into
    the `Mod/` there. Then **fully restart FreeCAD** and select the **"MCP Addon" workbench**.
