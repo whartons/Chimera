@@ -71,8 +71,8 @@ All notable changes to Chimera are documented here. The format follows
     `--model flux2_dev_fp8mixed.safetensors` (~52 GB).
 - **Reference build: ComfyUI 0.45.2** (Comfy Desktop 1.1.9), smoke-validated 2026-11-12 with every output
   checked: Qwen-Image txt2img, Qwen and FLUX.2 relight, Stable Audio 3 music, ACE-Step lyrics, TRELLIS.2 3D,
-  `render`, `cad`, Wan 2.2 with and without RelayVSR `--upscale`, and LTX-2.3 with STG and synced audio on the
-  pack's own fix. Two LTX-2.3 runs on 0.45.2 had frozen the desktop the day before; with the memory guard the
+  `render`, `cad`, Wan 2.2 with and without RelayVSR `--upscale`, LTX-2.3 with STG and synced audio on the pack's
+  own fix, and the image agent loop on the local Qwen 3.8 27B judge (GPU hand-off and memory guard included). Two LTX-2.3 runs on 0.45.2 had frozen the desktop the day before; with the memory guard the
   same job ran with commit at 79 of 108 GB. `COMFY_REF` and `docs/STACK.md` §7 moved with it, and the "LTX-2.3
   needs the patch" notes are gone.
 - **Docs: `actions/setup-python` is `v7.1.0`** in `docs/STACK.md` (Dependabot #78 moved the pin, not the doc).
